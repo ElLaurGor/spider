@@ -1,0 +1,201 @@
+// 0 = Sunday … 6 = Saturday (same as Date.getDay()).
+export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+export type WorkoutDay = { name: string; exercises: string[] };
+
+export type NotifyPrefs = {
+  water: boolean;
+  gym: boolean;
+  morning: boolean;
+  evening: boolean;
+  gaming: boolean;
+  mood: boolean;
+  habits: boolean;
+  report: boolean;
+  sleep: boolean;
+  cycle: boolean;
+  countdowns: boolean;
+  wrapped: boolean;
+  windDown: boolean;
+  league: boolean;
+  pollen: boolean;
+  air: boolean;
+  smhi: boolean;
+  vma: boolean;
+};
+
+export type Settings = {
+  userName: string;
+  savageLevel: number; // 1 = polite butler, 10 = no mercy
+  waterGoalMl: number;
+  glassMl: number;
+  wakeHour: number;
+  sleepHour: number;
+  waterEveryMin: number;
+  kcalGoal: number;
+  proteinGoal: number;
+  gamingBudgetMin: number;
+  gymHour: number;
+  gymMinute: number;
+  restSeconds: number;
+  caffeinePerCupMg: number;
+  coffeeLimit: number; // cups per day
+  coffeeCutoffHour: number; // coffee after this hour gets roasted
+  stepGoal: number;
+  weather: { name: string; lat: number; lon: number; county?: string } | null;
+  allergies: ('alder' | 'birch' | 'grass' | 'mugwort' | 'ragweed')[];
+  pollenAlertLevel: 2 | 3; // alert from moderate (2) or high (3)
+  aqiAlert: number; // European AQI at or above this triggers an alert
+  easyOnPeriod: boolean; // tone down the roasts on period days
+  phoneGamesCount: boolean; // auto-detected phone gaming counts toward the gaming budget
+  phoneLimitMin: number; // daily phone time before S.P.I.D.E.R. gets loud
+  notify: NotifyPrefs;
+  respectMeetings: boolean;
+  calendarIds: string[] | null; // null = every calendar on the phone
+};
+
+export type WaterEntry = { id: string; ml: number; at: number };
+export type FoodEntry = { id: string; name: string; kcal: number; protein: number; at: number; photo?: string };
+export type SetEntry = { id: string; exercise: string; weight: number; reps: number; at: number };
+export type GameSession = { start: number; end: number; game?: string };
+export type ActivityKind = 'machines' | 'cardio' | 'free_weights';
+export type ActivityEntry = { id: string; kind: ActivityKind; minutes: number; at: number };
+export type PeriodFlow = 'spotting' | 'light' | 'medium' | 'heavy';
+export type PeriodLog = { flow: PeriodFlow | null; symptoms: string[] }; // flow null = symptoms only
+export type Rating = 1 | 2 | 3 | 4 | 5;
+export type ScreenDay = {
+  totalMin: number;
+  doomMin: number; // social/video apps
+  gamesMin: number; // apps in Android's "game" category
+  top: { label: string; min: number; game: boolean; doom: boolean }[];
+};
+export type ChestPrize = { kind: 'coins' | 'gaming' | 'double_xp' | 'boss_bomb' | 'legendary'; amount: number; text: string };
+export type FocusEntry = { id: string; start: number; end: number; minutes: number; label?: string; snapped?: string };
+export type Tracker = { id: string; name: string; emoji: string; kind: 'scale' | 'number' | 'check'; unit?: string; createdAt: number };
+export type Reward = { id: string; title: string; emoji: string; cost: number };
+export type Purchase = { id: string; title: string; emoji: string; cost: number; at: number };
+export type Rival = { id: string; name: string; emoji: string; power: number };
+export type League = { tier: number; week: string; rivals: Rival[]; history: { week: string; tier: number; rank: number; xp: number }[] };
+export type ProgressPhoto = { id: string; uri: string; at: number };
+export type CoffeeEntry = { id: string; mg: number; at: number };
+export type MoodLevel = 1 | 2 | 3 | 4 | 5;
+export type MoodEntry = { id: string; level: MoodLevel; emotions: string[]; note?: string; at: number };
+
+export type DayLog = {
+  water: WaterEntry[];
+  food: FoodEntry[];
+  sets: SetEntry[];
+  games: GameSession[];
+  coffee?: CoffeeEntry[]; // optional: days saved before v1.1 don't have these
+  activities?: ActivityEntry[];
+  period?: PeriodLog;
+  sleepRating?: Rating; // how last night felt, rated in the morning
+  energy?: Rating; // morning energy check; 1–2 = low-battery mode
+  chestReady?: boolean; // earned by finishing all daily quests
+  chest?: ChestPrize; // what the chest gave, once opened
+  focus?: FocusEntry[];
+  breaths?: number; // breathing sessions finished
+  windDown?: string[]; // wind-down items done that evening
+  windDownDone?: boolean;
+  tracks?: Record<string, number>; // custom tracker values (check = 1/0)
+  screen?: ScreenDay; // phone usage from Android usage stats (APK 1.3.0+)
+  air?: { aqi: number; pollen: Partial<Record<'alder' | 'birch' | 'grass' | 'mugwort' | 'ragweed', number>> }; // daily max, for Insights
+  moods?: MoodEntry[];
+  bonusGameMin: number;
+  steps?: number; // latest count from the watch via Health Connect
+  sleepMin?: number; // last night's sleep from the watch
+  stepGoalHit?: boolean;
+  habits?: string[]; // ids of habits done that day
+  habitsAllDone?: boolean;
+  quests?: string[]; // the day's 3 quest ids, fixed once picked
+  questsDone?: string[];
+  questsAllDone?: boolean;
+  questsAllDoneAt?: number; // for the "Speedrunner" secret
+  xpEarned?: number; // positive XP earned that day (boss damage)
+  waterGoalHit?: boolean;
+  proteinGoalHit?: boolean;
+  workoutCounted?: boolean;
+};
+
+export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number };
+
+export type Counters = {
+  workouts: number;
+  tasksDone: number;
+  prs: number;
+  disciplinedStops: number;
+  quests: number;
+  bosses: number;
+};
+
+export type BodyEntry = {
+  id: string;
+  at: number;
+  weight?: number; // kg
+  waist?: number; // cm
+  chest?: number;
+  hips?: number;
+  arm?: number;
+  thigh?: number;
+  bodyFat?: number; // %
+};
+
+export type Countdown = { id: string; title: string; emoji: string; date: string; yearly: boolean; createdAt: number };
+
+export type Habit = {
+  id: string;
+  name: string;
+  emoji: string;
+  days: Weekday[]; // empty = every day
+  remindHour: number | null;
+  createdAt: number;
+};
+
+export type State = {
+  version: 1;
+  onboarded: boolean;
+  settings: Settings;
+  plan: Record<Weekday, WorkoutDay | null>;
+  days: Record<string, DayLog>;
+  tasks: Task[];
+  xp: number;
+  counters: Counters;
+  achievements: Record<string, number>; // id -> unlocked at
+  prs: Record<string, number>; // exercise (lowercase) -> best weight
+  activeGame: { start: number; game?: string } | null;
+  restEndsAt: number | null;
+  lastUpdateId?: string; // over-the-air update last seen, to announce new versions
+  progressPhotos: ProgressPhoto[];
+  habits: Habit[];
+  countdowns: Countdown[];
+  coins: number;
+  coinsEarned: number; // lifetime, for the Hall of Fame
+  rewards: Reward[];
+  purchases: Purchase[];
+  doubleXpUntil: number | null;
+  bossBombs: Record<string, number>; // week key -> extra boss damage
+  league: League | null;
+  activeFocus: { start: number; minutes: number; label?: string } | null;
+  trackers: Tracker[];
+  windDownItems: string[];
+  bodyLog: BodyEntry[];
+  secrets: Record<string, number>; // secret achievement id -> unlocked at
+  seenAlerts: Record<string, number>; // SMHI/VMA alert id -> first notified at
+  bossesDefeated: Record<string, string>; // week key (its Monday) -> boss id
+  lastBackupAt: number | null;
+};
+
+export type CalEvent = {
+  key: string;
+  title: string;
+  start: number;
+  end: number;
+  allDay: boolean;
+  location: string | null;
+  calendarId: string;
+  color?: string;
+};
+
+export type CalInfo = { id: string; title: string; account: string; color?: string };
+
+export type CalStatus = 'unsupported' | 'unknown' | 'denied' | 'granted';

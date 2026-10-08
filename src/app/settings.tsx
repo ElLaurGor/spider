@@ -1,0 +1,409 @@
+import Constants from 'expo-constants';
+import { router } from 'expo-router';
+import * as Updates from 'expo-updates';
+import { useState, type ReactNode } from 'react';
+import { Alert, DevSettings, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+
+import { Btn, Card, Chip, Field, H, Row, SpiderSays, Stepper, T } from '@/components/ui';
+import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
+import { themeIds, themeUnlocked } from '@/lib/evolution';
+import { pad } from '@/lib/dates';
+import { ACRONYM_REAL, line } from '@/lib/lines';
+import { openHealthSettings } from '@/lib/health';
+import { hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
+import { POLLEN } from '@/lib/outside';
+import { findPlace } from '@/lib/weather';
+import { levelForXp } from '@/lib/xp';
+import { sendTestRoast } from '@/lib/notifications';
+import { useStore } from '@/lib/store';
+import type { NotifyPrefs, Settings } from '@/lib/types';
+
+const SAVAGE_LABEL = (v: number) => (v <= 2 ? 'polite butler' : v <= 5 ? 'sassy' : v <= 8 ? 'savage' : 'no mercy');
+
+export default function SettingsScreen() {
+  const { state, actions, cal, say, health, saveNow } = useStore();
+  const level = levelForXp(state.xp);
+  const [city, setCity] = useState('');
+  const [busy, setBusy] = useState(false);
+  const s = state.settings;
+  const set = (patch: Partial<Settings>) => actions.updateSettings(patch);
+  const [name, setName] = useState(s.userName);
+  const [preview, setPreview] = useState(() => line('spiderTap', s.savageLevel, { name: s.userName || 'boss' }));
+
+  const setNotify = (k: keyof NotifyPrefs, v: boolean) => set({ notify: { ...s.notify, [k]: v } });
+
+  const chosen = s.calendarIds;
+  const toggleCal = (id: string, on: boolean) => {
+    const all = cal.calendars.map((c) => c.id);
+    const current = chosen ?? all;
+    const next = on ? [...new Set([...current, id])] : current.filter((x) => x !== id);
+    set({ calendarIds: next.length === all.length ? null : next });
+  };
+
+  const setPlace = async () => {
+    if (!city.trim()) return;
+    try {
+      const place = await findPlace(city);
+      if (!place) return say(`Couldn't find "${city}". Try "Stockholm" or "Göteborg".`, 'bad');
+      set({ weather: place });
+      setCity('');
+      say(`Weather set to ${place.name}.`, 'good');
+    } catch {
+      say('No internet? Weather lookup failed.', 'bad');
+    }
+  };
+
+  const doBackup = async () => {
+    setBusy(true);
+    try {
+      await actions.backup();
+    } catch (e) {
+      say(`Backup failed: ${(e as Error).message}`, 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doRestore = () =>
+    Alert.alert('Restore a backup?', 'Everything on this phone gets replaced by the backup. Next, pick the "SPIDER-backup-…" folder.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Pick backup folder',
+        onPress: async () => {
+          setBusy(true);
+          try {
+            await actions.restore();
+          } catch (e) {
+            say(`Restore failed: ${(e as Error).message}`, 'bad');
+          } finally {
+            setBusy(false);
+          }
+        },
+      },
+    ]);
+
+  const applyTheme = (id: ThemeId) => {
+    if (id === THEME_ID) return;
+    if (!themeUnlocked(id, level)) return say(`${THEMES[id].name} unlocks at level ${THEMES[id].level}. Earn it.`, 'bad');
+    Alert.alert(`Switch to ${THEMES[id].name}?`, 'S.P.I.D.E.R. restarts to change outfits. Takes a second.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Switch',
+        onPress: async () => {
+          saveTheme(id);
+          await saveNow().catch(() => {});
+          if (Updates.isEnabled) await Updates.reloadAsync();
+          else DevSettings.reload();
+        },
+      },
+    ]);
+  };
+
+  const testRoast = async () => {
+    const ok = await sendTestRoast(state);
+    say(ok ? 'Roast incoming in 3 seconds. Lock your phone if you want the full experience.' : 'Notifications are blocked. Enable them in Android settings.', ok ? 'info' : 'bad');
+  };
+
+  const reset = () =>
+    Alert.alert('Reset everything?', 'All logs, XP and achievements will be deleted. S.P.I.D.E.R. will forget you ever existed.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete it all',
+        style: 'destructive',
+        onPress: async () => {
+          await actions.resetAll();
+          router.replace('/onboarding');
+        },
+      },
+    ]);
+
+  return (
+    <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
+      <Card>
+        <H>Personality</H>
+        <T dim small>
+          What should I call you?
+        </T>
+        <Field value={name} onChangeText={setName} onEndEditing={() => set({ userName: name.trim() })} placeholder="Your name" />
+        <SettingRow label="Savage level" hint={SAVAGE_LABEL(s.savageLevel)}>
+          <Stepper
+            value={s.savageLevel}
+            min={1}
+            max={10}
+            onChange={(v) => {
+              set({ savageLevel: v });
+              setPreview(line('spiderTap', v, { name: s.userName || 'boss' }));
+            }}
+          />
+        </SettingRow>
+        <SpiderSays text={preview} onPress={() => setPreview(line('spiderTap', s.savageLevel, { name: s.userName || 'boss' }))} />
+        <Toggle label="Go easy on period days" hint="roasts drop to level 4" value={s.easyOnPeriod} onChange={(v) => set({ easyOnPeriod: v })} />
+      </Card>
+
+      <Card>
+        <H>Themes</H>
+        <T dim small>
+          New themes unlock as you level up. You are level {level}.
+        </T>
+        {themeIds.map((id) => {
+          const t = THEMES[id];
+          const open = themeUnlocked(id, level);
+          return (
+            <Pressable key={id} onPress={() => applyTheme(id)} style={({ pressed }) => [{ opacity: open ? (pressed ? 0.7 : 1) : 0.4 }]}>
+              <Row>
+                <View style={{ flexDirection: 'row' }}>
+                  {[t.colors.bg, t.colors.red, t.colors.blue].map((c, i) => (
+                    <View key={i} style={{ width: 18, height: 28, backgroundColor: c, borderRadius: 4, marginRight: 2, borderWidth: 1, borderColor: C.border }} />
+                  ))}
+                </View>
+                <T style={{ flex: 1 }}>{t.name}</T>
+                <Text style={{ color: id === THEME_ID ? C.green : C.dim, fontWeight: '700', fontSize: 12 }}>
+                  {id === THEME_ID ? '✓ active' : open ? 'tap to use' : `🔒 LVL ${t.level}`}
+                </Text>
+              </Row>
+            </Pressable>
+          );
+        })}
+      </Card>
+
+      <Card>
+        <H>Daily goals</H>
+        <SettingRow label="Water goal">
+          <Stepper value={s.waterGoalMl} step={250} min={500} max={6000} format={(v) => `${v} ml`} onChange={(v) => set({ waterGoalMl: v })} />
+        </SettingRow>
+        <SettingRow label="Glass size">
+          <Stepper value={s.glassMl} step={50} min={100} max={1000} format={(v) => `${v} ml`} onChange={(v) => set({ glassMl: v })} />
+        </SettingRow>
+        <SettingRow label="Calories">
+          <Stepper value={s.kcalGoal} step={100} min={1000} max={6000} format={(v) => `${v}`} onChange={(v) => set({ kcalGoal: v })} />
+        </SettingRow>
+        <SettingRow label="Protein">
+          <Stepper value={s.proteinGoal} step={5} min={0} max={400} format={(v) => `${v} g`} onChange={(v) => set({ proteinGoal: v })} />
+        </SettingRow>
+        <SettingRow label="Step goal">
+          <Stepper value={s.stepGoal} step={500} min={1000} max={30000} format={(v) => v.toLocaleString('sv-SE')} onChange={(v) => set({ stepGoal: v })} />
+        </SettingRow>
+        <SettingRow label="Coffee limit" hint={`${s.coffeeLimit * s.caffeinePerCupMg} mg caffeine`}>
+          <Stepper value={s.coffeeLimit} min={1} max={10} format={(v) => `${v} cups`} onChange={(v) => set({ coffeeLimit: v })} />
+        </SettingRow>
+        <SettingRow label="Caffeine per cup">
+          <Stepper value={s.caffeinePerCupMg} step={10} min={20} max={300} format={(v) => `${v} mg`} onChange={(v) => set({ caffeinePerCupMg: v })} />
+        </SettingRow>
+        <SettingRow label="Coffee curfew" hint="later cups get roasted">
+          <Stepper value={s.coffeeCutoffHour} min={10} max={22} format={(v) => `${pad(v)}:00`} onChange={(v) => set({ coffeeCutoffHour: v })} />
+        </SettingRow>
+        <SettingRow label="Gaming budget" hint="per day, before bonuses">
+          <Stepper value={s.gamingBudgetMin} step={15} min={0} max={600} format={(v) => `${v} min`} onChange={(v) => set({ gamingBudgetMin: v })} />
+        </SettingRow>
+      </Card>
+
+      <Card>
+        <H>Schedule</H>
+        <SettingRow label="Wake up">
+          <Stepper value={s.wakeHour} min={4} max={12} format={(v) => `${pad(v)}:00`} onChange={(v) => set({ wakeHour: v })} />
+        </SettingRow>
+        <SettingRow label="Bedtime">
+          <Stepper value={s.sleepHour} min={19} max={24} format={(v) => `${pad(v % 24)}:00`} onChange={(v) => set({ sleepHour: v })} />
+        </SettingRow>
+        <SettingRow label="Water nag every">
+          <Stepper value={s.waterEveryMin} step={15} min={30} max={240} format={(v) => `${v} min`} onChange={(v) => set({ waterEveryMin: v })} />
+        </SettingRow>
+        <SettingRow label="Gym time">
+          <Stepper
+            value={s.gymHour * 60 + s.gymMinute}
+            step={30}
+            min={5 * 60}
+            max={22 * 60}
+            format={(v) => `${pad(Math.floor(v / 60))}:${pad(v % 60)}`}
+            onChange={(v) => set({ gymHour: Math.floor(v / 60), gymMinute: v % 60 })}
+          />
+        </SettingRow>
+        <SettingRow label="Rest timer">
+          <Stepper value={s.restSeconds} step={15} min={0} max={600} format={(v) => (v ? `${v} s` : 'off')} onChange={(v) => set({ restSeconds: v })} />
+        </SettingRow>
+      </Card>
+
+      <Card>
+        <H>Notifications</H>
+        <Toggle label="Water reminders" value={s.notify.water} onChange={(v) => setNotify('water', v)} />
+        <Toggle label="Gym reminders" value={s.notify.gym} onChange={(v) => setNotify('gym', v)} />
+        <Toggle label="Morning briefing" value={s.notify.morning} onChange={(v) => setNotify('morning', v)} />
+        <Toggle label="Evening report card" value={s.notify.evening} onChange={(v) => setNotify('evening', v)} />
+        <Toggle label="Gaming alerts" value={s.notify.gaming} onChange={(v) => setNotify('gaming', v)} />
+        <Toggle label="Mood check-ins" hint="13:00 and 20:00" value={s.notify.mood} onChange={(v) => setNotify('mood', v)} />
+        <Toggle label="Habit reminders" hint="per habit, if it has a time" value={s.notify.habits} onChange={(v) => setNotify('habits', v)} />
+        <Toggle label="Weekly report card" hint="Sundays 19:00" value={s.notify.report} onChange={(v) => setNotify('report', v)} />
+        <Toggle label="Sleep rating prompt" hint="an hour after you wake up" value={s.notify.sleep} onChange={(v) => setNotify('sleep', v)} />
+        <Toggle label="Countdown reminders" hint="the day before and on the day" value={s.notify.countdowns} onChange={(v) => setNotify('countdowns', v)} />
+        <Toggle label="Monthly Wrapped" hint="1st of every month" value={s.notify.wrapped} onChange={(v) => setNotify('wrapped', v)} />
+        <Toggle label="Wind-down reminder" hint="an hour before bedtime" value={s.notify.windDown} onChange={(v) => setNotify('windDown', v)} />
+        <Toggle label="League reminder" hint="Sundays 17:00" value={s.notify.league} onChange={(v) => setNotify('league', v)} />
+        <Toggle label="Period heads-up" hint="2 days before it's predicted" value={s.notify.cycle} onChange={(v) => setNotify('cycle', v)} />
+        <Toggle label="Stay quiet during meetings" value={s.respectMeetings} onChange={(v) => set({ respectMeetings: v })} />
+        <Btn label="Send me a test roast" icon="notifications" kind="ghost" onPress={testRoast} />
+      </Card>
+
+      <Card>
+        <H>Weather</H>
+        <T dim small>
+          {s.weather ? `Showing weather for ${s.weather.name}.` : 'Pick a city to get the forecast on HQ and in your morning briefing.'}
+        </T>
+        <Row>
+          <Field value={city} onChangeText={setCity} placeholder={s.weather ? 'Change city…' : 'City, e.g. Stockholm'} onSubmitEditing={setPlace} style={{ flex: 1 }} />
+          <Btn label="Set" kind="ghost" onPress={setPlace} disabled={!city.trim()} />
+        </Row>
+      </Card>
+
+      <Card>
+        <H>Outside: pollen, air & warnings</H>
+        <T dim small>
+          {s.weather
+            ? `SMHI warnings and VMA for ${s.weather.county ?? 'your county (looking it up…)'}. Pollen and air quality for ${s.weather.name.split(',')[0]}.`
+            : 'Set a city above first.'}
+        </T>
+        <T small>Your allergies</T>
+        <Row style={{ flexWrap: 'wrap' }} gap={8}>
+          {POLLEN.map((p) => {
+            const on = s.allergies.includes(p.type);
+            return (
+              <Chip
+                key={p.type}
+                label={`${p.emoji} ${p.label}`}
+                active={on}
+                onPress={() => set({ allergies: on ? s.allergies.filter((x) => x !== p.type) : [...s.allergies, p.type] })}
+              />
+            );
+          })}
+        </Row>
+        <SettingRow label="Pollen alert from">
+          <Row gap={6}>
+            <Chip label="Moderate" active={s.pollenAlertLevel === 2} onPress={() => set({ pollenAlertLevel: 2 })} />
+            <Chip label="High" active={s.pollenAlertLevel === 3} onPress={() => set({ pollenAlertLevel: 3 })} />
+          </Row>
+        </SettingRow>
+        <SettingRow label="Air quality alert" hint="European AQI: 40 fair, 60 poor, 80 very poor">
+          <Stepper value={s.aqiAlert} step={10} min={20} max={100} format={(v) => `${v}+`} onChange={(v) => set({ aqiAlert: v })} />
+        </SettingRow>
+        <Toggle label="Pollen alerts" hint="morning, for your allergies only" value={s.notify.pollen} onChange={(v) => setNotify('pollen', v)} />
+        <Toggle label="Air quality alerts" hint="morning, when AQI hits your limit" value={s.notify.air} onChange={(v) => setNotify('air', v)} />
+        <Toggle label="SMHI weather warnings" hint="yellow, orange and red, right away" value={s.notify.smhi} onChange={(v) => setNotify('smhi', v)} />
+        <Toggle label="VMA" hint="Viktigt meddelande till allmänheten" value={s.notify.vma} onChange={(v) => setNotify('vma', v)} />
+        <Btn label="Open Outside" icon="air" kind="ghost" onPress={() => router.push('/outside')} disabled={!s.weather} />
+      </Card>
+
+      <Card>
+        <H>Backup & restore</H>
+        <T dim small>
+          Last backup: {state.lastBackupAt ? new Date(state.lastBackupAt).toLocaleString('sv-SE').slice(0, 16) : 'never'}. A backup is a folder with
+          all your data and photos. Pick e.g. Documents. For extra safety, upload that folder to Google Drive afterwards.
+        </T>
+        <Row>
+          <Btn label="Back up now" icon="save" onPress={doBackup} disabled={busy} style={{ flex: 1 }} />
+          <Btn label="Restore" kind="ghost" onPress={doRestore} disabled={busy} style={{ flex: 1 }} />
+        </Row>
+      </Card>
+
+      {cal.status === 'granted' && cal.calendars.length > 0 ? (
+        <Card>
+          <H>Calendars</H>
+          {cal.calendars.map((c) => (
+            <Toggle
+              key={c.id}
+              label={c.title}
+              hint={c.account}
+              color={c.color}
+              value={chosen ? chosen.includes(c.id) : true}
+              onChange={(v) => toggleCal(c.id, v)}
+            />
+          ))}
+        </Card>
+      ) : null}
+
+      {screenTimeSupported ? (
+        <Card>
+          <H>Phone screen time</H>
+          <T dim small>
+            {hasUsageAccess() ? 'Usage access is on. S.P.I.D.E.R. reads app names and minutes, on this phone only.' : 'Usage access is off. Turn it on to track phone time and auto-detect phone gaming.'}
+          </T>
+          <Btn label="Usage access settings" kind="ghost" onPress={openUsageSettings} />
+          <Toggle label="Count phone games in gaming budget" value={s.phoneGamesCount} onChange={(v) => set({ phoneGamesCount: v })} />
+          <SettingRow label="Daily phone limit" hint="above this, the roasts get louder">
+            <Stepper value={s.phoneLimitMin} step={30} min={30} max={720} format={(v) => `${Math.floor(v / 60)}h${v % 60 ? ` ${v % 60}m` : ''}`} onChange={(v) => set({ phoneLimitMin: v })} />
+          </SettingRow>
+        </Card>
+      ) : null}
+
+      {health.status !== 'unsupported' ? (
+        <Card>
+          <H>Watch (Zepp → Health Connect)</H>
+          <T dim small>
+            {health.status === 'connected'
+              ? 'Connected. Steps, heart rate and sleep are read from Health Connect.'
+              : health.status === 'unavailable'
+                ? 'Health Connect is not available. Install it from the Play Store.'
+                : 'Not connected yet. In Zepp: Profile → Add accounts → Health Connect, then connect here.'}
+          </T>
+          <Row>
+            {health.status !== 'connected' ? <Btn label="Connect" icon="monitor_heart" onPress={health.connect} style={{ flex: 1 }} /> : null}
+            <Btn label="Health Connect settings" kind="ghost" onPress={openHealthSettings} style={{ flex: 1 }} />
+          </Row>
+        </Card>
+      ) : null}
+
+      <Card>
+        <H>About</H>
+        <T dim small>
+          S.P.I.D.E.R. officially stands for Savage Personal Intelligence for Daily Execution &amp; Reminders. Unofficially: {ACRONYM_REAL}.
+        </T>
+        <T dim small>
+          {state.xp} XP total · {Object.keys(state.achievements).length} achievements · all data stays on this phone.
+        </T>
+        <T dim small mono>
+          v{Constants.expoConfig?.version ?? '?'}
+          {Updates.isEnabled && Updates.updateId
+            ? ` · ${Updates.isEmbeddedLaunch ? 'built-in' : 'update'} ${Updates.updateId.slice(0, 8)}${
+                Updates.createdAt ? ` (${Updates.createdAt.toLocaleString('sv-SE').slice(0, 16)})` : ''
+              }`
+            : ' · dev'}
+        </T>
+        <Btn label="Reset everything" icon="delete" kind="danger" onPress={reset} />
+      </Card>
+    </ScrollView>
+  );
+}
+
+function SettingRow({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <Row style={{ justifyContent: 'space-between' }}>
+      <View style={{ flex: 1 }}>
+        <T>{label}</T>
+        {hint ? (
+          <T dim small>
+            {hint}
+          </T>
+        ) : null}
+      </View>
+      {children}
+    </Row>
+  );
+}
+
+function Toggle({
+  label,
+  hint,
+  value,
+  onChange,
+  color,
+}: {
+  label: string;
+  hint?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  color?: string;
+}) {
+  return (
+    <SettingRow label={label} hint={hint}>
+      <Switch value={value} onValueChange={onChange} trackColor={{ true: color ?? C.red, false: C.card2 }} thumbColor={C.text} />
+    </SettingRow>
+  );
+}

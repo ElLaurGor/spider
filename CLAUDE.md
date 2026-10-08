@@ -1,0 +1,70 @@
+# S.P.I.D.E.R. — notes for Claude
+
+Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-router (NativeTabs), React Compiler on. It ships to the owner's phone as an EAS **preview APK** and gets **over-the-air updates** after that. General Expo rules are in `AGENTS.md`. Read it too.
+
+## Layout
+- `src/app/`: routes.
+  - `(tabs)/` holds index (HQ), plan, gym, fuel and game.
+  - Stack screens, each registered in `_layout.tsx`: settings, mood, report, scan, cycle, wrapped, insights, shop, league, records, focus, breathe, body, outside, onboarding.
+- `src/lib/store.tsx`: the single store.
+  - Each action calls `run()`, which applies the change, then checks the league, quests (and the boss), then achievements and secret achievements, then saves and shows the toasts.
+  - `reward()` adds XP and coins.
+  - Calendar, health, weather, screen time and "outside" (air quality and alerts) live here too as non-persisted side state.
+- `src/lib/lines.ts`: every personality line, with `mild` and `savage` pools. `effectiveSavage()` caps the tone at 2 when today's latest mood is ≤ 2.
+- `src/lib/notifications.ts`: cancels and rebuilds every planned reminder (IDs are prefix-based) 1.5 s after any state change.
+- Pure logic:
+  - Core: `selectors.ts`, `xp.ts` (levels, achievements, secret achievements), `quests.ts` (daily quests, weekly boss), `habits.ts`, `report.ts`.
+  - Economy and progression: `economy.ts` (coins, chest, shop), `league.ts` (rival bots), `evolution.ts` (spider stages, themes).
+  - Recaps: `insights.ts`, `wrapped.ts`, `records.ts` (Hall of Fame/Shame).
+  - Other: `countdowns.ts`, `body-log.ts`, `mood.ts`.
+- Device and network code: `calendar.ts`, `health.ts`, `weather.ts` (Open-Meteo), `outside.ts` (pollen/AQI from Open-Meteo, SMHI warnings, Krisinformation VMA), `food-db.ts` (Open Food Facts), `photos.ts`, `backup.ts`.
+- SMHI and VMA are matched on `settings.weather.county` ("Stockholms län"), which needs Swedish geocoding (`language=sv`). Old saves get it via `withCounty()`. Alerts are only checked while the app runs; there's no background task.
+- `modules/spider-usage/`: a **local Expo native module** (Kotlin) that reads Android usage stats for screen time and strict Web Focus. Autolinking picks it up from `modules/`. JS reaches it only through `src/lib/screentime.ts` (`requireOptionalNativeModule('SpiderUsage')`), so installs without it degrade gracefully. Any change under `modules/` needs a version bump and a new APK. There is no Android SDK on this PC, so the EAS build is the only Kotlin compile check.
+- State is persisted in AsyncStorage under `spider:state:v1`. `hydrate()` in `defaults.ts` fills in fields that old saves don't have. New fields need a default there, or must be read with `?? fallback`.
+
+## Before calling a change done
+```
+npx tsc --noEmit
+npx expo lint
+npx expo export --platform android --output-dir <tmp>   # proves the bundle builds
+npx expo-doctor
+```
+- After adding a route, run `npx expo start` for ~30 s so `.expo/types` regenerates. Otherwise tsc rejects `router.push('/new-route')`.
+- Tests (no framework, plain `node:assert`, run with `tsx`):
+  - `npm run test:logic` runs `scripts/logic-test.ts`: offline checks of the pure modules. Extend it when changing logic. It also checks that every `{placeholder}` in `lines.ts` is in its known list.
+  - `npm run test:live` runs `scripts/live-api-test.ts`: hits Open-Meteo, SMHI and Krisinformation and prints what came back.
+  - Modules that import `@/constants/theme` (e.g. `records.ts`, `store.tsx`) can't load under tsx. Test their pure parts via other modules or leave them to tsc.
+- Typed routes: `npx expo start --port 8099` run for ~45 s (e.g. `timeout 45 npx expo start --port 8099`) regenerates `.expo/types`; `--offline` does not.
+
+## Shipping
+- **JS-only change:** `npm run ship -- "what changed"`. This publishes an EAS Update to channel `preview`. The installed app downloads it on launch, applies it right away (`AutoUpdate`), and announces it with a roast.
+- **Native change** (new native module, permission, config plugin, icon/name/splash, SDK bump):
+  1. Bump `version` in `app.json` **first**. The runtime version uses the `appVersion` policy, so the bump keeps installed apps from receiving JS that needs native code they don't have.
+  2. `npx eas-cli@latest build -p android --profile preview --non-interactive --no-wait`. versionCode auto-increments.
+  3. The owner installs the new APK **over** the old one. Same keystore, so data survives.
+- Never publish an OTA that imports a native module the installed runtime lacks.
+- Never keep an `android/` folder (CNG). If you `expo prebuild` locally to inspect the manifest, delete `android/` afterwards and restore `package.json`. Prebuild rewrites the `android`/`ios` scripts.
+- The app `name` must not end with "." because Gradle rejects it as a root project name. That's why it's "S.P.I.D.E.R" without the final dot.
+
+## Native-module gotchas
+- Import notification functions from `src/lib/local-notifications.ts`, **never** from `expo-notifications` itself. Its main entry loads push-token code that throws on Android in Expo Go.
+- Expo Go can't create notification channels. The code catches that and falls back to expo's default channel.
+- `react-native-health-connect` throws on import outside a native build, so `health.ts` loads it with a conditional `require`.
+- `expo-calendar` is stubbed in Expo Go, hence the `calendarSupported` guard.
+- `expo-file-system`: `File.copy()` is **async**. Await it.
+- React Native 0.86 has no `StyleSheet.absoluteFillObject`, and `pointerEvents` belongs in the style, not the props.
+- Themes: `src/constants/theme.ts` reads `theme.txt` synchronously when it loads and builds `C` from it, because every `StyleSheet.create` captures colors at import time. Switching theme writes the file and reloads the app. Don't cache `C` values anywhere that outlives a reload.
+
+## Dev server
+The owner's work Wi-Fi blocks LAN connections, and the default `--tunnel` (shared ngrok) is often full. Use `npm run tunnel`, Expo's account-based tunnel (needs `npx expo login`). Calendar, Health Connect and the barcode scanner only work in the APK, not in Expo Go.
+
+## Personality rules
+- Roast habits, never bodies, weight or amounts eaten.
+- `moodLow` and `moodAwful` are kind in both pools.
+- Every `{placeholder}` in a line must be passed by its callers.
+- Body/measurement tracking (`/body`) is strictly neutral: never roasted, and kept out of Insights and Wrapped.
+- Period-day lines are kind. Health alerts (pollen, air, SMHI, VMA) are helpful first, at most a wink.
+- **No streaks anywhere.** The owner asked for none: no "X days in a row" achievements, consecutive-day records, streak counters or streak shields. Use totals or per-week counts.
+
+## Tooling note (this Windows machine)
+Bash heredocs containing emoji fail to parse here. Put multi-line edit scripts in a file and run them with `PYTHONUTF8=1 python script.py`.
