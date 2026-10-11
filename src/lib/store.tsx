@@ -508,7 +508,7 @@ function useStoreValue() {
       weatherAt.current = w.fetchedAt;
       setWeather(w);
       // The winter's first snow, announced once.
-      if ((isSnow(w.code) || isSnow(w.days[0]?.code ?? 0)) && stateRef.current.firstSnow !== winterOf()) {
+      if ((isSnow(w.code) || isSnow(w.days.find((d) => d.date === dayKey())?.code ?? 0)) && stateRef.current.firstSnow !== winterOf()) {
         run((s, msgs) => {
           msgs.push({ text: L(s, 'firstSnow'), tone: 'info' });
           return { ...s, firstSnow: winterOf() };

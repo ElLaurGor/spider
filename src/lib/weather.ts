@@ -1,8 +1,22 @@
 // Weather from Open-Meteo: free, no API key, no account.
+import { fmtTime } from './dates';
+
 export type Place = { name: string; lat: number; lon: number; county?: string }; // county e.g. "Stockholms län"
 
-export type DayForecast = { date: string; max: number; min: number; rainPct: number; code: number };
-export type Weather = { temp: number; feels: number; code: number; days: DayForecast[]; fetchedAt: number };
+export type DayForecast = {
+  date: string;
+  max: number;
+  min: number;
+  rainPct: number;
+  code: number;
+  rainMm: number;
+  sunrise: number; // ms
+  sunset: number;
+  daylightMin: number;
+  sunshineMin: number;
+};
+export type RainSlot = { at: number; mm: number }; // 15-minute precipitation, next 4 hours
+export type Weather = { temp: number; feels: number; code: number; days: DayForecast[]; soon: RainSlot[]; fetchedAt: number };
 
 // Swedish names, so the county ("Stockholms län") matches SMHI and Krisinformation exactly.
 export async function findPlace(query: string): Promise<Place | null> {
@@ -25,7 +39,8 @@ export async function fetchWeather(place: Place): Promise<Weather> {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}` +
     '&current=temperature_2m,apparent_temperature,weather_code' +
-    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset,daylight_duration,sunshine_duration' +
+    '&minutely_15=precipitation&forecast_minutely_15=16' +
     '&timezone=auto&forecast_days=4';
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Weather failed (${res.status})`);
@@ -37,7 +52,13 @@ export async function fetchWeather(place: Place): Promise<Weather> {
       temperature_2m_max: number[];
       temperature_2m_min: number[];
       precipitation_probability_max: (number | null)[];
+      precipitation_sum: (number | null)[];
+      sunrise: string[];
+      sunset: string[];
+      daylight_duration: number[];
+      sunshine_duration: (number | null)[];
     };
+    minutely_15?: { time: string[]; precipitation: (number | null)[] };
   };
   return {
     temp: Math.round(j.current.temperature_2m),
@@ -49,7 +70,14 @@ export async function fetchWeather(place: Place): Promise<Weather> {
       min: Math.round(j.daily.temperature_2m_min[i]),
       rainPct: j.daily.precipitation_probability_max[i] ?? 0,
       code: j.daily.weather_code[i],
+      rainMm: j.daily.precipitation_sum[i] ?? 0,
+      // Local times without an offset: the place's own time zone (timezone=auto), which is the phone's.
+      sunrise: new Date(j.daily.sunrise[i]).getTime(),
+      sunset: new Date(j.daily.sunset[i]).getTime(),
+      daylightMin: Math.round(j.daily.daylight_duration[i] / 60),
+      sunshineMin: Math.round((j.daily.sunshine_duration[i] ?? 0) / 60),
     })),
+    soon: (j.minutely_15?.time ?? []).map((t, i) => ({ at: new Date(t).getTime(), mm: j.minutely_15?.precipitation[i] ?? 0 })),
     fetchedAt: Date.now(),
   };
 }
@@ -67,6 +95,27 @@ export function describe(code: number): { emoji: string; label: string } {
   if (code === 85 || code === 86) return { emoji: '🌨️', label: 'Snow showers' };
   if (code >= 95) return { emoji: '⛈️', label: 'Thunderstorm' };
   return { emoji: '🌡️', label: 'Weather' };
+}
+
+const WET = 0.1; // mm per 15 minutes that counts as rain
+
+/** "Rain until 18:15" while it rains, "Rain from 20:15" if it starts within 3 hours, else null. */
+export function rainNote(soon: RainSlot[], now = Date.now()): string | null {
+  const ahead = soon.filter((x) => x.at >= now - 15 * 60_000 && x.at <= now + 3 * 3_600_000);
+  if (!ahead.length) return null;
+  if (ahead[0].mm >= WET) {
+    const stop = ahead.find((x) => x.mm < WET);
+    return stop ? `🌧️ Rain until ${fmtTime(stop.at)}` : '🌧️ Rain for the next few hours';
+  }
+  const start = ahead.find((x) => x.mm >= WET);
+  return start ? `🌂 Rain from ${fmtTime(start.at)}` : null;
+}
+
+/** Minutes of daylight gained tomorrow; null while the days are still getting shorter (no need to rub it in). */
+export function daylightGain(days: DayForecast[], today: string): number | null {
+  const i = days.findIndex((d) => d.date === today);
+  const gain = i >= 0 && days[i + 1] ? days[i + 1].daylightMin - days[i].daylightMin : 0;
+  return gain > 0 ? gain : null;
 }
 
 export const forecastText = (d: DayForecast) => `${describe(d.code).emoji} ${d.max}°/${d.min}°, ${d.rainPct}% rain`;

@@ -4,10 +4,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { dayKey } from '@/lib/dates';
+import { dayKey, fmtDuration, fmtTime, MIN } from '@/lib/dates';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel } from '@/lib/outside';
 import { useStore } from '@/lib/store';
-import { describe, forecastText, weatherKey } from '@/lib/weather';
+import { daylightGain, describe, forecastText, rainNote, weatherKey } from '@/lib/weather';
 
 export function WeatherRow() {
   const { state, weather, outside, quip } = useStore();
@@ -20,6 +20,8 @@ export function WeatherRow() {
   const key = today ? weatherKey(today) : null;
   const forecast = today ? forecastText(today) : '';
   const comment = useMemo(() => (key ? quip(key, { forecast: '' }).replace(/^[.\s]+/, '') : ''), [quip, key]);
+  const gain = w ? daylightGain(w.days, dayKey()) : null;
+  const rain = w ? rainNote(w.soon) : null;
 
   if (!state.settings.weather) {
     return (
@@ -42,6 +44,11 @@ export function WeatherRow() {
         <T dim small>
           {state.settings.weather.name.split(',')[0]} · {comment}
         </T>
+        <Text style={styles.dim}>
+          🌅 {fmtTime(today.sunrise)} · 🌇 {fmtTime(today.sunset)} · {fmtDuration(today.daylightMin * MIN)} daylight
+          {gain ? ` (+${gain} min tomorrow)` : ''}
+          {rain ? ` · ${rain}` : ''}
+        </Text>
         {outside.air ? (
           <Text style={styles.dim}>
             <Text style={{ color: aqiBand(outside.air.aqi).color }}>AQI {outside.air.aqi}</Text>

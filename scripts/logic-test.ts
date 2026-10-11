@@ -35,7 +35,7 @@ import { weekReport, gradeOf, dayScoreFor } from '../src/lib/report';
 import { RESPECT, respectFor } from '../src/lib/respect';
 import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
 import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
-import { describe as wx, weatherKey } from '../src/lib/weather';
+import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
 
 // levels
@@ -244,9 +244,25 @@ assert.equal(gradeOf(10), 'F');
 // weather helpers
 assert.equal(wx(0).label, 'Clear');
 assert.equal(wx(63).label, 'Rain');
-assert.equal(weatherKey({ date: 'x', max: 10, min: 2, rainPct: 80, code: 3 }), 'weatherRain');
-assert.equal(weatherKey({ date: 'x', max: 30, min: 18, rainPct: 0, code: 0 }), 'weatherHot');
-assert.equal(weatherKey({ date: 'x', max: 1, min: -5, rainPct: 0, code: 0 }), 'weatherCold');
+const fc = (f: { date?: string; max: number; min: number; rainPct: number; code: number; daylightMin?: number }) => ({
+  date: 'x', rainMm: 0, sunrise: 0, sunset: 0, daylightMin: 600, sunshineMin: 0, ...f,
+});
+assert.equal(weatherKey(fc({ max: 10, min: 2, rainPct: 80, code: 3 })), 'weatherRain');
+assert.equal(weatherKey(fc({ max: 30, min: 18, rainPct: 0, code: 0 })), 'weatherHot');
+assert.equal(weatherKey(fc({ max: 1, min: -5, rainPct: 0, code: 0 })), 'weatherCold');
+// daylight: only gains are mentioned; rain: "until" while raining, "from" when it starts within 3 hours
+const dl = (date: string, daylightMin: number) => fc({ date, max: 0, min: 0, rainPct: 0, code: 0, daylightMin });
+assert.equal(daylightGain([dl('2026-12-22', 370), dl('2026-12-23', 372)], '2026-12-22'), 2);
+assert.equal(daylightGain([dl('2026-10-11', 637), dl('2026-10-12', 632)], '2026-10-11'), null);
+assert.equal(daylightGain([dl('2026-10-11', 637)], '2026-10-11'), null);
+{
+  const t0 = new Date(2026, 9, 11, 17, 0).getTime();
+  const slots = (mm: number[]) => mm.map((x, i) => ({ at: t0 + i * 15 * MIN, mm: x }));
+  assert.equal(rainNote(slots([0.6, 0.4, 0, 0]), t0 + 5 * MIN), '🌧️ Rain until 17:30');
+  assert.equal(rainNote(slots([0, 0, 0, 0.3]), t0), '🌂 Rain from 17:45');
+  assert.equal(rainNote(slots([0, 0, 0, 0]), t0), null);
+  assert.equal(rainNote(slots([0.5, 0.5]), t0), '🌧️ Rain for the next few hours');
+}
 
 // training by time counts as a workout
 const t = defaultState();
