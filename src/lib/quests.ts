@@ -2,7 +2,18 @@
 // boss whose HP drops with every XP you earn that week.
 import { addDays, dayKey, startOfWeek } from './dates';
 import { habitsDone, habitsFor } from './habits';
-import { dayOf, lowBattery, moodsOf, proteinOf, trainedOn, trainMinutes, waterMl, workoutFor } from './selectors';
+import {
+  dayOf,
+  gamingBudgetMin,
+  gamingUsedMs,
+  lowBattery,
+  moodsOf,
+  proteinOf,
+  trainedOn,
+  trainMinutes,
+  waterMl,
+  workoutFor,
+} from './selectors';
 import type { DayLog, State } from './types';
 import { levelForXp } from './xp';
 
@@ -140,16 +151,49 @@ export const BOSSES = [
 
 export const weekKey = (date: Date | number = new Date()) => dayKey(startOfWeek(date));
 
+const loggedBefore8 = (d: DayLog) =>
+  [...d.water, ...d.food, ...d.sets, ...(d.coffee ?? []), ...(d.moods ?? []), ...(d.activities ?? [])].some((x) => new Date(x.at).getHours() < 8);
+
+/** Each boss's weakness: on days that meet it, the XP earned that day hits it twice. Nothing food-related. */
+export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hit: (s: State, d: DayLog, key: string) => boolean }> = {
+  procrastinator: { label: 'finishing tasks', hit: (s, _d, key) => s.tasks.some((t) => t.done && t.doneAt && dayKey(t.doneAt) === key) },
+  couch_goblin: { label: 'moving: step goal or training', hit: (_s, d) => !!d.stepGoalHit || trainedOn(d) },
+  doomscroll: { label: 'finishing a Web Focus session', hit: (_s, d) => (d.focus ?? []).some((f) => !f.snapped) },
+  snooze: { label: 'logging something before 08:00', hit: (_s, d) => loggedBefore8(d) },
+  dehydration: { label: 'hitting your water goal', hit: (s, d) => waterMl(d) >= s.settings.waterGoalMl },
+  leg_day: { label: 'training', hit: (_s, d) => trainedOn(d) },
+  sugar_baron: { label: 'checking off a habit', hit: (s, _d, key) => habitsDone(s, key).length > 0 },
+  binge: { label: 'staying within your gaming budget', hit: (s, _d, key) => gamingUsedMs(s, key) <= gamingBudgetMin(s, key) * 60_000 },
+};
+
 export function bossFor(s: State, date: Date | number = new Date()) {
   const monday = startOfWeek(date);
   const weekIndex = Math.floor(monday.getTime() / (7 * 86_400_000));
   const boss = BOSSES[weekIndex % BOSSES.length];
+  const weakness = WEAKNESS[boss.id];
   let healed = 0;
-  for (let i = 0; i < 7; i++) healed += Math.max(0, (dayOf(s, dayKey(addDays(monday, i))).screen?.doomMin ?? 0) - 60);
-  const maxHp = 500 + 50 * levelForXp(s.xp) + healed;
   let damage = 0;
-  for (let i = 0; i < 7; i++) damage += dayOf(s, dayKey(addDays(monday, i))).xpEarned ?? 0;
+  let bonus = 0; // extra damage from days that hit the weakness
+  for (let i = 0; i < 7; i++) {
+    const day = dayKey(addDays(monday, i));
+    const d = dayOf(s, day);
+    healed += Math.max(0, (d.screen?.doomMin ?? 0) - 60);
+    const xp = d.xpEarned ?? 0;
+    damage += xp;
+    if (xp > 0 && weakness.hit(s, d, day)) bonus += xp;
+  }
+  const maxHp = 500 + 50 * levelForXp(s.xp) + healed;
   const key = dayKey(monday);
-  damage += s.bossBombs?.[key] ?? 0;
-  return { ...boss, key, maxHp, damage, healed, hp: Math.max(0, maxHp - damage), defeated: !!s.bossesDefeated[key] };
+  damage += bonus + (s.bossBombs?.[key] ?? 0);
+  return {
+    ...boss,
+    key,
+    maxHp,
+    damage,
+    healed,
+    bonus,
+    weakness: weakness.label,
+    hp: Math.max(0, maxHp - damage),
+    defeated: !!s.bossesDefeated[key],
+  };
 }

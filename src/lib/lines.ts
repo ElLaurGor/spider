@@ -504,9 +504,38 @@ export const LINES = {
     mild: ['All 3 daily quests done! +30 XP and +15 min gaming.'],
     savage: ['Daily quests: cleared. +30 XP, +15 min gaming. Main character behavior.', 'All quests done. You have earned your loot. +30 XP, +15 min.'],
   },
-  bossFresh: {
-    mild: ['{boss} is at full strength. Every XP you earn this week is damage.'],
-    savage: ['{boss}: "Is that all you have got?"', '{boss} is laughing at you. Earn XP to make it stop.', '{boss} has barely noticed you exist.'],
+  // Each boss's own taunts while it's still fresh (quests.ts BOSSES ids). The mild ones hint at its weakness.
+  taunt_procrastinator: {
+    mild: ['{boss} is in no hurry. Days you finish tasks hit it twice as hard.'],
+    savage: ['"I\'ll lose tomorrow. Maybe." – {boss}', '{boss} has scheduled your victory for next week. Tentatively.', '{boss} is napping on your to-do list.'],
+  },
+  taunt_couch_goblin: {
+    mild: ['{boss} hates movement. Step-goal and training days hit it twice as hard.'],
+    savage: ['{boss} has claimed the couch. And your evening.', '{boss} whispers: "Just one more episode."', '{boss} fears exactly one thing: your sneakers.'],
+  },
+  taunt_doomscroll: {
+    mild: ['{boss} hates focus. Days with a finished Web Focus hit it twice as hard.'],
+    savage: ['{boss} refreshes. And refreshes. And refreshes.', '{boss} feeds on infinite scroll. Starve it.', '"Just checking one thing." – {boss}, three hours later'],
+  },
+  taunt_snooze: {
+    mild: ['{boss} owns the mornings. Log something before 08:00 to hit it twice as hard.'],
+    savage: ['{boss}: "Five more minutes." Every single time.', '{boss} owns your mornings. Take one back.', '{boss} is betting you sleep through 08:00 again.'],
+  },
+  taunt_dehydration: {
+    mild: ['{boss} hates water. Water-goal days hit it twice as hard.'],
+    savage: ["{boss} has heard about your water bottle. He's not worried.", '{boss} is drier than your excuses.', '{boss} rules the desert. Drown him.'],
+  },
+  taunt_leg_day: {
+    mild: ['{boss} never trains. Your training days hit it twice as hard.'],
+    savage: ['{boss} stands on two very thin legs. Kick them.', '"Legs are optional." – {boss}', "{boss} skipped leg day so you'd feel better about skipping yours. Don't."],
+  },
+  taunt_sugar_baron: {
+    mild: ['{boss} hates routines. Days you check off a habit hit it twice as hard.'],
+    savage: ['{boss} runs on shortcuts. Your habits are his kryptonite.', '{boss} thinks routines are for robots. Prove him wrong.', '{boss} is betting you forget your habits today.'],
+  },
+  taunt_binge: {
+    mild: ['{boss} feeds on long sessions. Days within your gaming budget hit it twice as hard.'],
+    savage: ['{boss} raises one more episode from the dead.', '"Next episode starts in 5… 4…" – {boss}', '{boss} feeds on autoplay and broken budgets.'],
   },
   bossHurt: {
     mild: ['{boss} is taking damage. Keep going!'],

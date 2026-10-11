@@ -17,7 +17,7 @@ export function QuestsCard() {
   const done = dayOf(state).questsDone ?? [];
   const boss = bossFor(state);
   const hpPct = boss.hp / boss.maxHp;
-  const tauntKey = boss.defeated ? null : hpPct > 0.66 ? 'bossFresh' : hpPct > 0.33 ? 'bossHurt' : 'bossDying';
+  const tauntKey = boss.defeated ? null : hpPct > 0.66 ? (`taunt_${boss.id}` as const) : hpPct > 0.33 ? 'bossHurt' : 'bossDying';
   const taunt = useMemo(() => (tauntKey ? quip(tauntKey, { boss: boss.name }) : ''), [quip, tauntKey, boss.name]);
 
   return (
@@ -72,6 +72,12 @@ export function QuestsCard() {
           {boss.defeated ? 'Defeated! A new boss shows up on Monday.' : `${taunt} Every XP you earn this week is damage.`}
           {!boss.defeated && boss.healed > 0 ? ` 💀 Doomscrolling healed it +${boss.healed} HP.` : ''}
         </T>
+        {!boss.defeated ? (
+          <T small style={{ color: C.yellow }}>
+            🎯 Weakness: {boss.weakness}. Those days&apos; XP hits twice.
+            {boss.bonus > 0 ? ` +${num(boss.bonus)} bonus damage so far.` : ''}
+          </T>
+        ) : null}
       </View>
     </Card>
   );

@@ -29,7 +29,7 @@ import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
 import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep } from '../src/lib/selectors';
 import { searchFoods } from '../src/lib/food-db';
-import { pickQuests, questsFor, bossFor } from '../src/lib/quests';
+import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
 import { weekReport, gradeOf, dayScoreFor } from '../src/lib/report';
 import { RESPECT, respectFor } from '../src/lib/respect';
@@ -532,4 +532,29 @@ console.log('all logic tests passed');
   for (const g of GOLDEN) {
     for (const m of g.text.matchAll(/\{(\w+)\}/g)) assert.equal(m[1], 'name', `${g.id}: only {name} is passed`);
   }
+}
+
+// boss weaknesses: XP earned on days that hit the weakness counts twice; every boss has its weakness and taunts
+{
+  const b = defaultState();
+  const k = dayKey();
+  b.days[k] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, xpEarned: 100 };
+  const plain = bossFor(b);
+  assert.equal(plain.damage - plain.bonus, 100 + (b.bossBombs[plain.key] ?? 0));
+  for (const boss of BOSSES) {
+    assert.ok(WEAKNESS[boss.id].label, boss.id);
+    assert.ok(`taunt_${boss.id}` in LINES, `taunt_${boss.id}`);
+  }
+  // Captain Dehydration's weakness is water: a water-goal day doubles that day's damage
+  const water = WEAKNESS.dehydration.hit;
+  b.days[k] = { ...b.days[k], water: [{ id: 'w', ml: b.settings.waterGoalMl, at: Date.now() }] };
+  assert.ok(water(b, b.days[k], k));
+  assert.ok(!water(defaultState(), { water: [], food: [], sets: [], games: [], bonusGameMin: 0 }, k));
+  // the snooze button: something logged before 08:00
+  const early = { water: [{ id: 'e', ml: 250, at: atTime(new Date(), 0, 7, 30).getTime() }], food: [], sets: [], games: [], bonusGameMin: 0 };
+  assert.ok(WEAKNESS.snooze.hit(b, early, k));
+  assert.ok(!WEAKNESS.snooze.hit(b, { ...early, water: [{ id: 'l', ml: 250, at: atTime(new Date(), 0, 9).getTime() }] }, k));
+  // when this week's boss is weak to the day, the bonus equals the day's XP
+  const now = bossFor(b);
+  assert.equal(now.bonus, WEAKNESS[now.id].hit(b, b.days[k], k) ? 100 : 0);
 }
