@@ -18,6 +18,7 @@ import { nextStage, stageFor } from '@/lib/evolution';
 import { insightOfTheDay } from '@/lib/insights';
 import { moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
+import { respectFor } from '@/lib/respect';
 import {
   avgMood,
   caffeineMg,
@@ -59,6 +60,7 @@ export default function HQ() {
   const usedMs = gamingUsedMs(state, undefined, now);
   const budgetMin = gamingBudgetMin(state);
   const score = dayScoreFor(state, new Date(now));
+  const respect = respectFor(state);
   const week = workoutsThisWeek(state);
   const openTasks = state.tasks.filter((t) => !t.done);
   const upcoming = eventsOn(cal.events, now).filter((e) => e.end > now && !e.allDay).slice(0, 3);
@@ -85,7 +87,7 @@ export default function HQ() {
           <Icon name="settings" color={C.dim} />
         </Pressable>
       }>
-      <SpiderSays text={bubble} onPress={() => setBubble(quip('spiderTap'))} />
+      <SpiderSays text={bubble} onPress={() => setBubble(quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'))} />
       <WeatherRow />
       <OutsideAlerts />
       <CountdownRow />
@@ -140,6 +142,11 @@ export default function HQ() {
         </Row>
         <T small style={{ color: C.yellow }}>
           {verdict}
+        </T>
+        <T dim small>
+          {respect
+            ? `Respect: ${respect.emoji} ${respect.name} · ${respect.score} avg, last 7 days`
+            : 'Respect: still making up its mind. Give it a few days.'}
         </T>
       </Card>
 

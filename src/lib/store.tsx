@@ -33,6 +33,7 @@ import {
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, pickQuests, questsFor } from './quests';
+import { respectFor } from './respect';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
 import {
   activitiesOf,
@@ -200,6 +201,17 @@ function checkAchievements(s: State, msgs: Msg[]): State {
   return next;
 }
 
+/** Remembers S.P.I.D.E.R.'s respect tier and announces it going up. Drops pass quietly. */
+function checkRespect(s: State, msgs: Msg[]): State {
+  const r = respectFor(s);
+  const tier = r?.tier ?? null;
+  if (tier === (s.respectTier ?? null)) return s;
+  if (r && s.respectTier != null && r.tier > s.respectTier) {
+    msgs.push({ text: `${r.emoji} ${L(s, 'respectUp', { tier: r.name })}`, tone: 'epic' });
+  }
+  return { ...s, respectTier: tier };
+}
+
 /** The first training of the day counts as a workout: XP, bonus gaming time, counter. */
 function startWorkout(s: State, msgs: Msg[]): State {
   const key = dayKey();
@@ -307,7 +319,7 @@ function useStoreValue() {
     (fn: (s: State, msgs: Msg[]) => State) => {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
-      const next = checkAchievements(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs);
+      const next = checkRespect(checkAchievements(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone));
       // Earned bonus minutes mid-session move the gaming alerts.

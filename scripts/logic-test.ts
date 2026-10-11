@@ -32,6 +32,7 @@ import { searchFoods } from '../src/lib/food-db';
 import { pickQuests, questsFor, bossFor } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
 import { weekReport, gradeOf, dayScoreFor } from '../src/lib/report';
+import { RESPECT, respectFor } from '../src/lib/respect';
 import { describe as wx, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
 
@@ -499,3 +500,21 @@ assert.ok(isMine({ type: 'Municipality', description: 'Malmö kommun' }, 'Skåne
 assert.ok(!isMine({ type: 'Municipality', description: 'Solna kommun' }, LAN, undefined));
 
 console.log('all logic tests passed');
+
+// respect meter: a rolling 7-day average of day scores (today excluded), silent until 3 days exist
+{
+  const r0 = defaultState();
+  const fullDay = (n: number) => ({ water: [{ id: `w${n}`, ml: r0.settings.waterGoalMl, at: 0 }], food: [], sets: [], games: [], bonusGameMin: 0 });
+  r0.days[dayKey(atTime(new Date(), -1, 12))] = fullDay(1);
+  r0.days[dayKey(atTime(new Date(), -2, 12))] = fullDay(2);
+  assert.equal(respectFor(r0), null);
+  r0.days[dayKey(atTime(new Date(), -3, 12))] = fullDay(3);
+  const r = respectFor(r0);
+  assert.ok(r && r.score >= 0 && r.score <= 100);
+  assert.ok(r && r.score >= RESPECT[r.tier].min && (r.tier === RESPECT.length - 1 || r.score < RESPECT[r.tier + 1].min));
+  // today never counts, and days outside the window don't either
+  r0.days[dayKey()] = { ...fullDay(0), water: [] };
+  r0.days[dayKey(atTime(new Date(), -9, 12))] = { ...fullDay(9), water: [] };
+  assert.equal(respectFor(r0)?.score, r?.score);
+  for (const t of RESPECT) assert.ok(t.line in LINES, t.line);
+}

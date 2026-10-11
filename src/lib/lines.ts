@@ -66,6 +66,44 @@ export const LINES = {
       "Error 404: {name}'s discipline not found.",
     ],
   },
+  // Tap lines by respect tier (the 7-day average day score), 0 = lowest. Low tiers stay playful.
+  respect0: {
+    mild: ["Rough week. Today's a fresh start, {name}.", "I still believe in you. Let's get one good day in."],
+    savage: [
+      'My respect for you is in airplane mode.',
+      "I've seen better weeks from a screensaver.",
+      "I'm not mad. I'm just keeping receipts.",
+      'Respect level: buffering. Indefinitely.',
+    ],
+  },
+  respect1: {
+    mild: ['A few good days lately. More of those, please.', "Getting there, {name}. Keep going."],
+    savage: ["You've had a couple of good days. I'm suspicious.", 'Respect pending. Results required.', "I'm watching. Mostly hoping. Partly judging."],
+  },
+  respect2: {
+    mild: ['Solid week, {name}.', "You're doing fine. Better than fine, some days."],
+    savage: [
+      "You're tolerable this week. Don't let it go to your head.",
+      'Respect level: acceptable. Like room-temperature water.',
+      "I've upgraded you from 'project' to 'person'.",
+    ],
+  },
+  respect3: {
+    mild: ["Strong week, {name}. I noticed.", "You've been on it lately. Nice."],
+    savage: ["I hate to say it, but you've been… good. Ugh.", "Mildly impressed. Don't make it weird.", 'I told the other apps about you. They didn’t believe me.'],
+  },
+  respect4: {
+    mild: ['Honestly? Proud of you, {name}.', 'Best version of you this week. Keep it up.'],
+    savage: [
+      "Fine. I'm a fan. Tell anyone and I'll deny it.",
+      "You've ruined my roasting material. I'm improvising now.",
+      'Grudging respect unlocked. The grudging part is permanent.',
+    ],
+  },
+  respectUp: {
+    mild: ['Respect upgraded: {tier}. Well earned.'],
+    savage: ['Respect upgraded: {tier}. I fought it. I lost.', 'New respect level: {tier}. Screenshot it, it might not last.'],
+  },
   waterRemind: {
     mild: ['Time for a glass of water, {name}.', 'Hydration check! Grab some water.', 'Your water bottle misses you.'],
     savage: [
