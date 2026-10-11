@@ -17,12 +17,12 @@ import { cycleInfo, sleepInfo } from '@/lib/body';
 import { nextStage, stageFor } from '@/lib/evolution';
 import { insightOfTheDay } from '@/lib/insights';
 import { moodInfo } from '@/lib/mood';
+import { dayScoreFor } from '@/lib/report';
 import {
   avgMood,
   caffeineMg,
   coffeeOf,
   dayOf,
-  dayScore,
   eventsOn,
   gamingBudgetMin,
   gamingUsedMs,
@@ -58,7 +58,7 @@ export default function HQ() {
   const gymDone = trainedOn(today);
   const usedMs = gamingUsedMs(state, undefined, now);
   const budgetMin = gamingBudgetMin(state);
-  const score = dayScore(state, now);
+  const score = dayScoreFor(state, new Date(now));
   const week = workoutsThisWeek(state);
   const openTasks = state.tasks.filter((t) => !t.done);
   const upcoming = eventsOn(cal.events, now).filter((e) => e.end > now && !e.allDay).slice(0, 3);

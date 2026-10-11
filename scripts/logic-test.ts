@@ -12,7 +12,6 @@ import {
   emotionCounts,
   moodDays,
   totalCoffees,
-  dayScore,
   freeSlots,
   gamingUsedMs,
   inMeeting,
@@ -32,7 +31,7 @@ import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep } from '..
 import { searchFoods } from '../src/lib/food-db';
 import { pickQuests, questsFor, bossFor } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
-import { weekReport, gradeOf } from '../src/lib/report';
+import { weekReport, gradeOf, dayScoreFor } from '../src/lib/report';
 import { describe as wx, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
 
@@ -109,7 +108,20 @@ g.activeGame = { start: now - 20 * MIN };
 assert.equal(Math.round(gamingUsedMs(g, dayKey(), now) / MIN), 50);
 
 // day score stays within 0..100
-assert.ok(dayScore(defaultState()) >= 0 && dayScore(defaultState()) <= 100);
+assert.ok(dayScoreFor(defaultState(), new Date()) >= 0 && dayScoreFor(defaultState(), new Date()) <= 100);
+// ...and today and past days score follow-through the same way: tasks finished that day vs still open then
+{
+  const yesterdayNoon = atTime(new Date(), -1, 12);
+  const base = defaultState();
+  const doneY = { ...base, tasks: [{ id: 't', title: 'x', done: true, createdAt: yesterdayNoon.getTime() - 1, doneAt: yesterdayNoon.getTime() }] };
+  const openY = { ...base, tasks: [{ id: 't', title: 'x', done: false, createdAt: yesterdayNoon.getTime() - 1 }] };
+  assert.equal(dayScoreFor(doneY, yesterdayNoon) - dayScoreFor(openY, yesterdayNoon), 15);
+  const doneNow = { ...base, tasks: [{ id: 't', title: 'x', done: true, createdAt: Date.now() - 1, doneAt: Date.now() }] };
+  const openNow = { ...base, tasks: [{ id: 't', title: 'x', done: false, createdAt: Date.now() - 1 }] };
+  assert.equal(dayScoreFor(doneNow, new Date()) - dayScoreFor(openNow, new Date()), 15);
+  // a task created today doesn't count for yesterday
+  assert.equal(dayScoreFor(doneNow, yesterdayNoon), dayScoreFor(openNow, yesterdayNoon));
+}
 
 // water goal days are totals now (no streaks anywhere)
 const w = defaultState();

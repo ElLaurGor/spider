@@ -26,17 +26,29 @@ export type Category = { id: string; label: string; emoji: string; stat: string;
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
-/** Simple 0–100 score for any past day (used for best/worst day). */
+/** Tasks finished that day, out of those on the list then (finished that day, or still open when it ended). */
+function taskShare(s: State, date: Date): number | null {
+  const start = startOfDay(date).getTime();
+  const end = addDays(startOfDay(date), 1).getTime();
+  const done = s.tasks.filter((t) => t.done && (t.doneAt ?? 0) >= start && (t.doneAt ?? 0) < end).length;
+  const open = s.tasks.filter((t) => t.createdAt < end && (!t.done || (t.doneAt ?? 0) >= end)).length;
+  return done + open ? done / (done + open) : null;
+}
+
+/** 0–100: how well a day went (or is going). Feeds HQ's verdict, best/worst day, Insights and Wrapped. */
 export function dayScoreFor(s: State, date: Date) {
   const key = dayKey(date);
   const d = dayOf(s, key);
   const water = clamp01(waterMl(d) / s.settings.waterGoalMl) * 30;
   const gym = !workoutFor(s, date) || trainedOn(d) ? 25 : 0;
   const protein = s.settings.proteinGoal ? clamp01(proteinOf(d) / s.settings.proteinGoal) * 20 : 20;
+  // Follow-through: habits due that day and tasks on the list, whichever there are.
   const due = habitsFor(s, date);
-  const habits = due.length ? (due.filter((h) => habitsDone(s, key).includes(h.id)).length / due.length) * 15 : 15;
+  const shares = [due.length ? due.filter((h) => habitsDone(s, key).includes(h.id)).length / due.length : null, taskShare(s, date)];
+  const counted = shares.filter((x): x is number => x != null);
+  const follow = counted.length ? avg(counted) * 15 : 15;
   const gaming = gamingUsedMs(s, key) <= gamingBudgetMin(s, key) * MIN ? 10 : 0;
-  return Math.round(water + gym + protein + habits + gaming);
+  return Math.round(water + gym + protein + follow + gaming);
 }
 
 export function weekReport(s: State, weekOffset = 0, now = new Date()) {

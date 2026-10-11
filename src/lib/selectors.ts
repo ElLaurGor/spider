@@ -100,20 +100,6 @@ export function workoutsThisWeek(s: State, now = new Date()) {
   return { done, planned };
 }
 
-/** 0–100: how well today is going. Feeds S.P.I.D.E.R.'s verdict. */
-export function dayScore(s: State, now = Date.now()) {
-  const d = dayOf(s);
-  const water = Math.min(1, waterMl(d) / s.settings.waterGoalMl) * 30;
-  const gym = !workoutFor(s, now) || trainedOn(d) ? 25 : 0;
-  const food = s.settings.proteinGoal > 0 ? Math.min(1, proteinOf(d) / s.settings.proteinGoal) * 20 : 20;
-  const todayStart = startOfDay(now).getTime();
-  const doneToday = s.tasks.filter((t) => t.done && (t.doneAt ?? 0) >= todayStart).length;
-  const open = s.tasks.filter((t) => !t.done).length;
-  const tasks = doneToday + open === 0 ? 10 : (doneToday / (doneToday + open)) * 15;
-  const gaming = gamingUsedMs(s, dayKey(now), now) <= gamingBudgetMin(s) * 60_000 ? 10 : 0;
-  return Math.round(water + gym + food + tasks + gaming);
-}
-
 export const verdictKey = (score: number) =>
   score < 30 ? 'verdictTragic' : score < 55 ? 'verdictMid' : score < 80 ? 'verdictGood' : ('verdictGreat' as const);
 
