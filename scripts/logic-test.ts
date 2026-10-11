@@ -2,7 +2,7 @@
 // Offline logic checks for the pure modules in src/lib. Run: npm run test:logic
 import assert from 'node:assert/strict';
 
-import { atTime, dayKey, fmtClock, fmtDuration, MIN } from '../src/lib/dates';
+import { addDays, atTime, dayKey, fmtClock, fmtDuration, MIN, startOfWeek } from '../src/lib/dates';
 import { defaultState, hydrate } from '../src/lib/defaults';
 import { freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
 import {
@@ -34,6 +34,7 @@ import { habitsFor } from '../src/lib/habits';
 import { weekReport, gradeOf, dayScoreFor } from '../src/lib/report';
 import { RESPECT, respectFor } from '../src/lib/respect';
 import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
+import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
 import { describe as wx, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
 
@@ -57,7 +58,7 @@ for (let i = 0; i < 100; i++) {
   assert.ok(!t.includes('{'), t);
 }
 // every placeholder used in a pool is one we actually pass somewhere
-const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band']);
+const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins']);
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -587,4 +588,30 @@ console.log('all logic tests passed');
   assert.equal(winterOf(new Date(2026, 10, 20)), '2026');
   assert.equal(winterOf(new Date(2027, 2, 1)), '2026');
   assert.ok(isSnow(73) && !isSnow(61));
+}
+
+// weekly contract: counts only from the day it was signed, gaming only for finished days, rough weeks void it
+{
+  const monday = startOfWeek(new Date(2026, 9, 14)); // Mon 12 Oct 2026
+  const wed = addDays(monday, 2);
+  const fri = atTime(monday, 4, 12);
+  const k = (d: Date) => dayKey(d);
+  const c = { week: k(monday), from: k(wed), goal: 'water' as const, target: 2, stake: 100, status: 'open' as const };
+  const cs = defaultState();
+  const goalDay = (n: number) => ({ water: [{ id: `w${n}`, ml: cs.settings.waterGoalMl, at: 0 }], food: [], sets: [], games: [], bonusGameMin: 0 });
+  cs.days[k(monday)] = goalDay(1); // before signing: doesn't count
+  cs.days[k(wed)] = goalDay(2);
+  cs.days[k(addDays(monday, 3))] = goalDay(3);
+  assert.equal(contractProgress(cs, c, fri), 2);
+  assert.equal(contractProgress(cs, c, atTime(monday, 2, 12)), 1); // Wednesday itself
+  // gaming: today isn't counted until it's over
+  const g = { ...c, goal: 'gaming' as const, target: 5 };
+  assert.equal(contractProgress(defaultState(), g, fri), 2); // Wed + Thu are finished, Fri isn't
+  assert.equal(contractProgress(defaultState(), g, addDays(monday, 9)), 5); // next week: Wed..Sun all finished
+  // rough week: a low mood or a period day while it ran
+  assert.ok(!roughWeek(cs, c, fri));
+  cs.days[k(addDays(monday, 3))] = { ...goalDay(3), moods: [{ id: 'm', level: 2, emotions: [], at: 0 }] };
+  assert.ok(roughWeek(cs, c, fri));
+  assert.ok(canSign(monday) && canSign(wed) && !canSign(addDays(monday, 3)) && !canSign(addDays(monday, 6)));
+  assert.deepEqual(LINES.contractVoided.savage, LINES.contractVoided.mild);
 }

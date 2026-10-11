@@ -118,6 +118,16 @@ export type DayLog = {
   workoutCounted?: boolean;
 };
 
+export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
+export type Contract = {
+  week: string; // Monday's key
+  from: string; // day signed: only days from here count
+  goal: ContractGoal;
+  target: number;
+  stake: number;
+  status: 'open' | 'won' | 'lost' | 'voided';
+};
+
 export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number };
 
 export type Counters = {
@@ -187,6 +197,7 @@ export type State = {
   respectTier?: number | null; // last respect tier seen (lib/respect.ts), to announce it going up
   goldenFound?: Record<string, number>; // golden line id (lib/lines.ts GOLDEN) -> found at, for the Roast Book
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
+  contract?: Contract | null; // this or last week's weekly contract (lib/contracts.ts)
 };
 
 export type CalEvent = {

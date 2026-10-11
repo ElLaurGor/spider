@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ContractCard } from '@/components/contract-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { QuestsCard } from '@/components/quests-card';
@@ -185,6 +186,7 @@ export default function HQ() {
       </Row>
 
       <LeagueCard />
+      <ContractCard />
 
       {insight ? (
         <Pressable onPress={() => router.push('/insights')}>

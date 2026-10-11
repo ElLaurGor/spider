@@ -66,6 +66,26 @@ export const LINES = {
       "Error 404: {name}'s discipline not found.",
     ],
   },
+  // Weekly contract (contracts.ts). A voided contract (rough week) is kind in both pools.
+  contractSigned: {
+    mild: ['Contract signed: {goal}. {stake} coins at stake. You can do this, {name}.'],
+    savage: [
+      "Contract signed: {goal}. {stake} coins say you can. I've already spent them in my head.",
+      '{stake} coins on "{goal}". Bold. I love a bet I expect to win.',
+    ],
+  },
+  contractWon: {
+    mild: ['Contract fulfilled! +{coins} coins. Well done, {name}.'],
+    savage: ['Contract fulfilled. +{coins} coins. I had plans for those. Fine.', 'You actually did it. +{coins} coins. I demand a rematch.'],
+  },
+  contractLost: {
+    mild: ["Last week's contract wasn't reached. The {stake} coins are gone, but this week is a fresh one."],
+    savage: ['Contract missed. {stake} coins are mine now. Pleasure doing business.', "{stake} coins, gone. I'll treasure them. This week, prove me wrong."],
+  },
+  contractVoided: {
+    mild: ['Rough week, so the contract is off. Your {stake} coins are back. Resting counts too.'],
+    savage: ['Rough week, so the contract is off. Your {stake} coins are back. Resting counts too.'],
+  },
   // Seasons (seasons.ts): greetings on HQ while one is on.
   seasonHalloween: {
     mild: ['Happy spooky season, {name}! 🎃 The quests dressed up. So did the boss.', 'Spooky season is here. Seasonal quests are up.'],

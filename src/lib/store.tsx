@@ -33,6 +33,7 @@ import {
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, pickQuests, questsFor } from './quests';
+import { canSign, contractProgress, goalOf, roughWeek } from './contracts';
 import { respectFor } from './respect';
 import { isSnow, winterOf } from './seasons';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
@@ -56,6 +57,7 @@ import type {
   CalEvent,
   CalInfo,
   CalStatus,
+  ContractGoal,
   DayLog,
   Habit,
   MoodLevel,
@@ -213,6 +215,24 @@ function checkRespect(s: State, msgs: Msg[]): State {
   return { ...s, respectTier: tier };
 }
 
+/** Pays out a weekly contract as soon as it's reached, and settles a missed one once its week is over. */
+function checkContract(s: State, msgs: Msg[]): State {
+  const c = s.contract;
+  if (!c || c.status !== 'open') return s;
+  const vars = { goal: goalOf(c.goal).title(c.target), stake: c.stake, coins: c.stake * 2 };
+  if (contractProgress(s, c) >= c.target) {
+    msgs.push({ text: `📜 ${L(s, 'contractWon', vars)}`, tone: 'epic' });
+    return { ...s, contract: { ...c, status: 'won' }, coins: s.coins + c.stake * 2, coinsEarned: s.coinsEarned + c.stake };
+  }
+  if (c.week === weekKeyOf()) return s;
+  if (roughWeek(s, c)) {
+    msgs.push({ text: `📜 ${L(s, 'contractVoided', vars)}`, tone: 'info' });
+    return { ...s, contract: { ...c, status: 'voided' }, coins: s.coins + c.stake };
+  }
+  msgs.push({ text: `📜 ${L(s, 'contractLost', vars)}`, tone: 'bad' });
+  return { ...s, contract: { ...c, status: 'lost' } };
+}
+
 /** Anything that got a reaction has a small chance to turn up a golden line for the Roast Book. Not while going easy. */
 function checkGolden(s: State, msgs: Msg[]): State {
   if (!msgs.length || effectiveSavage(s) < s.settings.savageLevel || Math.random() >= GOLDEN_CHANCE) return s;
@@ -331,7 +351,8 @@ function useStoreValue() {
     (fn: (s: State, msgs: Msg[]) => State) => {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
-      const next = checkGolden(checkRespect(checkAchievements(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs), msgs), msgs);
+      const checked = checkContract(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs);
+      const next = checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone));
       // Earned bonus minutes mid-session move the gaming alerts.
@@ -1055,6 +1076,22 @@ function useStoreValue() {
           }
           msgs.push({ text: L(next, 'rewardBought', { reward: `${item.emoji} ${item.title}` }), tone: 'good' });
           return next;
+        });
+      },
+
+      /** Stakes coins on a weekly goal (Monday to Wednesday, one per week). */
+      signContract(goal: ContractGoal, stake: number) {
+        run((s0, msgs) => {
+          const s = checkContract(s0, msgs); // last week's, if it's still open
+          const week = weekKeyOf();
+          if (!canSign() || s.contract?.week === week) return s;
+          if (s.coins < stake) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: stake - s.coins }), tone: 'bad' });
+            return s;
+          }
+          const def = goalOf(goal);
+          msgs.push({ text: `📜 ${L(s, 'contractSigned', { goal: def.title(def.target), stake })}`, tone: 'info' });
+          return { ...s, coins: s.coins - stake, contract: { week, from: dayKey(), goal, target: def.target, stake, status: 'open' } };
         });
       },
 
