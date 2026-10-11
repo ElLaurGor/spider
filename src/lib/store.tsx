@@ -50,6 +50,7 @@ import {
   proteinOf,
   syncedSleep,
   waterMl,
+  withPastHealth,
 } from './selectors';
 import type {
   ActivityKind,
@@ -65,6 +66,7 @@ import type {
   Tracker,
   Rating,
   Reward,
+  ScreenDay,
   Settings,
   State,
   Weekday,
@@ -202,6 +204,17 @@ function checkAchievements(s: State, msgs: Msg[]): State {
     next = { ...next, coins: next.coins + SECRET_COINS, coinsEarned: next.coinsEarned + SECRET_COINS };
   }
   return next;
+}
+
+/** A day's phone use from Android's per-app totals. */
+function screenDayOf(apps: Awaited<ReturnType<typeof usageBetween>>): ScreenDay {
+  const min = (ms: number) => Math.round(ms / MIN);
+  return {
+    totalMin: min(apps.reduce((a, x) => a + x.foregroundMs, 0)),
+    doomMin: min(apps.filter((x) => isDoomscroll(x.packageName)).reduce((a, x) => a + x.foregroundMs, 0)),
+    gamesMin: min(apps.filter((x) => x.isGame).reduce((a, x) => a + x.foregroundMs, 0)),
+    top: apps.slice(0, 6).map((x) => ({ label: x.label, min: min(x.foregroundMs), game: x.isGame, doom: isDoomscroll(x.packageName) })),
+  };
 }
 
 /** Remembers S.P.I.D.E.R.'s respect tier and announces it going up. Drops pass quietly. */
@@ -405,16 +418,21 @@ function useStoreValue() {
   const [healthState, setHealthState] = useState<HealthStatus>(healthSupported ? 'needs-permission' : 'unsupported');
   const [health, setHealth] = useState<HealthData | null>(null);
 
-  /** Applies the latest step count to today's log and awards the step goal once. */
+  /** Applies the watch's numbers: today's (awarding the step goal once), and the final ones for the past week. */
   const applyHealth = useCallback(
-    (steps: number, sleepMin: number | null) => {
+    (data: HealthData) => {
+      const { steps } = data;
       const s0 = stateRef.current;
-      const today = dayOf(s0);
-      const sleep = syncedSleep(today, sleepMin);
-      if (today.steps === steps && today.sleepMin === sleep && (today.stepGoalHit || steps < s0.settings.stepGoal)) return;
+      const key = dayKey();
+      const today = dayOf(s0, key);
+      const sleep = syncedSleep(today, data.sleepMin);
+      const past = data.stepsWeek
+        .filter((x) => x.key !== key)
+        .map((x) => ({ key: x.key, steps: x.steps, sleepMin: data.sleepWeek.find((y) => y.key === x.key)?.sleepMin ?? null }));
+      const pastChanged = withPastHealth(s0, past) !== s0;
+      if (!pastChanged && today.steps === steps && today.sleepMin === sleep && (today.stepGoalHit || steps < s0.settings.stepGoal)) return;
       run((s, msgs) => {
-        const key = dayKey();
-        let next = patchDay(s, key, (d) => ({ ...d, steps, sleepMin: sleep }));
+        let next = patchDay(withPastHealth(s, past), key, (d) => ({ ...d, steps, sleepMin: sleep }));
         if (!dayOf(s, key).stepGoalHit && steps >= s.settings.stepGoal) {
           next = patchDay(next, key, (d) => ({ ...d, stepGoalHit: true }));
           msgs.push({
@@ -438,7 +456,7 @@ function useStoreValue() {
         const data = await readHealth();
         if (!data) return;
         setHealth(data);
-        applyHealth(data.steps, data.sleepMin);
+        applyHealth(data);
       } catch (e) {
         console.warn('[spider] health failed', e);
       }
@@ -460,6 +478,7 @@ function useStoreValue() {
   const [screenStatus, setScreenStatus] = useState<'unsupported' | 'needs-permission' | 'connected'>(
     screenTimeSupported ? 'needs-permission' : 'unsupported',
   );
+  const screenHistoryDone = useRef(false); // past days' final screen time, once per app run
   const refreshScreen = useCallback(async () => {
     if (!screenTimeSupported) return;
     if (!hasUsageAccess()) {
@@ -468,17 +487,26 @@ function useStoreValue() {
     }
     setScreenStatus('connected');
     try {
-      const apps = await usageBetween(startOfDay().getTime(), Date.now());
-      const min = (ms: number) => Math.round(ms / MIN);
-      const screen = {
-        totalMin: min(apps.reduce((a, x) => a + x.foregroundMs, 0)),
-        doomMin: min(apps.filter((x) => isDoomscroll(x.packageName)).reduce((a, x) => a + x.foregroundMs, 0)),
-        gamesMin: min(apps.filter((x) => x.isGame).reduce((a, x) => a + x.foregroundMs, 0)),
-        top: apps.slice(0, 6).map((x) => ({ label: x.label, min: min(x.foregroundMs), game: x.isGame, doom: isDoomscroll(x.packageName) })),
-      };
+      const screen = screenDayOf(await usageBetween(startOfDay().getTime(), Date.now()));
       const old = dayOf(stateRef.current).screen;
-      if (old && old.totalMin === screen.totalMin && old.top.length === screen.top.length) return;
-      run((s) => patchDay(s, dayKey(), (d) => ({ ...d, screen })));
+      if (!old || old.totalMin !== screen.totalMin || old.top.length !== screen.top.length) {
+        run((s) => patchDay(s, dayKey(), (d) => ({ ...d, screen })));
+      }
+      // Each day's number froze at the last time the app was open; now that those days are over, take the
+      // final totals for the past days you used the app (only while Android still has them, so only if higher).
+      if (!screenHistoryDone.current) {
+        screenHistoryDone.current = true;
+        const finals: { key: string; screen: ScreenDay }[] = [];
+        for (let i = 1; i <= 6; i++) {
+          const start = startOfDay(addDays(new Date(), -i));
+          const key = dayKey(start);
+          const before = stateRef.current.days[key];
+          if (!before) continue;
+          const full = screenDayOf(await usageBetween(start.getTime(), addDays(start, 1).getTime()));
+          if (full.totalMin > (before.screen?.totalMin ?? 0)) finals.push({ key, screen: full });
+        }
+        if (finals.length) run((s) => finals.reduce((next, f) => patchDay(next, f.key, (d) => ({ ...d, screen: f.screen })), s));
+      }
     } catch (e) {
       console.warn('[spider] screen time failed', e);
     }

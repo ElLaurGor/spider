@@ -11,6 +11,24 @@ export const proteinOf = (d: DayLog) => d.food.reduce((a, f) => a + f.protein, 0
 /** Last night's sleep after a watch sync: hours typed in by hand win over the watch. */
 export const syncedSleep = (d: DayLog, watchMin: number | null) => (d.sleepManual ? d.sleepMin : (watchMin ?? d.sleepMin));
 
+/**
+ * The watch's final numbers for past days you used the app (days without a log stay that way): steps
+ * (never lower than a snapshot taken that day), the step-goal flag without XP, and sleep unless typed in.
+ */
+export function withPastHealth(s: State, past: { key: string; steps: number; sleepMin: number | null }[]): State {
+  let days = s.days;
+  for (const p of past) {
+    const d = days[p.key];
+    if (!d) continue;
+    const steps = p.steps > 0 ? Math.max(d.steps ?? 0, p.steps) : d.steps;
+    const sleepMin = syncedSleep(d, p.sleepMin);
+    const stepGoalHit = !!d.stepGoalHit || (steps ?? 0) >= s.settings.stepGoal;
+    if (d.steps === steps && d.sleepMin === sleepMin && !!d.stepGoalHit === stepGoalHit) continue;
+    days = { ...days, [p.key]: { ...d, steps, sleepMin, stepGoalHit } };
+  }
+  return days === s.days ? s : { ...s, days };
+}
+
 export const coffeeOf = (d: DayLog) => d.coffee ?? [];
 export const activitiesOf = (d: DayLog) => d.activities ?? [];
 export const trainMinutes = (d: DayLog) => activitiesOf(d).reduce((a, x) => a + x.minutes, 0);

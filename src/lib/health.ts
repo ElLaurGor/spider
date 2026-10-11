@@ -12,6 +12,7 @@ export type HealthStatus = 'unsupported' | 'unavailable' | 'needs-permission' | 
 export type HealthData = {
   steps: number;
   stepsWeek: { key: string; steps: number }[]; // oldest first, today last
+  sleepWeek: { key: string; sleepMin: number | null }[]; // the night before each of those days
   heartAvg: number | null;
   heartMin: number | null;
   heartMax: number | null;
@@ -88,22 +89,23 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
     return r?.COUNT_TOTAL ?? 0;
   };
 
-  const [stepsWeek, heart, resting, sleep, latest] = await Promise.all([
-    Promise.all(
-      Array.from({ length: 7 }, async (_, i) => {
-        const d = addDays(today, i - 6);
-        return { key: dayKey(d), steps: await stepsOn(d) };
-      }),
-    ),
-    safe(() => lib.aggregateRecord({ recordType: 'HeartRate', timeRangeFilter: range(today, now) })),
-    safe(() => lib.aggregateRecord({ recordType: 'RestingHeartRate', timeRangeFilter: range(addDays(now, -1), now) })),
-    // "Last night": sleep that ended between 18:00 yesterday and 14:00 today.
-    safe(() =>
+  // "The night before a day": sleep between 18:00 the day before and 14:00 that day.
+  const sleepBefore = async (dayStart: Date) => {
+    const r = await safe(() =>
       lib.aggregateRecord({
         recordType: 'SleepSession',
-        timeRangeFilter: range(new Date(addDays(today, -1).getTime() + 18 * 3_600_000), new Date(today.getTime() + 14 * 3_600_000)),
+        timeRangeFilter: range(new Date(addDays(dayStart, -1).getTime() + 18 * 3_600_000), new Date(dayStart.getTime() + 14 * 3_600_000)),
       }),
-    ),
+    );
+    return r && r.SLEEP_DURATION_TOTAL > 0 ? Math.round(r.SLEEP_DURATION_TOTAL / 60) : null;
+  };
+  const week = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
+
+  const [stepsWeek, sleepWeek, heart, resting, latest] = await Promise.all([
+    Promise.all(week.map(async (d) => ({ key: dayKey(d), steps: await stepsOn(d) }))),
+    Promise.all(week.map(async (d) => ({ key: dayKey(d), sleepMin: await sleepBefore(d) }))),
+    safe(() => lib.aggregateRecord({ recordType: 'HeartRate', timeRangeFilter: range(today, now) })),
+    safe(() => lib.aggregateRecord({ recordType: 'RestingHeartRate', timeRangeFilter: range(addDays(now, -1), now) })),
     safe(() =>
       lib.readRecords('HeartRate', {
         timeRangeFilter: range(new Date(now.getTime() - 6 * 3_600_000), now),
@@ -125,7 +127,8 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
     heartMax: hasHeart ? heart.BPM_MAX : null,
     heartLatest: lastSample ? { bpm: lastSample.beatsPerMinute, at: new Date(lastSample.time).getTime() } : null,
     restingHr: resting && resting.BPM_AVG > 0 ? Math.round(resting.BPM_AVG) : null,
-    sleepMin: sleep && sleep.SLEEP_DURATION_TOTAL > 0 ? Math.round(sleep.SLEEP_DURATION_TOTAL / 60) : null,
+    sleepMin: sleepWeek[sleepWeek.length - 1].sleepMin,
+    sleepWeek,
     updatedAt: Date.now(),
   };
 }

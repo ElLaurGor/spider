@@ -27,7 +27,7 @@ import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
 import { insights } from '../src/lib/insights';
 import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
-import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep } from '../src/lib/selectors';
+import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, withPastHealth } from '../src/lib/selectors';
 import { searchFoods } from '../src/lib/food-db';
 import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
@@ -647,4 +647,27 @@ console.log('all logic tests passed');
   }
   const ids = insights(ws).map((x) => x.id);
   assert.ok(ids.includes('sun_mood') && ids.includes('rain_steps'), JSON.stringify(ids));
+}
+
+// watch backfill: final steps for past days you used the app, goal flag without XP, typed-in sleep kept
+{
+  const hs = defaultState();
+  const y = dayKey(addDays(new Date(), -1));
+  const y2 = dayKey(addDays(new Date(), -2));
+  const gone = dayKey(addDays(new Date(), -3)); // no log that day: stays without one
+  hs.days[y] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, steps: 3000 };
+  hs.days[y2] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, steps: 9000, sleepMin: 480, sleepManual: true };
+  const next = withPastHealth(hs, [
+    { key: y, steps: hs.settings.stepGoal + 100, sleepMin: 410 },
+    { key: y2, steps: 0, sleepMin: 300 },
+    { key: gone, steps: 12000, sleepMin: 420 },
+  ]);
+  assert.equal(next.days[y].steps, hs.settings.stepGoal + 100);
+  assert.equal(next.days[y].stepGoalHit, true);
+  assert.equal(next.days[y].sleepMin, 410);
+  assert.equal(next.days[y2].steps, 9000); // a 0 from the watch never wipes a snapshot
+  assert.equal(next.days[y2].sleepMin, 480); // typed-in sleep wins
+  assert.equal(next.days[gone], undefined);
+  assert.equal(next.xp, hs.xp);
+  assert.equal(withPastHealth(next, [{ key: y, steps: hs.settings.stepGoal + 100, sleepMin: 410 }]), next); // nothing new: same object
 }
