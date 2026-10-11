@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { router } from 'expo-router';
 
+import { DayPicker } from '@/components/day-picker';
 import { SleepEditor } from '@/components/sleep-checkin';
 import { TrackersCard } from '@/components/trackers-card';
 import { Btn, Card, Chip, Field, H, Icon, Row, T } from '@/components/ui';
@@ -20,8 +21,10 @@ export default function MoodScreen() {
   const [emotions, setEmotions] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [sleepDay, setSleepDay] = useState<string | null>(null); // night being logged, by its morning's key
+  const [picked, setPicked] = useState<string | null>(null); // a past day being fixed; null = today
+  const day = picked ?? dayKey();
 
-  const today = moodsOf(dayOf(state));
+  const today = moodsOf(dayOf(state, day));
   const counts = emotionCounts(state, 7);
   const goingEasy = effectiveSavage(state) < state.settings.savageLevel;
   const week = Array.from({ length: 7 }, (_, i) => {
@@ -35,7 +38,7 @@ export default function MoodScreen() {
 
   const log = () => {
     if (!level) return;
-    actions.logMood(level, emotions, note);
+    actions.logMood(level, emotions, note, day);
     setLevel(null);
     setEmotions([]);
     setNote('');
@@ -43,8 +46,9 @@ export default function MoodScreen() {
 
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
+      <DayPicker value={day} onChange={(k) => setPicked(k === dayKey() ? null : k)} />
       <Card>
-        <H>How are you feeling?</H>
+        <H>{day === dayKey() ? 'How are you feeling?' : 'How were you feeling?'}</H>
         <Row style={{ justifyContent: 'space-between' }}>
           {MOOD_LEVELS.map((m) => {
             const on = level === m.level;
@@ -78,13 +82,13 @@ export default function MoodScreen() {
         {today.some((m) => m.level <= 2) ? <Btn label="Need a minute? Breathe with me" icon="air" kind="blue" onPress={() => router.push('/breathe')} /> : null}
       </Card>
 
-      <TrackersCard />
+      <TrackersCard day={day} />
 
       <Card>
-        <H>Today</H>
+        <H>{day === dayKey() ? 'Today' : 'That day'}</H>
         {today.length === 0 ? (
           <T dim small>
-            No check-ins yet today.
+            {day === dayKey() ? 'No check-ins yet today.' : 'No check-ins that day.'}
           </T>
         ) : (
           today.map((m) => (
@@ -99,7 +103,7 @@ export default function MoodScreen() {
                   </T>
                 ) : null}
               </View>
-              <Pressable onPress={() => actions.removeMood(m.id)} hitSlop={8}>
+              <Pressable onPress={() => actions.removeMood(m.id, day)} hitSlop={8}>
                 <Icon name="close" size={18} color={C.faint} />
               </Pressable>
             </Row>

@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { DayPicker } from '@/components/day-picker';
 import { EntryEditor } from '@/components/entry-editor';
 import { FoodSuggestions } from '@/components/food-search';
 import { PhotoViewer } from '@/components/photo-viewer';
@@ -17,13 +18,18 @@ import { useStore } from '@/lib/store';
 export default function Fuel() {
   const { state, actions, quip } = useStore();
   const s = state.settings;
+  const [picked, setPicked] = useState<string | null>(null); // a past day being fixed; null = today
+  const day = picked ?? dayKey();
+  const isToday = day === dayKey();
   const today = dayOf(state);
-  const water = waterMl(today);
+  const shown = dayOf(state, day);
+  const water = waterMl(shown);
   const pct = water / s.waterGoalMl;
   const next = nextWaterReminder(state);
 
   const hour = new Date().getHours();
-  const lineKey = today.food.length === 0 && hour >= 11 ? 'foodNone' : pct >= 1 ? 'waterGoal' : 'waterRemind';
+  const todayPct = waterMl(today) / s.waterGoalMl; // the spider talks about today, whichever day is shown
+  const lineKey = today.food.length === 0 && hour >= 11 ? 'foodNone' : todayPct >= 1 ? 'waterGoal' : 'waterRemind';
   const spiderLine = useMemo(() => quip(lineKey), [quip, lineKey]);
 
   const week = Array.from({ length: 7 }, (_, i) => {
@@ -34,9 +40,10 @@ export default function Fuel() {
   return (
     <Screen title="FUEL" subtitle="Water · coffee · food">
       <SpiderSays text={spiderLine} />
+      <DayPicker value={day} onChange={(k) => setPicked(k === dayKey() ? null : k)} />
 
       <Card accent={C.water}>
-        <H right={<T dim small>{s.notify.water && next && pct < 1 ? `next nag ${fmtTime(next)}` : ''}</T>}>Water</H>
+        <H right={<T dim small>{isToday && s.notify.water && next && pct < 1 ? `next nag ${fmtTime(next)}` : ''}</T>}>Water</H>
         <Row gap={16}>
           <View style={styles.tank}>
             <View style={[styles.tankFill, { height: `${Math.min(1, pct) * 100}%` }]} />
@@ -49,10 +56,10 @@ export default function Fuel() {
                 / {s.waterGoalMl} ml
               </T>
             </View>
-            <Btn label={`Glass +${s.glassMl}`} icon="water_drop" kind="blue" onPress={() => actions.addWater(s.glassMl)} />
+            <Btn label={`Glass +${s.glassMl}`} icon="water_drop" kind="blue" onPress={() => actions.addWater(s.glassMl, day)} />
             <Row>
-              <Btn label="Bottle +500" kind="ghost" small onPress={() => actions.addWater(500)} style={{ flex: 1 }} />
-              <Btn icon="undo" kind="ghost" small onPress={actions.undoWater} disabled={today.water.length === 0} />
+              <Btn label="Bottle +500" kind="ghost" small onPress={() => actions.addWater(500, day)} style={{ flex: 1 }} />
+              <Btn icon="undo" kind="ghost" small onPress={() => actions.undoWater(day)} disabled={shown.water.length === 0} />
             </Row>
           </View>
         </Row>
@@ -73,22 +80,22 @@ export default function Fuel() {
         </Row>
       </Card>
 
-      <CoffeeCard />
-      <FoodCard />
+      <CoffeeCard day={day} />
+      <FoodCard day={day} />
     </Screen>
   );
 }
 
-function CoffeeCard() {
+function CoffeeCard({ day }: { day: string }) {
   const { state, actions } = useStore();
   const s = state.settings;
-  const cups = coffeeOf(dayOf(state));
+  const cups = coffeeOf(dayOf(state, day));
   const over = cups.length > s.coffeeLimit;
   const [editing, setEditing] = useState<string | null>(null);
   const cup = cups.find((c) => c.id === editing);
   return (
     <Card accent={over ? C.red : C.yellow}>
-      <H right={<T dim small mono>{caffeineMg(dayOf(state))} mg caffeine</T>}>Coffee</H>
+      <H right={<T dim small mono>{caffeineMg(dayOf(state, day))} mg caffeine</T>}>Coffee</H>
       <Row gap={4} style={{ flexWrap: 'wrap', minHeight: 36 }}>
         {Array.from({ length: Math.max(s.coffeeLimit, cups.length) }, (_, i) => (
           <Icon key={i} name="coffee" size={32} color={i < cups.length ? (i >= s.coffeeLimit ? C.red : C.yellow) : C.card2} />
@@ -106,8 +113,8 @@ function CoffeeCard() {
         </Row>
       )}
       <Row>
-        <Btn label="+1 coffee" icon="coffee" onPress={actions.addCoffee} style={{ flex: 1 }} />
-        <Btn icon="undo" kind="ghost" small onPress={actions.undoCoffee} disabled={cups.length === 0} />
+        <Btn label="+1 coffee" icon="coffee" onPress={() => actions.addCoffee(day)} style={{ flex: 1 }} />
+        <Btn icon="undo" kind="ghost" small onPress={() => actions.undoCoffee(day)} disabled={cups.length === 0} />
       </Row>
       {cups.length > 0 ? (
         <T dim small>
@@ -119,8 +126,8 @@ function CoffeeCard() {
           key={cup.id}
           title="Edit coffee"
           at={cup.at}
-          onSave={(at) => actions.updateCoffee(cup.id, at)}
-          onDelete={() => actions.removeCoffee(cup.id)}
+          onSave={(at) => actions.updateCoffee(cup.id, at, day)}
+          onDelete={() => actions.removeCoffee(cup.id, day)}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -130,10 +137,10 @@ function CoffeeCard() {
 
 type Picked = { name: string; kcal100: number; protein100: number };
 
-function FoodCard() {
+function FoodCard({ day }: { day: string }) {
   const { state, actions, say } = useStore();
   const s = state.settings;
-  const today = dayOf(state);
+  const shownDay = dayOf(state, day);
   const [name, setName] = useState('');
   const [kcal, setKcal] = useState('');
   const [protein, setProtein] = useState('');
@@ -143,17 +150,17 @@ function FoodCard() {
   const [picked, setPicked] = useState<Picked | null>(null); // a Livsmedelsverket food, fills kcal/protein from grams
   const [grams, setGrams] = useState(100);
   const [looking, setLooking] = useState(false);
-  const meals = [...today.food].sort((a, b) => a.at - b.at);
+  const meals = [...shownDay.food].sort((a, b) => a.at - b.at);
   const meal = meals.find((f) => f.id === editing);
   const recent = recentFoods(state);
-  const k = kcalOf(today);
-  const p = proteinOf(today);
+  const k = kcalOf(shownDay);
+  const p = proteinOf(shownDay);
 
   const canLog = !!name.trim() || !!photo;
   const log = () => {
     if (!canLog) return;
     const label = picked ? `${picked.name} (${grams} g)` : name.trim() || 'Meal';
-    actions.addFood({ name: label, kcal: Number(kcal) || 0, protein: Number(protein) || 0, photo: photo ?? undefined });
+    actions.addFood({ name: label, kcal: Number(kcal) || 0, protein: Number(protein) || 0, photo: photo ?? undefined }, day);
     setName('');
     setKcal('');
     setProtein('');
@@ -217,7 +224,7 @@ function FoodCard() {
           </T>
           <Row gap={6} style={{ flexWrap: 'wrap' }}>
             {recent.map((f) => (
-              <Chip key={f.name} label={`${f.name} · ${f.protein}g`} onPress={() => actions.addFood({ name: f.name, kcal: f.kcal, protein: f.protein })} />
+              <Chip key={f.name} label={`${f.name} · ${f.protein}g`} onPress={() => actions.addFood({ name: f.name, kcal: f.kcal, protein: f.protein }, day)} />
             ))}
           </Row>
         </View>
@@ -273,9 +280,9 @@ function FoodCard() {
         <Btn icon="add" onPress={log} disabled={!canLog} />
       </Row>
 
-      {today.food.length === 0 ? (
+      {shownDay.food.length === 0 ? (
         <T dim small>
-          Nothing logged today.
+          Nothing logged {day === dayKey() ? 'today' : 'that day'}.
         </T>
       ) : (
         meals.map((f) => (
@@ -292,13 +299,13 @@ function FoodCard() {
                 {f.kcal} kcal · {f.protein}g
               </T>
             </Pressable>
-            <Pressable onPress={() => actions.removeFood(f.id)} hitSlop={8}>
+            <Pressable onPress={() => actions.removeFood(f.id, day)} hitSlop={8}>
               <Icon name="close" size={18} color={C.faint} />
             </Pressable>
           </Row>
         ))
       )}
-      {today.food.length > 0 ? (
+      {shownDay.food.length > 0 ? (
         <T dim small>
           Tap a meal to change its time or amounts.
         </T>
@@ -314,8 +321,8 @@ function FoodCard() {
             { key: 'kcal', label: 'Calories', value: meal.kcal, step: 10, min: 0, max: 5000, suffix: 'kcal' },
             { key: 'protein', label: 'Protein', value: meal.protein, step: 1, min: 0, max: 300, suffix: 'g' },
           ]}
-          onSave={(at, v) => actions.updateFood(meal.id, { at, name: v.name, kcal: v.numbers.kcal, protein: v.numbers.protein })}
-          onDelete={() => actions.removeFood(meal.id)}
+          onSave={(at, v) => actions.updateFood(meal.id, { at, name: v.name, kcal: v.numbers.kcal, protein: v.numbers.protein }, day)}
+          onDelete={() => actions.removeFood(meal.id, day)}
           onClose={() => setEditing(null)}
         />
       ) : null}

@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, Card, Chip, Field, H, Icon, Row, Stepper, T } from '@/components/ui';
 import { C } from '@/constants/theme';
+import { dayKey } from '@/lib/dates';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { Tracker } from '@/lib/types';
@@ -25,14 +26,14 @@ const KINDS: { kind: Tracker['kind']; label: string }[] = [
 ];
 
 /** Custom trackers: log anything; Insights checks it against sleep, mood and training. */
-export function TrackersCard() {
+export function TrackersCard({ day = dayKey() }: { day?: string }) {
   const { state, actions } = useStore();
   const [managing, setManaging] = useState(false);
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState(EMOJIS[0]);
   const [kind, setKind] = useState<Tracker['kind']>('scale');
   const [unit, setUnit] = useState('');
-  const values = dayOf(state).tracks ?? {};
+  const values = dayOf(state, day).tracks ?? {};
 
   const add = () => {
     if (!name.trim()) return;
@@ -74,7 +75,7 @@ export function TrackersCard() {
                   {t.emoji} {t.name}
                 </T>
                 {v != null ? (
-                  <Pressable onPress={() => actions.setTrack(t.id, null)} hitSlop={8}>
+                  <Pressable onPress={() => actions.setTrack(t.id, null, day)} hitSlop={8}>
                     <T dim small>
                       clear
                     </T>
@@ -84,16 +85,16 @@ export function TrackersCard() {
               {t.kind === 'scale' ? (
                 <Row gap={6}>
                   {[1, 2, 3, 4, 5].map((n) => (
-                    <Chip key={n} label={String(n)} active={v === n} color={C.purple} onPress={() => actions.setTrack(t.id, n)} />
+                    <Chip key={n} label={String(n)} active={v === n} color={C.purple} onPress={() => actions.setTrack(t.id, n, day)} />
                   ))}
                 </Row>
               ) : t.kind === 'check' ? (
                 <Row gap={6}>
-                  <Chip label="Yes" active={v === 1} color={C.green} onPress={() => actions.setTrack(t.id, 1)} />
-                  <Chip label="No" active={v === 0} color={C.card2} onPress={() => actions.setTrack(t.id, 0)} />
+                  <Chip label="Yes" active={v === 1} color={C.green} onPress={() => actions.setTrack(t.id, 1, day)} />
+                  <Chip label="No" active={v === 0} color={C.card2} onPress={() => actions.setTrack(t.id, 0, day)} />
                 </Row>
               ) : (
-                <Stepper value={v ?? 0} step={t.unit === 'h' ? 0.5 : 1} min={0} max={999} onChange={(x) => actions.setTrack(t.id, x)} format={(x) => `${x}${t.unit ? ` ${t.unit}` : ''}`} />
+                <Stepper value={v ?? 0} step={t.unit === 'h' ? 0.5 : 1} min={0} max={999} onChange={(x) => actions.setTrack(t.id, x, day)} format={(x) => `${x}${t.unit ? ` ${t.unit}` : ''}`} />
               )}
             </View>
           );

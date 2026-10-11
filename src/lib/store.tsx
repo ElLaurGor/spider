@@ -12,7 +12,7 @@ import { activityInfo } from './body';
 import { calendarPermission, calendarSupported, loadCalendars, loadEvents } from './calendar';
 import { coinsFor, rollChest, SHOP_ITEMS, type ShopItemId } from './economy';
 import { stageFor, themesUnlockedBetween } from './evolution';
-import { addDays, dayKey, fmtDuration, MIN, startOfDay, uid } from './dates';
+import { addDays, dayKey, fmtDuration, MIN, startOfDay, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, readHealth, type HealthData, type HealthStatus } from './health';
 import { habitsDone, habitsFor } from './habits';
@@ -93,6 +93,20 @@ const patchDay = (s: State, key: string, fn: (d: DayLog) => DayLog): State => ({
   ...s,
   days: { ...s.days, [key]: fn(dayOf(s, key)) },
 });
+
+/** A past day's key, or null for today. Back-dated entries earn no XP (and remove none); goal rewards stay today's. */
+const pastKey = (key?: string) => (key && key !== dayKey() ? key : null);
+
+/** Now's clock time on another day: where entries added to a past day land. */
+const nowOn = (key: string) => {
+  const d = new Date(`${key}T12:00`);
+  const now = new Date();
+  d.setHours(now.getHours(), now.getMinutes(), 0, 0);
+  return d.getTime();
+};
+
+const dayName = (key: string) => (key === dayKey(addDays(new Date(), -1)) ? 'yesterday' : WEEKDAYS_LONG[new Date(`${key}T12:00`).getDay()]);
+const backdated = (key: string, what: string): Msg => ({ text: `${what} added to ${dayName(key)}. Back-dated, so no XP.`, tone: 'info' });
 
 const bump = (s: State, counter: keyof State['counters'], by = 1): State => ({
   ...s,
@@ -699,7 +713,15 @@ function useStoreValue() {
       },
 
       // --- water ---
-      addWater(ml: number) {
+      addWater(ml: number, key?: string) {
+        const past = pastKey(key);
+        if (past) {
+          run((s, msgs) => {
+            msgs.push(backdated(past, `💧 ${ml} ml`));
+            return patchDay(s, past, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: nowOn(past) }] }));
+          });
+          return;
+        }
         run((s, msgs) => {
           const key = dayKey();
           let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: Date.now() }] }));
@@ -718,7 +740,12 @@ function useStoreValue() {
         });
       },
 
-      undoWater() {
+      undoWater(key?: string) {
+        const past = pastKey(key);
+        if (past) {
+          run((s) => patchDay(s, past, (d) => ({ ...d, water: d.water.slice(0, -1) })));
+          return;
+        }
         run((s, msgs) => {
           const d = dayOf(s);
           if (d.water.length === 0) return s;
@@ -729,7 +756,15 @@ function useStoreValue() {
       },
 
       // --- food ---
-      addFood(food: { name: string; kcal: number; protein: number; photo?: string }) {
+      addFood(food: { name: string; kcal: number; protein: number; photo?: string }, key?: string) {
+        const past = pastKey(key);
+        if (past) {
+          run((s, msgs) => {
+            msgs.push(backdated(past, `🍽️ ${food.name}`));
+            return patchDay(s, past, (d) => ({ ...d, food: [...d.food, { id: uid(), ...food, at: nowOn(past) }] }));
+          });
+          return;
+        }
         run((s, msgs) => {
           const key = dayKey();
           let next = patchDay(s, key, (d) => ({ ...d, food: [...d.food, { id: uid(), ...food, at: Date.now() }] }));
@@ -744,13 +779,16 @@ function useStoreValue() {
         });
       },
 
-      updateFood(id: string, patch: { at?: number; name?: string; kcal?: number; protein?: number }) {
-        run((s) => patchDay(s, dayKey(), (d) => ({ ...d, food: d.food.map((f) => (f.id === id ? { ...f, ...patch } : f)) })));
+      updateFood(id: string, patch: { at?: number; name?: string; kcal?: number; protein?: number }, key = dayKey()) {
+        run((s) => patchDay(s, key, (d) => ({ ...d, food: d.food.map((f) => (f.id === id ? { ...f, ...patch } : f)) })));
       },
 
-      removeFood(id: string) {
-        deletePhoto(dayOf(stateRef.current).food.find((f) => f.id === id)?.photo);
-        run((s, msgs) => reward(patchDay(s, dayKey(), (d) => ({ ...d, food: d.food.filter((f) => f.id !== id) })), msgs, -XP.food));
+      removeFood(id: string, key = dayKey()) {
+        deletePhoto(dayOf(stateRef.current, key).food.find((f) => f.id === id)?.photo);
+        run((s, msgs) => {
+          const next = patchDay(s, key, (d) => ({ ...d, food: d.food.filter((f) => f.id !== id) }));
+          return pastKey(key) ? next : reward(next, msgs, -XP.food);
+        });
       },
 
       // --- progress photos ---
@@ -772,7 +810,15 @@ function useStoreValue() {
       },
 
       // --- coffee ---
-      addCoffee() {
+      addCoffee(key?: string) {
+        const past = pastKey(key);
+        if (past) {
+          run((s, msgs) => {
+            msgs.push(backdated(past, '☕ A coffee'));
+            return patchDay(s, past, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: s.settings.caffeinePerCupMg, at: nowOn(past) }] }));
+          });
+          return;
+        }
         run((s, msgs) => {
           const key = dayKey();
           const { caffeinePerCupMg, coffeeLimit, coffeeCutoffHour } = s.settings;
@@ -786,18 +832,18 @@ function useStoreValue() {
         });
       },
 
-      undoCoffee() {
-        run((s) => patchDay(s, dayKey(), (d) => ({ ...d, coffee: coffeeOf(d).slice(0, -1) })));
+      undoCoffee(key = dayKey()) {
+        run((s) => patchDay(s, key, (d) => ({ ...d, coffee: coffeeOf(d).slice(0, -1) })));
       },
 
-      updateCoffee(id: string, at: number) {
+      updateCoffee(id: string, at: number, key = dayKey()) {
         run((s) =>
-          patchDay(s, dayKey(), (d) => ({ ...d, coffee: coffeeOf(d).map((c) => (c.id === id ? { ...c, at } : c)).sort((a, b) => a.at - b.at) })),
+          patchDay(s, key, (d) => ({ ...d, coffee: coffeeOf(d).map((c) => (c.id === id ? { ...c, at } : c)).sort((a, b) => a.at - b.at) })),
         );
       },
 
-      removeCoffee(id: string) {
-        run((s) => patchDay(s, dayKey(), (d) => ({ ...d, coffee: coffeeOf(d).filter((c) => c.id !== id) })));
+      removeCoffee(id: string, key = dayKey()) {
+        run((s) => patchDay(s, key, (d) => ({ ...d, coffee: coffeeOf(d).filter((c) => c.id !== id) })));
       },
 
       // --- timed training (Maskiner / Kondition / Fria vikter) ---
@@ -868,7 +914,16 @@ function useStoreValue() {
       },
 
       // --- mood ---
-      logMood(level: MoodLevel, emotions: string[], note: string) {
+      logMood(level: MoodLevel, emotions: string[], note: string, key?: string) {
+        const past = pastKey(key);
+        if (past) {
+          run((s, msgs) => {
+            msgs.push(backdated(past, `${moodInfo(level).emoji} A check-in`));
+            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: nowOn(past) };
+            return patchDay(s, past, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
+          });
+          return;
+        }
         run((s, msgs) => {
           const key = dayKey();
           const earlier = moodsOf(dayOf(s, key)).length;
@@ -880,8 +935,8 @@ function useStoreValue() {
         });
       },
 
-      removeMood(id: string) {
-        run((s) => patchDay(s, dayKey(), (d) => ({ ...d, moods: moodsOf(d).filter((m) => m.id !== id) })));
+      removeMood(id: string, key = dayKey()) {
+        run((s) => patchDay(s, key, (d) => ({ ...d, moods: moodsOf(d).filter((m) => m.id !== id) })));
       },
 
       // --- gym ---
@@ -1244,9 +1299,9 @@ function useStoreValue() {
         run((s) => ({ ...s, trackers: s.trackers.filter((t) => t.id !== id) }));
       },
 
-      setTrack(id: string, value: number | null) {
+      setTrack(id: string, value: number | null, key = dayKey()) {
         run((s) =>
-          patchDay(s, dayKey(), (d) => {
+          patchDay(s, key, (d) => {
             const tracks = { ...(d.tracks ?? {}) };
             if (value == null) delete tracks[id];
             else tracks[id] = value;
