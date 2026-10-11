@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { atTime, dayKey, fmtClock, fmtDuration, MIN } from '../src/lib/dates';
 import { defaultState, hydrate } from '../src/lib/defaults';
-import { LINES, line } from '../src/lib/lines';
+import { freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
 import {
   avgMood,
   caffeineMg,
@@ -517,4 +517,19 @@ console.log('all logic tests passed');
   r0.days[dayKey(atTime(new Date(), -9, 12))] = { ...fullDay(9), water: [] };
   assert.equal(respectFor(r0)?.score, r?.score);
   for (const t of RESPECT) assert.ok(t.line in LINES, t.line);
+}
+
+// fresh lines: no line repeats within half its pool's size; golden lines have unique ids and known placeholders
+{
+  const pool = LINES.waterLogged.savage;
+  const window = Math.floor(pool.length / 2);
+  const picks = Array.from({ length: 200 }, () => freshLine('waterLogged', 10, { name: 'X', ml: 250 }));
+  for (let i = window; i < picks.length; i++) {
+    assert.ok(!picks.slice(i - window, i).includes(picks[i]), `repeat within ${window}: ${picks[i]}`);
+  }
+  assert.ok(new Set(picks).size === pool.length, 'every line still gets its turn');
+  assert.equal(new Set(GOLDEN.map((g) => g.id)).size, GOLDEN.length);
+  for (const g of GOLDEN) {
+    for (const m of g.text.matchAll(/\{(\w+)\}/g)) assert.equal(m[1], 'name', `${g.id}: only {name} is passed`);
+  }
 }

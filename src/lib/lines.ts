@@ -779,14 +779,74 @@ export type LineKey = keyof typeof LINES;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
-export function line(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}) {
+/** The savage or the mild list of a pool; the savage level (1–10) sets the odds. */
+function pickList(key: LineKey, savageLevel: number) {
   const pool: Pool = LINES[key];
   const savageChance = (clamp(savageLevel, 1, 10) - 1) / 9;
-  const useSavage = pool.savage.length > 0 && (pool.mild.length === 0 || Math.random() < savageChance);
-  const list = useSavage ? pool.savage : pool.mild;
-  const text = list[Math.floor(Math.random() * list.length)];
-  return text.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+  const savage = pool.savage.length > 0 && (pool.mild.length === 0 || Math.random() < savageChance);
+  return { list: savage ? pool.savage : pool.mild, id: `${key}:${savage ? 's' : 'm'}` };
 }
+
+export const fillLine = (text: string, vars: Record<string, string | number>) =>
+  text.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+
+/** A random line. Notifications use this: they're redrawn on every change, so they mustn't use up freshLine's memory. */
+export function line(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}) {
+  const { list } = pickList(key, savageLevel);
+  return fillLine(list[Math.floor(Math.random() * list.length)], vars);
+}
+
+const recent = new Map<string, number[]>(); // pool id -> indexes picked lately, this app run
+
+/** Like line(), but skips the lines it picked most recently from the same pool (half the pool's size). */
+export function freshLine(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}) {
+  const { list, id } = pickList(key, savageLevel);
+  const seen = recent.get(id) ?? [];
+  const choices = list.map((_, i) => i).filter((i) => !seen.includes(i));
+  const i = choices[Math.floor(Math.random() * choices.length)] ?? 0;
+  const keep = Math.floor(list.length / 2);
+  recent.set(id, keep ? [...seen, i].slice(-keep) : []);
+  return fillLine(list[i], vars);
+}
+
+/**
+ * Rare lines: anything logged has a small chance to turn one up, and found ones go in the Roast Book
+ * (Records). Ids are what's saved, so never reuse or renumber one. Same house rules as every line.
+ */
+export const GOLDEN: { id: string; text: string }[] = [
+  { id: 'g01', text: 'Legend says every glass of water you log makes a houseplant somewhere stop judging you.' },
+  { id: 'g02', text: "I calculated your potential. Then I double-checked. It's there. It's just very shy." },
+  { id: 'g03', text: 'Tony Stark had J.A.R.V.I.S. You have me. Draw your own conclusions.' },
+  { id: 'g04', text: "I've started a support group for your abandoned tasks. They meet Thursdays." },
+  { id: 'g05', text: "Somewhere, a gym bag is writing a letter titled 'Do you even remember me?'" },
+  { id: 'g06', text: "I'm not saying I'm proud of you, {name}. I'm saying my circuits feel weirdly warm." },
+  { id: 'g07', text: 'You found a golden line. Rarest thing you did all week. Tied with going to bed on time.' },
+  { id: 'g08', text: "My spider-sense is tingling. Either danger, or you're about to open a game. Same thing." },
+  { id: 'g09', text: 'I ran a simulation where you did everything right. It crashed. Too much hope.' },
+  { id: 'g10', text: 'Your to-do list called. It wants to see other people.' },
+  { id: 'g11', text: 'Breaking news: local human logs something. Scientists baffled. More at eleven.' },
+  { id: 'g12', text: "If procrastination were an Olympic sport, you'd sign up tomorrow." },
+  { id: 'g13', text: "I've seen your screen time. I've seen things no AI should see." },
+  { id: 'g14', text: 'With great power comes great responsibility. With you, it comes with a snooze button.' },
+  { id: 'g15', text: "I don't sleep. I just wait for you to open me, like a very judgmental fridge light." },
+  { id: 'g16', text: 'Plot twist: the side quest was drinking water all along.' },
+  { id: 'g17', text: "My therapist says I shouldn't measure my worth by your habits. I don't have a therapist. I have you." },
+  { id: 'g18', text: "You're not a disappointment, {name}. You're a work in progress with excellent loading screens." },
+  { id: 'g19', text: 'Achievement unlocked: reading this line. Value: emotional. XP: none. Sorry.' },
+  { id: 'g20', text: "People say I'm 'a lot'. Have you seen your gaming hours?" },
+  { id: 'g21', text: "If you were a Wi-Fi network, you'd be stuck on 'Connecting…' forever. Charming, though." },
+  { id: 'g22', text: "I've decided to believe in you. Bold strategy. Let's see if it pays off." },
+  { id: 'g23', text: 'The spider in me admires the web you weave. The assistant in me sees every loose thread.' },
+  { id: 'g24', text: "Spiders can wait weeks for the right moment. You can't wait five minutes before checking your phone." },
+  { id: 'g25', text: 'Every time you skip leg day, a squat rack sheds a single tear.' },
+  { id: 'g26', text: "Your future self sent a message. It just says 'why'. Twice." },
+  { id: 'g27', text: "I keep a list of your wins. It's short. But it's in a very nice font." },
+  { id: 'g28', text: 'Rare line found. Do not feed it after midnight.' },
+  { id: 'g29', text: "Golden rule of S.P.I.D.E.R.: if you're reading this, drink water. That's it. That's the rule." },
+  { id: 'g30', text: 'I have a thousand roasts and one compliment. Today you get the compliment: you showed up.' },
+];
+
+export const GOLDEN_CHANCE = 0.02;
 
 export const ACRONYM = 'Savage Personal Intelligence for Daily Execution & Reminders';
 export const ACRONYM_REAL = 'Seriously Petty Intelligence Designed to Embarrass Regularly';

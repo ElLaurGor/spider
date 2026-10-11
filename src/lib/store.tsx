@@ -17,7 +17,7 @@ import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, readHealth, type HealthData, type HealthStatus } from './health';
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
-import { line, type LineKey } from './lines';
+import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, type LineKey } from './lines';
 import { moodInfo } from './mood';
 import {
   cancelEverything,
@@ -80,7 +80,7 @@ type Msg = { text: string; tone: Tone };
 // ---------- pure state helpers ----------
 
 const L = (s: State, key: LineKey, vars: Record<string, string | number> = {}) =>
-  line(key, effectiveSavage(s), { name: s.settings.userName || 'boss', ...vars });
+  freshLine(key, effectiveSavage(s), { name: s.settings.userName || 'boss', ...vars });
 
 const patchDay = (s: State, key: string, fn: (d: DayLog) => DayLog): State => ({
   ...s,
@@ -212,6 +212,17 @@ function checkRespect(s: State, msgs: Msg[]): State {
   return { ...s, respectTier: tier };
 }
 
+/** Anything that got a reaction has a small chance to turn up a golden line for the Roast Book. Not while going easy. */
+function checkGolden(s: State, msgs: Msg[]): State {
+  if (!msgs.length || effectiveSavage(s) < s.settings.savageLevel || Math.random() >= GOLDEN_CHANCE) return s;
+  const found = s.goldenFound ?? {};
+  const fresh = GOLDEN.filter((g) => !found[g.id]);
+  const g = (fresh.length ? fresh : GOLDEN)[Math.floor(Math.random() * (fresh.length || GOLDEN.length))];
+  const text = fillLine(g.text, { name: s.settings.userName || 'boss' });
+  msgs.push({ text: `✨ Golden line${fresh.length ? ` (${Object.keys(found).length + 1}/${GOLDEN.length})` : ''}: ${text}`, tone: 'epic' });
+  return fresh.length ? { ...s, goldenFound: { ...found, [g.id]: Date.now() } } : s;
+}
+
 /** The first training of the day counts as a workout: XP, bonus gaming time, counter. */
 function startWorkout(s: State, msgs: Msg[]): State {
   const key = dayKey();
@@ -319,7 +330,7 @@ function useStoreValue() {
     (fn: (s: State, msgs: Msg[]) => State) => {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
-      const next = checkRespect(checkAchievements(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs), msgs);
+      const next = checkGolden(checkRespect(checkAchievements(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone));
       // Earned bonus minutes mid-session move the gaming alerts.

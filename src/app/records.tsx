@@ -2,6 +2,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
+import { fillLine, GOLDEN, GOLDEN_CHANCE } from '@/lib/lines';
 import { hallOfFame, type Rec } from '@/lib/records';
 import { useStore } from '@/lib/store';
 import { SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
@@ -9,6 +10,8 @@ import { SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
 export default function RecordsScreen() {
   const { state } = useStore();
   const { fame, shame } = hallOfFame(state);
+  const found = state.goldenFound ?? {};
+  const golden = GOLDEN.filter((g) => found[g.id]).sort((a, b) => found[b.id] - found[a.id]);
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
       <Card accent={C.yellow}>
@@ -36,6 +39,29 @@ export default function RecordsScreen() {
             </Row>
           );
         })}
+      </Card>
+
+      <Card accent={C.yellow}>
+        <H right={<T dim small>{`${golden.length}/${GOLDEN.length}`}</T>}>✨ Roast Book</H>
+        <T dim small>
+          Golden lines. Anything you log has a {Math.round(GOLDEN_CHANCE * 100)}% chance to turn one up. Not while I&apos;m going easy on you.
+        </T>
+        {golden.map((g) => (
+          <Row key={g.id} style={{ alignItems: 'flex-start' }}>
+            <Text style={{ fontSize: 16, width: 24 }}>✨</Text>
+            <View style={{ flex: 1 }}>
+              <T>{fillLine(g.text, { name: state.settings.userName || 'boss' })}</T>
+              <T dim small>
+                found {new Date(found[g.id]).toLocaleDateString('sv-SE')}
+              </T>
+            </View>
+          </Row>
+        ))}
+        {golden.length < GOLDEN.length ? (
+          <T dim small>
+            {GOLDEN.length - golden.length} still hiding.
+          </T>
+        ) : null}
       </Card>
 
       {shame.length > 0 ? (
