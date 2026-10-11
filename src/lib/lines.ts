@@ -66,6 +66,28 @@ export const LINES = {
       "Error 404: {name}'s discipline not found.",
     ],
   },
+  // Seasons (seasons.ts): greetings on HQ while one is on.
+  seasonHalloween: {
+    mild: ['Happy spooky season, {name}! 🎃 The quests dressed up. So did the boss.', 'Spooky season is here. Seasonal quests are up.'],
+    savage: [
+      "It's spooky season, {name}. The scariest thing in this app is still your screen time.",
+      "Halloween is the spider's holiday. Show some respect. Drink some water.",
+      'Boo. Did that scare you? Your to-do list should.',
+      'Spooky season, {name}. The boss is haunted. So is your task list.',
+    ],
+  },
+  seasonLucia: {
+    mild: ['Glad Lucia, {name}! 🕯️ Bring a little light today.'],
+    savage: ['Glad Lucia, {name}. Saffron buns are mandatory. I checked. The quest is optional. Barely.', "Lucia brings the light. You bring… let's see."],
+  },
+  seasonSolstice: {
+    mild: ['Darkest day of the year, {name}. From tomorrow the light comes back. 🌑'],
+    savage: ['Shortest day of the year. Your excuses should be short too.', "Winter solstice. It can't get any darker than this. Promise."],
+  },
+  firstSnow: {
+    mild: ['❄️ First snow of the winter today! Dress warm, {name}.'],
+    savage: ['❄️ First snow of the winter. Nature is doing your leg day for you: shovelling.', '❄️ It snows today. Your excuse to skip the walk just got prettier.'],
+  },
   // Tap lines by respect tier (the 7-day average day score), 0 = lowest. Low tiers stay playful.
   respect0: {
     mild: ["Rough week. Today's a fresh start, {name}.", "I still believe in you. Let's get one good day in."],

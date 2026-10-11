@@ -33,6 +33,7 @@ import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS } from '../src/lib/que
 import { habitsFor } from '../src/lib/habits';
 import { weekReport, gradeOf, dayScoreFor } from '../src/lib/report';
 import { RESPECT, respectFor } from '../src/lib/respect';
+import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
 import { describe as wx, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
 
@@ -447,9 +448,9 @@ assert.equal(Math.round(gamingUsedMs(sc) / 60_000), 40);
 sc.settings.phoneGamesCount = false;
 assert.equal(gamingUsedMs(sc), 0);
 
-// secret achievements: 20, unique, none unlocked on a fresh state, some trigger correctly
-assert.equal(SECRET_ACHIEVEMENTS.length, 20);
-assert.equal(new Set(SECRET_ACHIEVEMENTS.map((a) => a.id)).size, 20);
+// secret achievements: 22, unique, none unlocked on a fresh state, some trigger correctly
+assert.equal(SECRET_ACHIEVEMENTS.length, 22);
+assert.equal(new Set(SECRET_ACHIEVEMENTS.map((a) => a.id)).size, 22);
 assert.equal(SECRET_ACHIEVEMENTS.filter((a) => a.test(defaultState())).length, 0);
 const sec = defaultState();
 const at3 = atTime(new Date(), -1, 3).getTime();
@@ -557,4 +558,33 @@ console.log('all logic tests passed');
   // when this week's boss is weak to the day, the bonus equals the day's XP
   const now = bossFor(b);
   assert.equal(now.bonus, WEAKNESS[now.id].hit(b, b.days[k], k) ? 100 : 0);
+}
+
+// seasons: dates, one seasonal quest a day in season, Halloween boss skins, seasonal secrets, first snow per winter
+{
+  assert.equal(seasonOn(new Date(2026, 9, 23)), null);
+  assert.equal(seasonOn(new Date(2026, 9, 24))?.id, 'halloween');
+  assert.equal(seasonOn(new Date(2026, 10, 1, 23, 59))?.id, 'halloween');
+  assert.equal(seasonOn(new Date(2026, 10, 2)), null);
+  assert.equal(seasonOn(new Date(2026, 11, 13))?.id, 'lucia');
+  assert.equal(seasonOn(new Date(2026, 11, 21))?.id, 'solstice');
+  assert.equal(seasonOn(new Date(2026, 11, 22)), null);
+  for (const id of ['halloween', 'lucia', 'solstice'] as const) {
+    const day = { halloween: new Date(2026, 9, 31, 12), lucia: new Date(2026, 11, 13, 12), solstice: new Date(2026, 11, 21, 12) }[id];
+    assert.ok(seasonOn(day)!.line in LINES);
+    const picks = pickQuests(defaultState(), day);
+    assert.equal(picks.length, 3);
+    assert.equal(picks.filter((q) => /^(hw_|lucia_|solstice_)/.test(q)).length, 1, `${id}: ${picks}`);
+  }
+  assert.ok(!pickQuests(defaultState(), new Date(2026, 9, 11, 12)).some((q) => /^(hw_|lucia_|solstice_)/.test(q)));
+  const hw = bossFor(defaultState(), new Date(2026, 9, 31, 12));
+  const plainWeek = bossFor(defaultState(), new Date(2026, 9, 31 - 14, 12));
+  assert.notEqual(hw.name, BOSSES.find((b) => b.id === hw.id)!.name);
+  assert.equal(plainWeek.name, BOSSES.find((b) => b.id === plainWeek.id)!.name);
+  const haunted = SECRET_ACHIEVEMENTS.find((a) => a.id === 's_haunted_hero')!;
+  assert.ok(haunted.test({ ...defaultState(), bossesDefeated: { '2026-10-26': 'procrastinator' } }));
+  assert.ok(!haunted.test({ ...defaultState(), bossesDefeated: { '2026-10-12': 'procrastinator' } }));
+  assert.equal(winterOf(new Date(2026, 10, 20)), '2026');
+  assert.equal(winterOf(new Date(2027, 2, 1)), '2026');
+  assert.ok(isSnow(73) && !isSnow(61));
 }

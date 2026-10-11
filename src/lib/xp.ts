@@ -1,5 +1,7 @@
 import type { AndroidSymbol } from 'expo-symbols';
 
+import { addDays } from './dates';
+import { seasonOn } from './seasons';
 import { coffeeOf, gamingUsedMs, moodDays, moodsOf, totalCoffees, trainedOn, waterMl } from './selectors';
 import type { State } from './types';
 
@@ -145,4 +147,20 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
   },
   { id: 's_data_nerd', title: 'Data Nerd', desc: '3+ custom trackers logged in one day', hint: 'Track all the things.', icon: 'insights', test: (s) => allDays(s).some(([, d]) => Object.keys(d.tracks ?? {}).length >= 3) },
   { id: 's_old_friend', title: 'Old Friend', desc: '30 different days with S.P.I.D.E.R.', hint: 'Thirty days of us.', icon: 'favorite', test: (s) => Object.keys(s.days).length >= 30 },
+  {
+    id: 's_haunted_hero',
+    title: 'Haunted Hero',
+    desc: 'Beat the boss during spooky season',
+    hint: 'Something wicked this way comes. In October.',
+    icon: 'skull',
+    test: (s) => Object.keys(s.bossesDefeated).some((week) => Array.from({ length: 7 }, (_, i) => seasonOn(addDays(new Date(`${week}T12:00`), i))?.id).includes('halloween')),
+  },
+  {
+    id: 's_light_bringer',
+    title: 'Light Bringer',
+    desc: 'Every quest done on Lucia',
+    hint: 'Light in the darkest month. Wear a candle crown.',
+    icon: 'candle',
+    test: (s) => allDays(s).some(([k, d]) => !!d.questsAllDone && seasonOn(new Date(`${k}T12:00`))?.id === 'lucia'),
+  },
 ];

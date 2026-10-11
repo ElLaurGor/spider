@@ -34,6 +34,7 @@ import {
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, pickQuests, questsFor } from './quests';
 import { respectFor } from './respect';
+import { isSnow, winterOf } from './seasons';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
 import {
   activitiesOf,
@@ -485,10 +486,17 @@ function useStoreValue() {
       const w = await fetchWeather(place);
       weatherAt.current = w.fetchedAt;
       setWeather(w);
+      // The winter's first snow, announced once.
+      if ((isSnow(w.code) || isSnow(w.days[0]?.code ?? 0)) && stateRef.current.firstSnow !== winterOf()) {
+        run((s, msgs) => {
+          msgs.push({ text: L(s, 'firstSnow'), tone: 'info' });
+          return { ...s, firstSnow: winterOf() };
+        });
+      }
     } catch (e) {
       console.warn('[spider] weather failed', e);
     }
-  }, []);
+  }, [run]);
   const placeKey = state.settings.weather ? `${state.settings.weather.lat},${state.settings.weather.lon}` : '';
   useEffect(() => {
     if (!ready) return;

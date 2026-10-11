@@ -186,6 +186,7 @@ export type State = {
   lastBackupAt: number | null;
   respectTier?: number | null; // last respect tier seen (lib/respect.ts), to announce it going up
   goldenFound?: Record<string, number>; // golden line id (lib/lines.ts GOLDEN) -> found at, for the Roast Book
+  firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
 };
 
 export type CalEvent = {

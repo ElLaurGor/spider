@@ -11,7 +11,7 @@ import { Bar, Btn, Card, H, Icon, Row, Screen, SpiderSays, T, useNow } from '@/c
 import { OutsideAlerts } from '@/components/outside-alerts';
 import { WeatherRow } from '@/components/weather-row';
 import { C, MONO } from '@/constants/theme';
-import { fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
+import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { ACRONYM, type LineKey } from '@/lib/lines';
 import { cycleInfo, sleepInfo } from '@/lib/body';
 import { nextStage, stageFor } from '@/lib/evolution';
@@ -19,6 +19,7 @@ import { insightOfTheDay } from '@/lib/insights';
 import { moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
 import { respectFor } from '@/lib/respect';
+import { seasonOn } from '@/lib/seasons';
 import {
   avgMood,
   caffeineMg,
@@ -46,9 +47,15 @@ const GREETING: Record<ReturnType<typeof timeOfDay>, LineKey> = {
   night: 'greetNight',
 };
 
+/** The greeting for now: in season, half the time the season's own. */
+function greetingKey(): LineKey {
+  const season = seasonOn();
+  return season && Math.random() < 0.5 ? season.line : GREETING[timeOfDay()];
+}
+
 export default function HQ() {
   const { state, actions, quip, cal, health } = useStore();
-  const [bubble, setBubble] = useState(() => quip(GREETING[timeOfDay()]));
+  const [bubble, setBubble] = useState(() => quip(greetingKey()));
   const now = useNow(30_000);
 
   const s = state.settings;
@@ -61,6 +68,7 @@ export default function HQ() {
   const budgetMin = gamingBudgetMin(state);
   const score = dayScoreFor(state, new Date(now));
   const respect = respectFor(state);
+  const season = seasonOn(now);
   const week = workoutsThisWeek(state);
   const openTasks = state.tasks.filter((t) => !t.done);
   const upcoming = eventsOn(cal.events, now).filter((e) => e.end > now && !e.allDay).slice(0, 3);
@@ -106,6 +114,21 @@ export default function HQ() {
           </View>
           <Icon name="chevron_right" color={C.dim} />
         </Pressable>
+      ) : null}
+
+      {season ? (
+        <View style={styles.banner}>
+          <Text style={{ fontSize: 26 }}>{season.emoji}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bannerTitle}>
+              {season.name}
+              {dayKey(season.lastDay) !== dayKey(now) ? ` · until ${season.lastDay.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · today'}
+            </Text>
+            <T dim small>
+              {season.about}
+            </T>
+          </View>
+        </View>
       ) : null}
 
       <Card accent={C.red}>

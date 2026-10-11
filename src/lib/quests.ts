@@ -14,6 +14,7 @@ import {
   waterMl,
   workoutFor,
 } from './selectors';
+import { seasonOn, type SeasonId } from './seasons';
 import type { DayLog, State } from './types';
 import { levelForXp } from './xp';
 
@@ -28,11 +29,16 @@ export type Quest = {
 type QuestDef = {
   id: string;
   xp: number;
+  season?: SeasonId; // only during that season, and then one of the day's three is always seasonal
   available: (s: State, date: Date) => boolean;
   build: (s: State, d: DayLog, date: Date) => { title: string; progress: number; target: number };
 };
 
 const before = (d: DayLog, hour: number) => d.water.filter((w) => new Date(w.at).getHours() < hour).length;
+const tasksDoneOn = (s: State, date: Date) => s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === dayKey(date)).length;
+const hasSteps = (s: State) => Object.values(s.days).some((d) => d.steps != null);
+const loggedBefore8 = (d: DayLog) =>
+  [...d.water, ...d.food, ...d.sets, ...(d.coffee ?? []), ...(d.moods ?? []), ...(d.activities ?? [])].some((x) => new Date(x.at).getHours() < 8);
 
 const QUESTS: QuestDef[] = [
   { id: 'water_noon', xp: 20, available: () => true, build: (_s, d) => ({ title: 'Drink 3 glasses before 12:00', progress: before(d, 12), target: 3 }) },
@@ -75,7 +81,7 @@ const QUESTS: QuestDef[] = [
     available: (s) => s.tasks.some((t) => !t.done),
     build: (s, _d, date) => ({
       title: 'Finish 3 tasks',
-      progress: s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === dayKey(date)).length,
+      progress: tasksDoneOn(s, date),
       target: 3,
     }),
   },
@@ -104,6 +110,33 @@ const QUESTS: QuestDef[] = [
       target: 1,
     }),
   },
+
+  // ---- seasonal (seasons.ts) ----
+  { id: 'hw_potion', xp: 30, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Brew the potion: 4 glasses of water before 15:00', progress: before(d, 15), target: 4 }) },
+  {
+    id: 'hw_crypt',
+    xp: 30,
+    season: 'halloween',
+    available: () => true,
+    build: (_s, d) => ({ title: '🎃 Escape the crypt: train, or walk 8 000 steps', progress: trainedOn(d) || (d.steps ?? 0) >= 8000 ? 1 : 0, target: 1 }),
+  },
+  {
+    id: 'hw_exorcise',
+    xp: 30,
+    season: 'halloween',
+    available: (s) => s.tasks.some((t) => !t.done),
+    build: (s, _d, date) => ({ title: '🎃 Exorcise 2 tasks from your list', progress: tasksDoneOn(s, date), target: 2 }),
+  },
+  { id: 'hw_seance', xp: 25, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Hold a séance: check in your mood', progress: moodsOf(d).length, target: 1 }) },
+  { id: 'lucia_light', xp: 40, season: 'lucia', available: () => true, build: (_s, d) => ({ title: '🕯️ Bring the light: log something before 08:00', progress: loggedBefore8(d) ? 1 : 0, target: 1 }) },
+  { id: 'solstice_walk', xp: 40, season: 'solstice', available: hasSteps, build: (_s, d) => ({ title: '🌑 Darkest day: walk 5 000 steps anyway', progress: d.steps ?? 0, target: 5000 }) },
+  {
+    id: 'solstice_water',
+    xp: 40,
+    season: 'solstice',
+    available: (s) => !hasSteps(s),
+    build: (s, d) => ({ title: '🌑 Darkest day: hit your water goal anyway', progress: waterMl(d), target: s.settings.waterGoalMl }),
+  },
 ];
 
 const hash = (str: string) => {
@@ -112,13 +145,14 @@ const hash = (str: string) => {
   return h >>> 0;
 };
 
-/** Picks 3 quests for a day; the same day always gets the same picks. */
+/** Picks 3 quests for a day (one seasonal, in season); the same day always gets the same picks. */
 export function pickQuests(s: State, date = new Date()) {
   const key = dayKey(date);
-  const pool = QUESTS.filter((q) => q.available(s, date));
-  return pool
-    .map((q) => ({ id: q.id, r: hash(`${key}:${q.id}`) }))
-    .sort((a, b) => a.r - b.r)
+  const season = seasonOn(date)?.id;
+  const pool = QUESTS.filter((q) => (!q.season || q.season === season) && q.available(s, date));
+  const ranked = (qs: QuestDef[]) => qs.map((q) => ({ id: q.id, r: hash(`${key}:${q.id}`) })).sort((a, b) => a.r - b.r);
+  const seasonal = ranked(pool.filter((q) => q.season)).slice(0, 1);
+  return [...seasonal, ...ranked(pool.filter((q) => !q.season))]
     .slice(0, 3)
     .map((q) => q.id);
 }
@@ -151,9 +185,6 @@ export const BOSSES = [
 
 export const weekKey = (date: Date | number = new Date()) => dayKey(startOfWeek(date));
 
-const loggedBefore8 = (d: DayLog) =>
-  [...d.water, ...d.food, ...d.sets, ...(d.coffee ?? []), ...(d.moods ?? []), ...(d.activities ?? [])].some((x) => new Date(x.at).getHours() < 8);
-
 /** Each boss's weakness: on days that meet it, the XP earned that day hits it twice. Nothing food-related. */
 export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hit: (s: State, d: DayLog, key: string) => boolean }> = {
   procrastinator: { label: 'finishing tasks', hit: (s, _d, key) => s.tasks.some((t) => t.done && t.doneAt && dayKey(t.doneAt) === key) },
@@ -166,11 +197,24 @@ export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hi
   binge: { label: 'staying within your gaming budget', hit: (s, _d, key) => gamingUsedMs(s, key) <= gamingBudgetMin(s, key) * 60_000 },
 };
 
+/** Every boss dresses up for spooky season. Same boss underneath (id, weakness, taunts). */
+const HALLOWEEN: Record<(typeof BOSSES)[number]['id'], { name: string; emoji: string }> = {
+  procrastinator: { name: 'The Procrastimummy', emoji: '🧟' },
+  couch_goblin: { name: 'The Couch Ghoul', emoji: '👻' },
+  doomscroll: { name: 'Count Doomscrollula', emoji: '🧛' },
+  snooze: { name: 'The Snooze Banshee', emoji: '😱' },
+  dehydration: { name: 'Captain Dehydration, Skeleton Crew', emoji: '💀' },
+  leg_day: { name: 'Sir Skips-Leg-Day the Headless', emoji: '🎃' },
+  sugar_baron: { name: 'The Sugar Phantom', emoji: '🕯️' },
+  binge: { name: 'The Binge Necromancer, Unholy Edition', emoji: '⚰️' },
+};
+
 export function bossFor(s: State, date: Date | number = new Date()) {
   const monday = startOfWeek(date);
   const weekIndex = Math.floor(monday.getTime() / (7 * 86_400_000));
-  const boss = BOSSES[weekIndex % BOSSES.length];
-  const weakness = WEAKNESS[boss.id];
+  const base = BOSSES[weekIndex % BOSSES.length];
+  const boss = seasonOn(date)?.id === 'halloween' ? { ...base, ...HALLOWEEN[base.id] } : base;
+  const weakness = WEAKNESS[base.id];
   let healed = 0;
   let damage = 0;
   let bonus = 0; // extra damage from days that hit the weakness
