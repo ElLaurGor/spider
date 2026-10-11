@@ -81,6 +81,8 @@ export type CoffeeEntry = { id: string; mg: number; at: number };
 export type MoodLevel = 1 | 2 | 3 | 4 | 5;
 export type MoodEntry = { id: string; level: MoodLevel; emotions: string[]; note?: string; at: number };
 
+export type DayWeather = { max: number; min: number; rainMm: number; sunMin: number; code: number }; // Open-Meteo, for Insights
+
 export type DayLog = {
   water: WaterEntry[];
   food: FoodEntry[];
@@ -99,6 +101,7 @@ export type DayLog = {
   windDownDone?: boolean;
   tracks?: Record<string, number>; // custom tracker values (check = 1/0)
   screen?: ScreenDay; // phone usage from Android usage stats (APK 1.3.0+)
+  weather?: DayWeather; // that day's weather (filled in for days you used the app)
   air?: { aqi: number; pollen: Partial<Record<'alder' | 'birch' | 'grass' | 'mugwort' | 'ragweed', number>> }; // daily max, for Insights
   moods?: MoodEntry[];
   bonusGameMin: number;

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { foodNutrients, loadFoods, searchFoods } from '../src/lib/food-db';
 import { fetchAir, fetchSmhi, fetchVma } from '../src/lib/outside';
-import { fetchWeather, findPlace, rainNote, withCounty } from '../src/lib/weather';
+import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } from '../src/lib/weather';
 
 (async () => {
   for (const q of ['Stockholm', 'Göteborg', 'Malmö', 'Uppsala', 'Kiruna']) {
@@ -20,6 +20,10 @@ import { fetchWeather, findPlace, rainNote, withCounty } from '../src/lib/weathe
   console.log('weather today', t.date, `sun ${new Date(t.sunrise).toTimeString().slice(0, 5)}-${new Date(t.sunset).toTimeString().slice(0, 5)}`, `${t.daylightMin} min daylight, ${t.sunshineMin} min sun, ${t.rainMm} mm`);
   console.log('rain next hours', wx.soon.length, 'slots ->', rainNote(wx.soon) ?? 'dry');
   assert.ok(t.sunrise < t.sunset && t.daylightMin > 0 && wx.soon.length > 0);
+  const past = await fetchWeatherHistory({ name: 'Stockholm', lat: 59.33, lon: 18.07 }, 60);
+  const pastKeys = Object.keys(past);
+  console.log('weather history', pastKeys.length, 'days,', pastKeys[0], JSON.stringify(past[pastKeys[0]]));
+  assert.ok(pastKeys.length >= 60);
 
   const air = await fetchAir({ name: 'Stockholm', lat: 59.33, lon: 18.07 });
   console.log('air now', { aqi: air.aqi, pm25: air.pm25, pm10: air.pm10, uv: air.uv }, 'days', air.days.length);

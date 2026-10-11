@@ -70,7 +70,7 @@ import type {
   Weekday,
   WorkoutDay,
 } from './types';
-import { fetchWeather, withCounty, type Weather } from './weather';
+import { dayWeatherOf, fetchWeather, fetchWeatherHistory, withCounty, type Weather } from './weather';
 import { ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, type Air, type Alert } from './outside';
 import { ACHIEVEMENTS, BONUS_MIN, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
 
@@ -496,6 +496,7 @@ function useStoreValue() {
   // ----- weather -----
   const [weather, setWeather] = useState<Weather | null>(null);
   const weatherAt = useRef(0);
+  const historyDone = useRef(false); // past days' weather filled in once per app run
   const refreshWeather = useCallback(async (force = false) => {
     const place = stateRef.current.settings.weather;
     if (!place) {
@@ -507,6 +508,25 @@ function useStoreValue() {
       const w = await fetchWeather(place);
       weatherAt.current = w.fetchedAt;
       setWeather(w);
+      // Remember each day's weather for Insights: today from the forecast, then once per run, the past
+      // 60 days you used the app (yesterday again too, now that it's measured rather than forecast).
+      const key = dayKey();
+      const forecast = w.days.find((d) => d.date === key);
+      if (forecast && JSON.stringify(dayOf(stateRef.current, key).weather) !== JSON.stringify(dayWeatherOf(forecast))) {
+        run((s) => patchDay(s, key, (d) => ({ ...d, weather: dayWeatherOf(forecast) })));
+      }
+      if (!historyDone.current) {
+        historyDone.current = true;
+        const since = dayKey(addDays(new Date(), -60));
+        const yesterday = dayKey(addDays(new Date(), -1));
+        const missing = Object.entries(stateRef.current.days)
+          .filter(([k, d]) => k >= since && k < key && (!d.weather || k === yesterday))
+          .map(([k]) => k);
+        if (missing.length) {
+          const past = await fetchWeatherHistory(place, 60);
+          run((s) => missing.reduce((next, k) => (past[k] && next.days[k] ? patchDay(next, k, (d) => ({ ...d, weather: past[k] })) : next), s));
+        }
+      }
       // The winter's first snow, announced once.
       if ((isSnow(w.code) || isSnow(w.days.find((d) => d.date === dayKey())?.code ?? 0)) && stateRef.current.firstSnow !== winterOf()) {
         run((s, msgs) => {

@@ -266,6 +266,40 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     }
   }
 
+  // Weather (saved per day): sunny days vs the rest, rainy days vs dry ones. Helpful, not judgy:
+  // Stockholm winters are dark for everyone.
+  const sunny = (d: Day) => (d.log.weather?.sunMin ?? 0) >= 180;
+  const sunMood = compare(days, sunny, (d) => (d.log.weather ? avgMood(d.log) : null));
+  if (sunMood && sunMood.yes - sunMood.no >= 0.3) {
+    add({
+      id: 'sun_mood',
+      emoji: '☀️',
+      text: 'Your mood is better on sunny days. On grey ones, a walk at lunch catches what light there is.',
+      detail: `${sunMood.yes.toFixed(1)}/5 vs ${sunMood.no.toFixed(1)}/5 · ${sunMood.n} days`,
+      strength: (sunMood.yes - sunMood.no) / 0.5,
+    });
+  }
+  const sunEnergy = compare(days, sunny, (d) => (d.log.weather ? (d.log.energy ?? null) : null));
+  if (sunEnergy && sunEnergy.yes - sunEnergy.no >= 0.5) {
+    add({
+      id: 'sun_energy',
+      emoji: '🔆',
+      text: 'You have more energy on sunny days. Grey days: go easy on yourself, and get outside while it is light.',
+      detail: `${sunEnergy.yes.toFixed(1)}/5 vs ${sunEnergy.no.toFixed(1)}/5 · ${sunEnergy.n} days`,
+      strength: (sunEnergy.yes - sunEnergy.no) / 0.7,
+    });
+  }
+  const rainSteps = compare(days, (d) => (d.log.weather?.rainMm ?? 0) >= 2, (d) => (d.log.weather && d.log.steps != null ? d.log.steps : null));
+  if (rainSteps && rainSteps.no > 0 && (rainSteps.no - rainSteps.yes) / rainSteps.no >= 0.15) {
+    add({
+      id: 'rain_steps',
+      emoji: '🌧️',
+      text: `You walk ${Math.round(((rainSteps.no - rainSteps.yes) / rainSteps.no) * 100)}% less on rainy days. An umbrella is cheaper than a treadmill.`,
+      detail: `${Math.round(rainSteps.yes).toLocaleString('sv-SE')} vs ${Math.round(rainSteps.no).toLocaleString('sv-SE')} steps · ${rainSteps.n} days`,
+      strength: (rainSteps.no - rainSteps.yes) / rainSteps.no / 0.2,
+    });
+  }
+
   // Best and worst weekday.
   const byWeekday = new Map<number, number[]>();
   for (const d of days) {

@@ -631,3 +631,20 @@ console.log('all logic tests passed');
   assert.ok(canSign(monday) && canSign(wed) && !canSign(addDays(monday, 3)) && !canSign(addDays(monday, 6)));
   assert.deepEqual(LINES.contractVoided.savage, LINES.contractVoided.mild);
 }
+
+// weather insights: sunny days vs the rest (mood), rainy days vs dry ones (steps)
+{
+  const ws = defaultState();
+  for (let i = 1; i <= 12; i++) {
+    const key = dayKey(addDays(new Date(), -i));
+    const sunnyDay = i % 2 === 0;
+    ws.days[key] = {
+      water: [], food: [], sets: [], games: [], bonusGameMin: 0,
+      steps: sunnyDay ? 9000 : 5000,
+      moods: [{ id: `m${i}`, level: sunnyDay ? 4 : 3, emotions: [], at: 0 }],
+      weather: { max: 10, min: 2, rainMm: sunnyDay ? 0 : 5, sunMin: sunnyDay ? 300 : 0, code: sunnyDay ? 0 : 61 },
+    };
+  }
+  const ids = insights(ws).map((x) => x.id);
+  assert.ok(ids.includes('sun_mood') && ids.includes('rain_steps'), JSON.stringify(ids));
+}

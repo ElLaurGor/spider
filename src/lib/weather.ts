@@ -1,5 +1,6 @@
 // Weather from Open-Meteo: free, no API key, no account.
 import { fmtTime } from './dates';
+import type { DayWeather } from './types';
 
 export type Place = { name: string; lat: number; lon: number; county?: string }; // county e.g. "Stockholms län"
 
@@ -95,6 +96,38 @@ export function describe(code: number): { emoji: string; label: string } {
   if (code === 85 || code === 86) return { emoji: '🌨️', label: 'Snow showers' };
   if (code >= 95) return { emoji: '⛈️', label: 'Thunderstorm' };
   return { emoji: '🌡️', label: 'Weather' };
+}
+
+export const dayWeatherOf = (d: DayForecast): DayWeather => ({ max: d.max, min: d.min, rainMm: d.rainMm, sunMin: d.sunshineMin, code: d.code });
+
+/** Each day's weather over the last `days` days (the forecast API keeps recent days), for Insights. */
+export async function fetchWeatherHistory(place: Place, days = 60): Promise<Record<string, DayWeather>> {
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration&past_days=${days}&forecast_days=1&timezone=auto`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Weather history failed (${res.status})`);
+  const j = (await res.json()) as {
+    daily: {
+      time: string[];
+      weather_code: number[];
+      temperature_2m_max: number[];
+      temperature_2m_min: number[];
+      precipitation_sum: (number | null)[];
+      sunshine_duration: (number | null)[];
+    };
+  };
+  const out: Record<string, DayWeather> = {};
+  j.daily.time.forEach((date, i) => {
+    out[date] = {
+      max: Math.round(j.daily.temperature_2m_max[i]),
+      min: Math.round(j.daily.temperature_2m_min[i]),
+      rainMm: j.daily.precipitation_sum[i] ?? 0,
+      sunMin: Math.round((j.daily.sunshine_duration[i] ?? 0) / 60),
+      code: j.daily.weather_code[i],
+    };
+  });
+  return out;
 }
 
 const WET = 0.1; // mm per 15 minutes that counts as rain
