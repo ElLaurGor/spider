@@ -24,7 +24,8 @@ import {
   waterSlots,
   workoutFor,
 } from './selectors';
-import type { CalEvent, State } from './types';
+import { moodInfo } from './mood';
+import type { CalEvent, MoodLevel, State } from './types';
 import { forecastText, type Weather } from './weather';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outside';
 
@@ -37,6 +38,11 @@ const GAME_IDS = ['game-warn', 'game-over', 'game-way-over'];
 const REST_ID = 'rest-done';
 const FOCUS_ID = 'focus-done';
 const DAYS_AHEAD = 3;
+const SNOOZE_ID = 'snooze-water'; // not a planned prefix, so a replan leaves it alone
+
+// Buttons on reminders. Tapping one opens the app, which does the thing (see onReminderAction).
+const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood' } as const;
+const MOOD_BUTTONS: MoodLevel[] = [4, 3, 2];
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -64,6 +70,19 @@ export async function initNotifications(askIfNeeded: boolean) {
       channelsOk = false;
     }
   }
+  try {
+    await Notifications.setNotificationCategoryAsync(CATEGORY.water, [
+      { identifier: 'water_glass', buttonTitle: '+1 glass' },
+      { identifier: 'water_snooze', buttonTitle: 'Snooze 30 min' },
+    ]);
+    await Notifications.setNotificationCategoryAsync(CATEGORY.habit, [{ identifier: 'habit_done', buttonTitle: 'Done ✓' }]);
+    await Notifications.setNotificationCategoryAsync(
+      CATEGORY.mood,
+      MOOD_BUTTONS.map((level) => ({ identifier: `mood_${level}`, buttonTitle: `${moodInfo(level).emoji} ${moodInfo(level).label}` })),
+    );
+  } catch (e) {
+    console.warn('[spider] notification buttons unavailable', e); // Expo Go: plain reminders still work
+  }
   const current = await Notifications.getPermissionsAsync();
   permitted = current.granted;
   if (!permitted && askIfNeeded && current.canAskAgain) {
@@ -72,12 +91,19 @@ export async function initNotifications(askIfNeeded: boolean) {
   return permitted;
 }
 
-async function scheduleAt(id: string, when: Date | number, title: string, body: string, channelId: string) {
+async function scheduleAt(
+  id: string,
+  when: Date | number,
+  title: string,
+  body: string,
+  channelId: string,
+  buttons?: { category: (typeof CATEGORY)[keyof typeof CATEGORY]; data?: Record<string, string> },
+) {
   const date = new Date(when);
   if (date.getTime() < Date.now() + 5_000) return;
   await Notifications.scheduleNotificationAsync({
     identifier: id,
-    content: { title, body, color: C.red },
+    content: { title, body, color: C.red, categoryIdentifier: buttons?.category, data: buttons?.data },
     trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date, channelId: channelsOk ? channelId : undefined },
   });
 }
@@ -142,7 +168,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
         const when = atTime(now, d, Math.floor(t / 60), t % 60);
         if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
         const progress = d === 0 ? ` (${waterMl(log)}/${st.waterGoalMl} ml)` : '';
-        jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', say(s, 'waterRemind') + progress, CH.remind));
+        jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', say(s, 'waterRemind') + progress, CH.remind, { category: CATEGORY.water }));
       }
     }
 
@@ -172,7 +198,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
         // Skip a check-in if one was logged in the 4 hours before it.
         if (d === 0 && when.getTime() - lastMood < 4 * 60 * MIN) continue;
         if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
-        jobs.push(scheduleAt(`mood-${key}-${h}`, when, '🫀 Vibe check', say(s, 'moodRemind'), CH.remind));
+        jobs.push(scheduleAt(`mood-${key}-${h}`, when, '🫀 Vibe check', say(s, 'moodRemind'), CH.remind, { category: CATEGORY.mood }));
       }
     }
 
@@ -202,7 +228,12 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const done = habitsDone(s, key);
       for (const h of s.habits) {
         if (h.remindHour == null || !isScheduled(h, date) || (d === 0 && done.includes(h.id))) continue;
-        jobs.push(scheduleAt(`habit-${h.id}-${key}`, atTime(now, d, h.remindHour), `📌 ${h.emoji} ${h.name}`, say(s, 'habitRemind', { habit: h.name }), CH.remind));
+        jobs.push(
+          scheduleAt(`habit-${h.id}-${key}`, atTime(now, d, h.remindHour), `📌 ${h.emoji} ${h.name}`, say(s, 'habitRemind', { habit: h.name }), CH.remind, {
+            category: CATEGORY.habit,
+            data: { habitId: h.id },
+          }),
+        );
       }
     }
 
@@ -282,6 +313,39 @@ export async function scheduleGameAlerts(s: State, remainingMin: number) {
     scheduleAt('game-way-over', now + (Math.max(0, remainingMin) + 30) * MIN, `💀 30 minutes over budget${game}`, say(s, 'gameWayOver'), CH.game),
   );
   await Promise.all(jobs);
+}
+
+/** "Snooze 30 min" on a water reminder: one more in a while. */
+export async function snoozeWater(s: State, minutes = 30) {
+  await scheduleAt(SNOOZE_ID, Date.now() + minutes * MIN, '💧 Hydration check (snoozed)', say(s, 'waterRemind'), CH.remind, { category: CATEGORY.water });
+}
+
+export type ReminderAction = { kind: 'glass' } | { kind: 'snooze' } | { kind: 'habit'; habitId: string } | { kind: 'mood'; level: MoodLevel };
+
+const handled = new Set<string>(); // module-wide: the response that launched the app is seen twice otherwise
+
+/** Calls `onAction` for reminder buttons, including the one that opened the app. Returns the unsubscribe. */
+export function onReminderAction(onAction: (a: ReminderAction) => void): () => void {
+  const handle = (r: Notifications.NotificationResponse | null) => {
+    if (!r || r.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+    const id = `${r.notification.request.identifier}|${r.actionIdentifier}|${r.notification.date}`;
+    if (handled.has(id)) return;
+    handled.add(id);
+    const a = r.actionIdentifier;
+    const habitId = r.notification.request.content.data?.habitId;
+    const mood = /^mood_([1-5])$/.exec(a);
+    if (a === 'water_glass') onAction({ kind: 'glass' });
+    else if (a === 'water_snooze') onAction({ kind: 'snooze' });
+    else if (a === 'habit_done' && typeof habitId === 'string') onAction({ kind: 'habit', habitId });
+    else if (mood) onAction({ kind: 'mood', level: Number(mood[1]) as MoodLevel });
+    Notifications.dismissNotificationAsync(r.notification.request.identifier).catch(() => {});
+    Notifications.clearLastNotificationResponseAsync().catch(() => {});
+  };
+  Notifications.getLastNotificationResponseAsync()
+    .then(handle)
+    .catch(() => {});
+  const sub = Notifications.addNotificationResponseReceivedListener(handle);
+  return () => sub.remove();
 }
 
 export async function cancelGameAlerts() {

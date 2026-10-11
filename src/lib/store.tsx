@@ -28,8 +28,10 @@ import {
   notifyNow,
   replanNotifications,
   scheduleGameAlerts,
+  onReminderAction,
   scheduleFocusDone,
   scheduleRestDone,
+  snoozeWater,
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, pickQuests, questsFor } from './quests';
@@ -1302,6 +1304,21 @@ function useStoreValue() {
     }),
     [run, commit, say, refreshHealth],
   );
+
+  // ----- buttons on reminders: "+1 glass", "Snooze 30 min", habit "Done", mood -----
+  useEffect(() => {
+    if (!ready) return;
+    return onReminderAction((a) => {
+      const s = stateRef.current;
+      if (a.kind === 'glass') actions.addWater(s.settings.glassMl);
+      else if (a.kind === 'snooze') {
+        void snoozeWater(s);
+        say(L(s, 'waterSnoozed'), 'info');
+      } else if (a.kind === 'habit') {
+        if (!habitsDone(s, dayKey()).includes(a.habitId)) actions.toggleHabit(a.habitId);
+      } else actions.logMood(a.level, [], '');
+    });
+  }, [ready, actions, say]);
 
   // ----- Web Focus: complete (or snap) when the time is up -----
   const activeFocus = state.activeFocus;

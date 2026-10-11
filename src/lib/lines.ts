@@ -146,6 +146,10 @@ export const LINES = {
     mild: ['Respect upgraded: {tier}. Well earned.'],
     savage: ['Respect upgraded: {tier}. I fought it. I lost.', 'New respect level: {tier}. Screenshot it, it might not last.'],
   },
+  waterSnoozed: {
+    mild: ["Snoozed for 30 minutes. I'll remind you."],
+    savage: ["Snoozed. 30 minutes. I'm counting.", 'Fine. 30 minutes. Your kidneys and I will be waiting.'],
+  },
   waterRemind: {
     mild: ['Time for a glass of water, {name}.', 'Hydration check! Grab some water.', 'Your water bottle misses you.'],
     savage: [
