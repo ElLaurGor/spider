@@ -250,7 +250,7 @@ function FoodCard({ day }: { day: string }) {
           placeholder="What did you eat? (e.g. havregryn)"
           style={{ flex: 1 }}
         />
-        <Btn icon="barcode_scanner" kind="ghost" small onPress={() => router.push('/scan')} />
+        <Btn icon="barcode_scanner" kind="ghost" small onPress={() => router.push({ pathname: '/scan', params: { day } })} />
         <Btn icon="photo_camera" kind="ghost" small onPress={() => snap('camera')} />
         <Btn icon="photo_library" kind="ghost" small onPress={() => snap('library')} />
       </Row>

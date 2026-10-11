@@ -5,6 +5,8 @@ import type { CalEvent, DayLog, SetEntry, State, Weekday, WorkoutDay } from './t
 export const dayOf = (s: State, key = dayKey()): DayLog => s.days[key] ?? emptyDay();
 
 export const waterMl = (d: DayLog) => d.water.reduce((a, w) => a + w.ml, 0);
+/** Water logged on the day itself: what quests, bosses and contracts go by (back-dated glasses don't count). */
+export const liveWaterMl = (d: DayLog) => d.water.reduce((a, w) => a + (w.late ? 0 : w.ml), 0);
 export const kcalOf = (d: DayLog) => d.food.reduce((a, f) => a + f.kcal, 0);
 export const proteinOf = (d: DayLog) => d.food.reduce((a, f) => a + f.protein, 0);
 

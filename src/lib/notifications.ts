@@ -156,6 +156,10 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   const { settings: st } = s;
   const now = new Date();
   const jobs: Promise<void>[] = [];
+  // A snoozed water reminder is pointless once the goal is hit or water reminders are off.
+  if (!st.notify.water || waterMl(dayOf(s, dayKey(now))) >= st.waterGoalMl) {
+    jobs.push(Notifications.cancelScheduledNotificationAsync(SNOOZE_ID).catch(() => {}));
+  }
 
   for (let d = 0; d < DAYS_AHEAD; d++) {
     const date = addDays(now, d);

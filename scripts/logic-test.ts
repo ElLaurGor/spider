@@ -27,7 +27,7 @@ import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
 import { insights } from '../src/lib/insights';
 import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
-import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, withPastHealth } from '../src/lib/selectors';
+import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, waterMl, withPastHealth } from '../src/lib/selectors';
 import { searchFoods } from '../src/lib/food-db';
 import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
@@ -599,8 +599,10 @@ console.log('all logic tests passed');
   assert.notEqual(hw.name, BOSSES.find((b) => b.id === hw.id)!.name);
   assert.equal(plainWeek.name, BOSSES.find((b) => b.id === plainWeek.id)!.name);
   const haunted = SECRET_ACHIEVEMENTS.find((a) => a.id === 's_haunted_hero')!;
-  assert.ok(haunted.test({ ...defaultState(), bossesDefeated: { '2026-10-26': 'procrastinator' } }));
-  assert.ok(!haunted.test({ ...defaultState(), bossesDefeated: { '2026-10-12': 'procrastinator' } }));
+  // only bosses beaten while spooky season was on (not just in a week that overlaps it)
+  assert.ok(haunted.test({ ...defaultState(), seasonWins: ['halloween-2026'] }));
+  assert.ok(!haunted.test({ ...defaultState(), bossesDefeated: { '2026-10-19': 'procrastinator' } }));
+  assert.ok(!haunted.test({ ...defaultState(), seasonWins: ['lucia-2026'] }));
   assert.equal(winterOf(new Date(2026, 10, 20)), '2026');
   assert.equal(winterOf(new Date(2027, 2, 1)), '2026');
   assert.ok(isSnow(73) && !isSnow(61));
@@ -670,4 +672,30 @@ console.log('all logic tests passed');
   assert.equal(next.days[gone], undefined);
   assert.equal(next.xp, hs.xp);
   assert.equal(withPastHealth(next, [{ key: y, steps: hs.settings.stepGoal + 100, sleepMin: 410 }]), next); // nothing new: same object
+}
+
+// review fixes: no instant contract wins, back-dated entries and edited times don't feed the game rules
+{
+  const k = dayKey();
+  const signedAt = Date.now();
+  const base = defaultState();
+  const doneEarlier = { id: 'a', title: 'a', done: true, createdAt: 0, doneAt: signedAt - 60_000 };
+  const doneLater = { id: 'b', title: 'b', done: true, createdAt: 0, doneAt: signedAt + 60_000 };
+  const c = { week: k, from: k, signedAt, goal: 'tasks' as const, target: 8, stake: 500, status: 'open' as const };
+  assert.equal(contractProgress({ ...base, tasks: [doneEarlier, doneLater] }, c, new Date(signedAt + 120_000)), 1);
+  // back-dated water: counts for the day's total, not for the water contract or Captain Dehydration
+  const lateDay = { water: [{ id: 'w', ml: base.settings.waterGoalMl, at: 0, late: true }], food: [], sets: [], games: [], bonusGameMin: 0 };
+  assert.equal(waterMl(lateDay), base.settings.waterGoalMl);
+  assert.ok(!WEAKNESS.dehydration.hit(base, lateDay, k));
+  const wc = { ...c, goal: 'water' as const, target: 1, signedAt: 0 };
+  assert.equal(contractProgress({ ...base, days: { [k]: lateDay } }, wc), 0);
+  // before 08:00: coffee and food times can be edited, so they don't count; back-dated water doesn't either
+  const early = atTime(new Date(), 0, 7, 30).getTime();
+  const coffeeOnly = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, coffee: [{ id: 'c', mg: 80, at: early }] };
+  assert.ok(!WEAKNESS.snooze.hit(base, coffeeOnly, k));
+  assert.ok(!WEAKNESS.snooze.hit(base, { ...coffeeOnly, water: [{ id: 'w', ml: 250, at: early, late: true }] }, k));
+  assert.ok(WEAKNESS.snooze.hit(base, { ...coffeeOnly, water: [{ id: 'w', ml: 250, at: early }] }, k));
+  // The Binge Necromancer: today isn't within budget until it's over
+  assert.ok(!WEAKNESS.binge.hit(base, lateDay, k));
+  assert.ok(WEAKNESS.binge.hit(base, lateDay, dayKey(addDays(new Date(), -1))));
 }

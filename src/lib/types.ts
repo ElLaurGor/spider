@@ -54,8 +54,9 @@ export type Settings = {
   calendarIds: string[] | null; // null = every calendar on the phone
 };
 
-export type WaterEntry = { id: string; ml: number; at: number };
-export type FoodEntry = { id: string; name: string; kcal: number; protein: number; at: number; photo?: string };
+// `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.
+export type WaterEntry = { id: string; ml: number; at: number; late?: boolean };
+export type FoodEntry = { id: string; name: string; kcal: number; protein: number; at: number; photo?: string; late?: boolean };
 export type SetEntry = { id: string; exercise: string; weight: number; reps: number; at: number };
 export type GameSession = { start: number; end: number; game?: string };
 export type ActivityKind = 'machines' | 'cardio' | 'free_weights';
@@ -77,9 +78,9 @@ export type Purchase = { id: string; title: string; emoji: string; cost: number;
 export type Rival = { id: string; name: string; emoji: string; power: number };
 export type League = { tier: number; week: string; rivals: Rival[]; history: { week: string; tier: number; rank: number; xp: number }[] };
 export type ProgressPhoto = { id: string; uri: string; at: number };
-export type CoffeeEntry = { id: string; mg: number; at: number };
+export type CoffeeEntry = { id: string; mg: number; at: number; late?: boolean };
 export type MoodLevel = 1 | 2 | 3 | 4 | 5;
-export type MoodEntry = { id: string; level: MoodLevel; emotions: string[]; note?: string; at: number };
+export type MoodEntry = { id: string; level: MoodLevel; emotions: string[]; note?: string; at: number; late?: boolean };
 
 export type DayWeather = { max: number; min: number; rainMm: number; sunMin: number; code: number }; // Open-Meteo, for Insights
 
@@ -125,6 +126,7 @@ export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'g
 export type Contract = {
   week: string; // Monday's key
   from: string; // day signed: only days from here count
+  signedAt?: number; // counted things (tasks, focus sessions) only count after this
   goal: ContractGoal;
   target: number;
   stake: number;
@@ -201,6 +203,7 @@ export type State = {
   goldenFound?: Record<string, number>; // golden line id (lib/lines.ts GOLDEN) -> found at, for the Roast Book
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
   contract?: Contract | null; // this or last week's weekly contract (lib/contracts.ts)
+  seasonWins?: string[]; // "halloween-2026": a boss beaten while that season was on (seasons.ts)
 };
 
 export type CalEvent = {

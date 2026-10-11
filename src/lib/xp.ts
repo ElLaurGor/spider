@@ -1,6 +1,5 @@
 import type { AndroidSymbol } from 'expo-symbols';
 
-import { addDays } from './dates';
 import { seasonOn } from './seasons';
 import { coffeeOf, gamingUsedMs, moodDays, moodsOf, totalCoffees, trainedOn, waterMl } from './selectors';
 import type { State } from './types';
@@ -153,7 +152,7 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
     desc: 'Beat the boss during spooky season',
     hint: 'Something wicked this way comes. In October.',
     icon: 'skull',
-    test: (s) => Object.keys(s.bossesDefeated).some((week) => Array.from({ length: 7 }, (_, i) => seasonOn(addDays(new Date(`${week}T12:00`), i))?.id).includes('halloween')),
+    test: (s) => (s.seasonWins ?? []).some((w) => w.startsWith('halloween-')),
   },
   {
     id: 's_light_bringer',

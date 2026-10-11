@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -12,6 +12,7 @@ type Phase = { kind: 'scanning' } | { kind: 'loading'; code: string } | { kind: 
 
 export default function ScanScreen() {
   const { actions, quip } = useStore();
+  const { day } = useLocalSearchParams<{ day?: string }>(); // a past day being fixed on Fuel
   const [permission, requestPermission] = useCameraPermissions();
   const [phase, setPhase] = useState<Phase>({ kind: 'scanning' });
   const [grams, setGrams] = useState(100);
@@ -120,7 +121,7 @@ export default function ScanScreen() {
           label="Log it"
           icon="add"
           onPress={() => {
-            actions.addFood({ name: `${p.name} (${grams} g)`, kcal, protein: Math.round(protein) });
+            actions.addFood({ name: `${p.name} (${grams} g)`, kcal, protein: Math.round(protein) }, day);
             router.back();
           }}
         />

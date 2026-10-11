@@ -37,7 +37,7 @@ import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './phot
 import { bossFor, pickQuests, questsFor } from './quests';
 import { canSign, contractProgress, goalOf, roughWeek } from './contracts';
 import { respectFor } from './respect';
-import { isSnow, winterOf } from './seasons';
+import { isSnow, seasonOn, winterOf } from './seasons';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
 import {
   activitiesOf,
@@ -198,6 +198,8 @@ function checkQuests(s: State, msgs: Msg[]): State {
   const boss = bossFor(next);
   if (!boss.defeated && boss.hp <= 0) {
     next = bump({ ...next, bossesDefeated: { ...next.bossesDefeated, [boss.key]: boss.id } }, 'bosses');
+    const season = seasonOn();
+    if (season) next = { ...next, seasonWins: [...(next.seasonWins ?? []), `${season.id}-${new Date().getFullYear()}`] };
     msgs.push({ text: `${boss.emoji} ${L(next, 'bossDefeated', { boss: boss.name })}`, tone: 'epic' });
     next = reward(next, msgs, XP.boss, BONUS_MIN.boss);
   }
@@ -718,7 +720,7 @@ function useStoreValue() {
         if (past) {
           run((s, msgs) => {
             msgs.push(backdated(past, `💧 ${ml} ml`));
-            return patchDay(s, past, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: nowOn(past) }] }));
+            return patchDay(s, past, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: nowOn(past), late: true }] }));
           });
           return;
         }
@@ -761,7 +763,7 @@ function useStoreValue() {
         if (past) {
           run((s, msgs) => {
             msgs.push(backdated(past, `🍽️ ${food.name}`));
-            return patchDay(s, past, (d) => ({ ...d, food: [...d.food, { id: uid(), ...food, at: nowOn(past) }] }));
+            return patchDay(s, past, (d) => ({ ...d, food: [...d.food, { id: uid(), ...food, at: nowOn(past), late: true }] }));
           });
           return;
         }
@@ -815,7 +817,7 @@ function useStoreValue() {
         if (past) {
           run((s, msgs) => {
             msgs.push(backdated(past, '☕ A coffee'));
-            return patchDay(s, past, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: s.settings.caffeinePerCupMg, at: nowOn(past) }] }));
+            return patchDay(s, past, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: s.settings.caffeinePerCupMg, at: nowOn(past), late: true }] }));
           });
           return;
         }
@@ -919,7 +921,7 @@ function useStoreValue() {
         if (past) {
           run((s, msgs) => {
             msgs.push(backdated(past, `${moodInfo(level).emoji} A check-in`));
-            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: nowOn(past) };
+            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: nowOn(past), late: true };
             return patchDay(s, past, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
           });
           return;
@@ -1196,7 +1198,7 @@ function useStoreValue() {
           }
           const def = goalOf(goal);
           msgs.push({ text: `📜 ${L(s, 'contractSigned', { goal: def.title(def.target), stake })}`, tone: 'info' });
-          return { ...s, coins: s.coins - stake, contract: { week, from: dayKey(), goal, target: def.target, stake, status: 'open' } };
+          return { ...s, coins: s.coins - stake, contract: { week, from: dayKey(), signedAt: Date.now(), goal, target: def.target, stake, status: 'open' } };
         });
       },
 

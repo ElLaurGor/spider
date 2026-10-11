@@ -6,6 +6,7 @@ import {
   dayOf,
   gamingBudgetMin,
   gamingUsedMs,
+  liveWaterMl,
   lowBattery,
   moodsOf,
   proteinOf,
@@ -37,8 +38,8 @@ type QuestDef = {
 const before = (d: DayLog, hour: number) => d.water.filter((w) => new Date(w.at).getHours() < hour).length;
 const tasksDoneOn = (s: State, date: Date) => s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === dayKey(date)).length;
 const hasSteps = (s: State) => Object.values(s.days).some((d) => d.steps != null);
-const loggedBefore8 = (d: DayLog) =>
-  [...d.water, ...d.food, ...d.sets, ...(d.coffee ?? []), ...(d.moods ?? []), ...(d.activities ?? [])].some((x) => new Date(x.at).getHours() < 8);
+// Only entries whose time can't be edited afterwards, logged on the day itself.
+const loggedBefore8 = (d: DayLog) => [...d.water, ...d.sets, ...(d.moods ?? [])].some((x) => !('late' in x && x.late) && new Date(x.at).getHours() < 8);
 
 const QUESTS: QuestDef[] = [
   { id: 'water_noon', xp: 20, available: () => true, build: (_s, d) => ({ title: 'Drink 3 glasses before 12:00', progress: before(d, 12), target: 3 }) },
@@ -191,10 +192,11 @@ export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hi
   couch_goblin: { label: 'moving: step goal or training', hit: (_s, d) => !!d.stepGoalHit || trainedOn(d) },
   doomscroll: { label: 'finishing a Web Focus session', hit: (_s, d) => (d.focus ?? []).some((f) => !f.snapped) },
   snooze: { label: 'logging something before 08:00', hit: (_s, d) => loggedBefore8(d) },
-  dehydration: { label: 'hitting your water goal', hit: (s, d) => waterMl(d) >= s.settings.waterGoalMl },
+  dehydration: { label: 'hitting your water goal', hit: (s, d) => liveWaterMl(d) >= s.settings.waterGoalMl },
   leg_day: { label: 'training', hit: (_s, d) => trainedOn(d) },
   sugar_baron: { label: 'checking off a habit', hit: (s, _d, key) => habitsDone(s, key).length > 0 },
-  binge: { label: 'staying within your gaming budget', hit: (s, _d, key) => gamingUsedMs(s, key) <= gamingBudgetMin(s, key) * 60_000 },
+  // Only finished days: today isn't within budget until it's over.
+  binge: { label: 'staying within your gaming budget', hit: (s, _d, key) => key < dayKey() && gamingUsedMs(s, key) <= gamingBudgetMin(s, key) * 60_000 },
 };
 
 /** Every boss dresses up for spooky season. Same boss underneath (id, weakness, taunts). */
