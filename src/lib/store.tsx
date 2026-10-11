@@ -40,10 +40,12 @@ import {
   coffeeOf,
   dayOf,
   effectiveSavage,
+  gamePenalty,
   gamingBudgetMin,
   gamingUsedMs,
   moodsOf,
   proteinOf,
+  syncedSleep,
   waterMl,
 } from './selectors';
 import type {
@@ -106,6 +108,31 @@ function reward(s: State, msgs: Msg[], rawXp: number, bonusMin = 0): State {
     }
   }
   return next;
+}
+
+/**
+ * After a finished session on day `key` was edited or deleted: charges the extra over-budget XP, or
+ * gives back what no longer applies. Refunds skip `reward()`: penalties never took coins or boss damage.
+ */
+function regradeGaming(prev: State, next: State, key: string, msgs: Msg[], plain: string): State {
+  // The running session pays its own penalty when it stops.
+  const over = (x: State) => Math.max(0, gamingUsedMs({ ...x, activeGame: null }, key) - gamingBudgetMin(x, key) * MIN);
+  const diff = gamePenalty(over(next)) - gamePenalty(over(prev));
+  if (diff > 0) {
+    msgs.push({ text: L(next, 'gameEditOver', { over: fmtDuration(over(next)), penalty: diff }), tone: 'bad' });
+    return reward(next, msgs, -diff);
+  }
+  if (diff < 0) {
+    msgs.push({ text: L(next, 'gameEditRefund', { xp: -diff }), tone: 'info' });
+    return { ...next, xp: next.xp - diff };
+  }
+  msgs.push({ text: plain, tone: 'info' });
+  return next;
+}
+
+/** Edits to today's sessions move the alerts of a session that's running now. */
+function rescheduleGameAlerts(s: State, key: string) {
+  if (s.activeGame && dayKey(s.activeGame.start) === key) void scheduleGameAlerts(s, gamingBudgetMin(s, key) - gamingUsedMs(s, key) / MIN);
 }
 
 /** Starts the league, and settles last week's (promotion, demotion, prize) when a new week begins. */
@@ -338,7 +365,7 @@ function useStoreValue() {
     (steps: number, sleepMin: number | null) => {
       const s0 = stateRef.current;
       const today = dayOf(s0);
-      const sleep = sleepMin ?? today.sleepMin;
+      const sleep = syncedSleep(today, sleepMin);
       if (today.steps === steps && today.sleepMin === sleep && (today.stepGoalHit || steps < s0.settings.stepGoal)) return;
       run((s, msgs) => {
         const key = dayKey();
@@ -722,6 +749,22 @@ function useStoreValue() {
         });
       },
 
+      /** Hours slept, typed in by hand. `key` is the morning after, like the watch's. null hands the night back to the watch. */
+      logSleep(key: string, minutes: number | null) {
+        run((s, msgs) => {
+          if (minutes == null) return patchDay(s, key, (d) => ({ ...d, sleepMin: undefined, sleepManual: undefined }));
+          const next = patchDay(s, key, (d) => ({ ...d, sleepMin: minutes, sleepManual: true }));
+          const sleep = fmtDuration(minutes * MIN);
+          msgs.push(
+            key === dayKey()
+              ? { text: L(next, minutes < 6 * 60 ? 'sleepShort' : 'sleepGood', { sleep }), tone: 'info' }
+              : { text: `Sleep logged: ${sleep}.`, tone: 'info' },
+          );
+          return next;
+        });
+        if (minutes == null && key === dayKey()) void refreshHealth(false);
+      },
+
       // --- mood ---
       logMood(level: MoodLevel, emotions: string[], note: string) {
         run((s, msgs) => {
@@ -834,8 +877,8 @@ function useStoreValue() {
         run((s, msgs) => {
           let next = patchDay({ ...s, activeGame: null }, key, (d) => ({ ...d, games: [...d.games, { start, end, game }] }));
           const overMs = Math.min(dur, usedBefore + dur - budgetMs);
-          if (overMs > MIN) {
-            const penalty = Math.ceil(overMs / (5 * MIN)) * 2;
+          const penalty = gamePenalty(overMs);
+          if (penalty) {
             msgs.push({ text: L(next, 'gameStopBad', { over: fmtDuration(overMs), penalty }), tone: 'bad' });
             next = reward(next, msgs, -penalty);
           } else if (dur >= 10 * MIN) {
@@ -847,6 +890,32 @@ function useStoreValue() {
           return next;
         });
         void cancelGameAlerts();
+      },
+
+      /** Fixes a finished session on day `key` (found by its start): new start, length and name. */
+      updateGame(key: string, start: number, patch: { start: number; ms: number; game?: string }) {
+        const next = run((s, msgs) => {
+          const old = dayOf(s, key).games.find((g) => g.start === start);
+          if (!old) return s;
+          const ms = Math.max(MIN, patch.ms);
+          const end = Math.min(patch.start + ms, Date.now()); // a fixed session can't end in the future
+          const others = dayOf(s, key).games.filter((g) => g.start !== start);
+          let from = end - ms;
+          while (others.some((g) => g.start === from)) from--; // the start identifies a session, keep it unique
+          const game = patch.game !== undefined ? patch.game.trim() || undefined : old.game;
+          const games = [...others, { start: from, end, game }].sort((a, b) => a.start - b.start);
+          return regradeGaming(s, patchDay(s, key, (d) => ({ ...d, games })), key, msgs, L(s, 'gameEdited', { time: fmtDuration(ms) }));
+        });
+        rescheduleGameAlerts(next, key);
+      },
+
+      removeGame(key: string, start: number) {
+        const next = run((s, msgs) => {
+          if (!dayOf(s, key).games.some((g) => g.start === start)) return s;
+          const games = dayOf(s, key).games.filter((g) => g.start !== start);
+          return regradeGaming(s, patchDay(s, key, (d) => ({ ...d, games })), key, msgs, 'Session deleted.');
+        });
+        rescheduleGameAlerts(next, key);
       },
 
       // --- tasks ---
@@ -1115,7 +1184,7 @@ function useStoreValue() {
         commit(defaultState());
       },
     }),
-    [run, commit, say],
+    [run, commit, say, refreshHealth],
   );
 
   // ----- Web Focus: complete (or snap) when the time is up -----

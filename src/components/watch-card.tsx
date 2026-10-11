@@ -5,6 +5,7 @@ import { Bar, Big, Btn, Card, H, Icon, Row, SpiderSays, T } from '@/components/u
 import { C, MONO } from '@/constants/theme';
 import { fmtDuration, fmtTime, WEEKDAYS } from '@/lib/dates';
 import { openHealthSettings } from '@/lib/health';
+import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 
 const fmtSteps = (n: number) => n.toLocaleString('sv-SE');
@@ -17,8 +18,9 @@ export function WatchCard() {
 
   const steps = d?.steps ?? 0;
   const stepKey = steps >= goal ? 'stepsHigh' : steps >= goal / 2 ? 'stepsMid' : 'stepsLow';
-  const sleepKey = d?.sleepMin != null ? (d.sleepMin < 6 * 60 ? 'sleepShort' : 'sleepGood') : null;
-  const sleepText = d?.sleepMin != null ? fmtDuration(d.sleepMin * 60_000) : '';
+  const slept = dayOf(state).sleepMin; // the watch's number, unless typed in by hand
+  const sleepKey = slept != null ? (slept < 6 * 60 ? 'sleepShort' : 'sleepGood') : null;
+  const sleepText = slept != null ? fmtDuration(slept * 60_000) : '';
   const stepLine = useMemo(() => quip(stepKey, { steps: fmtSteps(steps) }), [quip, stepKey, steps]);
   const sleepLine = useMemo(() => (sleepKey ? quip(sleepKey, { sleep: sleepText }) : ''), [quip, sleepKey, sleepText]);
 

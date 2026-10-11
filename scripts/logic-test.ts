@@ -28,7 +28,8 @@ import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
 import { insights } from '../src/lib/insights';
 import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
-import { trainedOn, recentGames, gameTotals } from '../src/lib/selectors';
+import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep } from '../src/lib/selectors';
+import { searchFoods } from '../src/lib/food-db';
 import { pickQuests, questsFor, bossFor } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
 import { weekReport, gradeOf } from '../src/lib/report';
@@ -255,6 +256,40 @@ const totals = gameTotals(gs);
 assert.equal(totals[0].game, 'Elden Ring');
 assert.equal(Math.round(totals[0].ms / 60_000), 60);
 assert.ok(totals.some((x) => x.game === 'Unnamed'));
+
+// gaming penalty (also used to re-grade edited sessions): first minute free, then 2 XP per started 5 min
+assert.equal(gamePenalty(0), 0);
+assert.equal(gamePenalty(-10 * 60_000), 0);
+assert.equal(gamePenalty(60_000), 0);
+assert.equal(gamePenalty(61_000), 2);
+assert.equal(gamePenalty(5 * 60_000), 2);
+assert.equal(gamePenalty(20 * 60_000), 8);
+assert.equal(gamePenalty(21 * 60_000), 10);
+// shortening a 2h session to 1h on a 60 min budget refunds everything it cost
+assert.equal(gamePenalty(0) - gamePenalty(60 * 60_000), -24);
+
+// sleep: the watch fills and updates last night, but never overwrites hours typed in by hand
+const night = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+assert.equal(syncedSleep(night, 420), 420);
+assert.equal(syncedSleep({ ...night, sleepMin: 400 }, 420), 420);
+assert.equal(syncedSleep({ ...night, sleepMin: 400 }, null), 400);
+assert.equal(syncedSleep({ ...night, sleepMin: 480, sleepManual: true }, 420), 480);
+assert.equal(syncedSleep({ ...night, sleepMin: 0, sleepManual: true }, 420), 0);
+assert.equal(syncedSleep(night, null), undefined);
+
+// food search (Livsmedelsverket names): whole words first, plain before fancy, aliases for everyday words
+const foods = ['Äggröra', 'Ägg kokt', 'Våffla m. ägg', 'Gris späck', 'Risgrynsgröt', 'Ris kokt', 'Havregrynsgröt fullkorn', 'Hårt bröd fullkorn råg', 'Kyckling bröstfilé rå u. skinn'].map(
+  (name, id) => ({ id, name }),
+);
+const names = (q: string) => searchFoods(foods, q).map((f) => f.name);
+assert.deepEqual(names('ägg'), ['Ägg kokt', 'Äggröra', 'Våffla m. ägg']);
+assert.deepEqual(names('ris'), ['Ris kokt', 'Risgrynsgröt', 'Gris späck']);
+assert.deepEqual(names('kokt ägg'), ['Ägg kokt']);
+assert.deepEqual(names('gröt'), ['Risgrynsgröt', 'Havregrynsgröt fullkorn']);
+assert.deepEqual(names('Knäckebröd'), ['Hårt bröd fullkorn råg']);
+assert.deepEqual(names('kycklingfilé'), ['Kyckling bröstfilé rå u. skinn']);
+assert.deepEqual(names('x'), []);
+assert.deepEqual(names('3 eggs + toast'), []);
 
 // period: go easy (level 4) unless turned off; never overrides a lower setting
 const p = defaultState();

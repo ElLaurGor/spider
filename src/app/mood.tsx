@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { router } from 'expo-router';
 
+import { SleepEditor } from '@/components/sleep-checkin';
 import { TrackersCard } from '@/components/trackers-card';
 import { Btn, Card, Chip, Field, H, Icon, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
@@ -18,6 +19,7 @@ export default function MoodScreen() {
   const [level, setLevel] = useState<MoodLevel | null>(null);
   const [emotions, setEmotions] = useState<string[]>([]);
   const [note, setNote] = useState('');
+  const [sleepDay, setSleepDay] = useState<string | null>(null); // night being logged, by its morning's key
 
   const today = moodsOf(dayOf(state));
   const counts = emotionCounts(state, 7);
@@ -25,7 +27,7 @@ export default function MoodScreen() {
   const week = Array.from({ length: 7 }, (_, i) => {
     const d = addDays(new Date(), i - 6);
     const log = dayOf(state, dayKey(d));
-    return { label: WEEKDAYS[d.getDay()][0], avg: avgMood(log), sleep: log.sleepRating, sleepMin: log.sleepMin };
+    return { key: dayKey(d), label: WEEKDAYS[d.getDay()][0], avg: avgMood(log), sleep: log.sleepRating, sleepMin: log.sleepMin };
   });
 
   const toggle = (name: string) =>
@@ -128,17 +130,22 @@ export default function MoodScreen() {
       <Card>
         <H>Sleep · 7 days</H>
         <Row gap={6}>
-          {week.map((d, i) => (
-            <View key={i} style={{ flex: 1, alignItems: 'center', gap: 2 }}>
+          {week.map((d) => (
+            <Pressable
+              key={d.key}
+              onPress={() => setSleepDay(d.key)}
+              hitSlop={4}
+              style={({ pressed }) => [{ flex: 1, alignItems: 'center', gap: 2 }, pressed && { opacity: 0.7 }]}>
               <Text style={{ fontSize: 18 }}>{d.sleep ? sleepInfo(d.sleep).emoji : '·'}</Text>
-              <Text style={styles.dayLabel}>{d.sleepMin != null ? fmtDuration(d.sleepMin * 60_000).replace(' ', '') : ''}</Text>
+              <Text style={styles.dayLabel}>{d.sleepMin != null ? fmtDuration(d.sleepMin * 60_000).replace(' ', '') : '+'}</Text>
               <Text style={styles.dayLabel}>{d.label}</Text>
-            </View>
+            </Pressable>
           ))}
         </Row>
         <T dim small>
-          Rate your sleep each morning on HQ. Hours come from your watch.
+          Rate your sleep each morning on HQ. Tap a day to log or fix the hours slept the night before.
         </T>
+        {sleepDay ? <SleepEditor key={sleepDay} day={sleepDay} onClose={() => setSleepDay(null)} /> : null}
       </Card>
 
       <Card>

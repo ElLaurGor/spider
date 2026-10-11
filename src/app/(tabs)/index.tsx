@@ -240,7 +240,7 @@ export default function HQ() {
                 <Text style={styles.tileUnit}> bpm</Text>
               </Text>
               <T dim small>
-                {health.data?.sleepMin != null ? `slept ${fmtDuration(health.data.sleepMin * 60_000)}` : 'no sleep data'}
+                {today.sleepMin != null ? `slept ${fmtDuration(today.sleepMin * 60_000)}` : 'no sleep data'}
                 {today.sleepRating ? ` · ${sleepInfo(today.sleepRating).emoji}` : ''}
               </T>
             </Tile>

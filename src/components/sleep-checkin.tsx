@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
-import { Card, H, Row, T } from '@/components/ui';
+import { EntryEditor } from '@/components/entry-editor';
+import { Card, H, Icon, Row, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { SLEEP_RATINGS } from '@/lib/body';
-import { fmtDuration } from '@/lib/dates';
+import { dayKey, fmtDuration, MIN, WEEKDAYS_LONG } from '@/lib/dates';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { Rating } from '@/lib/types';
@@ -16,18 +18,19 @@ const ENERGY: { rating: Rating; emoji: string; label: string }[] = [
   { rating: 5, emoji: '⚡', label: 'Full' },
 ];
 
-/** Morning card on HQ: rate last night's sleep and today's energy. Hidden once both are done or after 14:00. */
+/** Morning card on HQ: hours slept, how last night felt, and today's energy. Hidden once all are done or after 14:00. */
 export function SleepCheckIn() {
-  const { state, actions, health } = useStore();
+  const { state, actions } = useStore();
+  const [editing, setEditing] = useState(false);
   const today = dayOf(state);
-  if ((today.sleepRating != null && today.energy != null) || new Date().getHours() >= 14) return null;
-  const watch = health.data?.sleepMin ?? today.sleepMin;
+  if ((today.sleepRating != null && today.energy != null && today.sleepMin != null) || new Date().getHours() >= 14) return null;
+  const slept = today.sleepMin;
 
   return (
     <Card accent={C.purple}>
       {today.sleepRating == null ? (
         <>
-          <H right={watch != null ? <T dim small>⌚ {fmtDuration(watch * 60_000)}</T> : undefined}>How did you sleep?</H>
+          <H>How did you sleep?</H>
           <Row gap={6}>
             {SLEEP_RATINGS.map((r) => (
               <Pressable key={r.rating} onPress={() => actions.rateSleep(r.rating)} style={({ pressed }) => [styles.btn, pressed && { opacity: 0.7 }]}>
@@ -38,6 +41,13 @@ export function SleepCheckIn() {
           </Row>
         </>
       ) : null}
+      <Pressable onPress={() => setEditing(true)} style={({ pressed }) => [styles.hours, pressed && { opacity: 0.7 }]}>
+        <Icon name="bedtime" size={18} color={C.purple} />
+        <T style={{ flex: 1 }}>{slept != null ? `Slept ${fmtDuration(slept * MIN)}` : 'Hours slept?'}</T>
+        <T dim small>
+          {slept == null ? 'Log hours' : today.sleepManual ? 'Edit' : '⌚ Edit'}
+        </T>
+      </Pressable>
       {today.energy == null ? (
         <>
           <H>Energy today?</H>
@@ -54,11 +64,57 @@ export function SleepCheckIn() {
           </T>
         </>
       ) : null}
+      {editing ? <SleepEditor day={dayKey()} onClose={() => setEditing(false)} /> : null}
     </Card>
+  );
+}
+
+/** "Last night" for today's log, otherwise the night before that morning. */
+export function nightLabel(key: string) {
+  if (key === dayKey()) return 'Last night';
+  return `Night before ${WEEKDAYS_LONG[new Date(`${key}T12:00`).getDay()]}`;
+}
+
+/** Sheet for typing in hours slept. `day` is the morning after, where the watch puts its number too. */
+export function SleepEditor({ day, onClose }: { day: string; onClose: () => void }) {
+  const { state, actions, health } = useStore();
+  const log = dayOf(state, day);
+  const min = log.sleepMin ?? 7.5 * 60;
+  const watchRefills = health.status === 'connected' && day === dayKey();
+  const note =
+    log.sleepMin != null && !log.sleepManual
+      ? 'From your watch. Saving replaces it, and the watch leaves your number alone.'
+      : log.sleepManual && watchRefills
+        ? 'Delete hands this night back to your watch.'
+        : undefined;
+
+  return (
+    <EntryEditor
+      title={`Sleep · ${nightLabel(day)}`}
+      numbers={[
+        { key: 'h', label: 'Hours', value: Math.floor(min / 60), step: 1, min: 0, max: 16, suffix: 'h' },
+        { key: 'm', label: 'Minutes', value: Math.round(min % 60), step: 5, min: 0, max: 59, suffix: 'min' },
+      ]}
+      note={note}
+      onSave={(_, v) => actions.logSleep(day, v.numbers.h * 60 + v.numbers.m)}
+      onDelete={log.sleepManual ? () => actions.logSleep(day, null) : undefined}
+      onClose={onClose}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   btn: { flex: 1, alignItems: 'center', gap: 2, paddingVertical: 8, borderRadius: 12, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border },
   label: { color: C.dim, fontSize: 10, fontWeight: '700' },
+  hours: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: C.card2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
 });

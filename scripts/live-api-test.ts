@@ -1,7 +1,8 @@
 /// <reference types="node" />
-// Run: npm run test:live. Hits the real Open-Meteo, SMHI and Krisinformation APIs (needs internet). Prints what came back.
+// Run: npm run test:live. Hits the real Open-Meteo, SMHI, Krisinformation and Livsmedelsverket APIs (needs internet). Prints what came back.
 import assert from 'node:assert/strict';
 
+import { foodNutrients, loadFoods, searchFoods } from '../src/lib/food-db';
 import { fetchAir, fetchSmhi, fetchVma } from '../src/lib/outside';
 import { findPlace, withCounty } from '../src/lib/weather';
 
@@ -36,6 +37,18 @@ import { findPlace, withCounty } from '../src/lib/weather';
   const vRaw = await (await fetch('https://api.krisinformation.se/v3/vmas?format=json')).json();
   console.log('VMA raw count', Array.isArray(vRaw) ? vRaw.length : typeof vRaw, Array.isArray(vRaw) && vRaw[0] ? Object.keys(vRaw[0]) : '');
   console.log('fetchVma(Stockholms län) ->', await fetchVma('Stockholms län'));
+
+  // Livsmedelsverket: the food list loads, search finds plain foods, nutrients parse.
+  const foods = await loadFoods();
+  console.log('Livsmedelsverket foods:', foods.length);
+  assert.ok(foods.length > 2000);
+  for (const q of ['havregryn', 'ägg', 'kycklingfilé', 'knäckebröd']) {
+    const hit = searchFoods(foods, q)[0];
+    assert.ok(hit, `no match for ${q}`);
+    const n = await foodNutrients(hit.id);
+    console.log(`${q} -> ${hit.name}: ${n.kcal100} kcal, ${n.protein100} g protein per 100 g`);
+    assert.ok(n.kcal100 > 0);
+  }
   console.log('all ok');
 })().catch((e) => {
   console.error('FAILED', e);

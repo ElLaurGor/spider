@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { EntryEditor } from '@/components/entry-editor';
 import { ScreenTimeCard } from '@/components/screen-time-card';
 import { Bar, Big, Btn, Card, Chip, Field, H, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { addDays, dayKey, fmtClock, fmtDuration, fmtTime, MIN, WEEKDAYS } from '@/lib/dates';
+import { addDays, dayKey, fmtClock, fmtDuration, fmtTime, MIN, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { dayOf, gameTotals, gamingBudgetMin, gamingUsedMs, recentGames } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import type { GameSession } from '@/lib/types';
 import { BONUS_MIN } from '@/lib/xp';
 
 export default function Game() {
@@ -15,6 +17,10 @@ export default function Game() {
   const now = useNow(1000, !!active);
   const [game, setGame] = useState('');
   const [renaming, setRenaming] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null); // day tapped in the week chart
+  const [editing, setEditing] = useState<{ key: string; start: number } | null>(null);
+  const edited = editing ? dayOf(state, editing.key).games.find((g) => g.start === editing.start) : undefined;
+  const editedMin = edited ? Math.round((edited.end - edited.start) / MIN) : 0;
   const recent = recentGames(state);
   const topGames = gameTotals(state, 7);
   const topMax = Math.max(1, ...topGames.map((g) => g.ms));
@@ -40,10 +46,14 @@ export default function Game() {
   const week = Array.from({ length: 7 }, (_, i) => {
     const d = addDays(new Date(), i - 6);
     const k = dayKey(d);
-    return { label: WEEKDAYS[d.getDay()][0], ms: gamingUsedMs(state, k, now), budget: gamingBudgetMin(state, k) * MIN };
+    const name = i === 6 ? 'Today' : i === 5 ? 'Yesterday' : WEEKDAYS_LONG[d.getDay()];
+    return { key: k, name, label: WEEKDAYS[d.getDay()][0], ms: gamingUsedMs(state, k, now), budget: gamingBudgetMin(state, k) * MIN };
   });
   const weekTotal = week.reduce((a, d) => a + d.ms, 0);
   const maxMs = Math.max(...week.map((d) => Math.max(d.ms, d.budget)), 1);
+  const pickedDay = week.find((d) => d.key === picked);
+  const pickedLog = pickedDay ? dayOf(state, pickedDay.key) : null;
+  const pickedPhoneMin = pickedLog && state.settings.phoneGamesCount ? (pickedLog.screen?.gamesMin ?? 0) : 0;
 
   return (
     <Screen title="GAME" subtitle="Play hard. Within budget.">
@@ -115,19 +125,14 @@ export default function Game() {
         <T dim small>
           Earn more: workout +{BONUS_MIN.workout}m · water goal +{BONUS_MIN.waterGoal}m · each task +{BONUS_MIN.task}m. Going over costs XP.
         </T>
-        {today.games.map((g, i) => (
-          <Row key={i}>
-            <Text style={styles.mono}>
-              {fmtTime(g.start)}–{fmtTime(g.end)}
-            </Text>
-            <T small style={{ flex: 1 }}>
-              {g.game ?? 'Unnamed'}
-            </T>
-            <T small mono dim>
-              {fmtDuration(g.end - g.start)}
-            </T>
-          </Row>
+        {today.games.map((g) => (
+          <SessionRow key={g.start} g={g} onPress={() => setEditing({ key: dayKey(), start: g.start })} />
         ))}
+        {today.games.length > 0 ? (
+          <T dim small>
+            Tap a session to fix its time or length. Older days: tap a bar in Last 7 days.
+          </T>
+        ) : null}
       </Card>
 
       <ScreenTimeCard />
@@ -152,8 +157,12 @@ export default function Game() {
       <Card>
         <H right={<T dim small mono>{fmtDuration(weekTotal)} total</T>}>Last 7 days</H>
         <Row gap={6} style={{ alignItems: 'flex-end', height: 110 }}>
-          {week.map((d, i) => (
-            <View key={i} style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+          {week.map((d) => (
+            <Pressable
+              key={d.key}
+              onPress={() => setPicked(picked === d.key ? null : d.key)}
+              hitSlop={4}
+              style={{ flex: 1, alignItems: 'center', gap: 4 }}>
               <Text style={styles.barVal}>{d.ms > 0 ? Math.round(d.ms / MIN) : ''}</Text>
               <View
                 style={{
@@ -161,17 +170,71 @@ export default function Game() {
                   height: Math.max(3, (d.ms / maxMs) * 70),
                   borderRadius: 4,
                   backgroundColor: d.ms > d.budget ? C.red : C.purple,
+                  opacity: picked && picked !== d.key ? 0.4 : 1,
                 }}
               />
-              <Text style={styles.barLabel}>{d.label}</Text>
-            </View>
+              <Text style={[styles.barLabel, picked === d.key && { color: C.text }]}>{d.label}</Text>
+            </Pressable>
           ))}
         </Row>
+        {pickedDay && pickedLog ? (
+          <View style={{ gap: 8 }}>
+            <H right={<T dim small mono>{fmtDuration(pickedDay.ms)}</T>}>{pickedDay.name}</H>
+            {pickedLog.games.map((g) => (
+              <SessionRow key={g.start} g={g} onPress={() => setEditing({ key: pickedDay.key, start: g.start })} />
+            ))}
+            {pickedLog.games.length === 0 ? <T dim small>No sessions logged that day.</T> : null}
+            {pickedPhoneMin > 0 ? (
+              <T dim small>
+                + {fmtDuration(pickedPhoneMin * MIN)} of phone games from screen time (not editable).
+              </T>
+            ) : null}
+          </View>
+        ) : null}
         <T dim small>
-          Minutes per day. Red = over budget. S.P.I.D.E.R. remembers.
+          Minutes per day. Red = over budget. Tap a day to see and fix its sessions. S.P.I.D.E.R. remembers.
         </T>
       </Card>
+
+      {edited && editing ? (
+        <EntryEditor
+          key={`${editing.key}:${edited.start}`}
+          title="Edit session"
+          at={edited.start}
+          name={edited.game ?? ''}
+          numbers={[
+            { key: 'h', label: 'Hours', value: Math.floor(editedMin / 60), step: 1, min: 0, max: 12, suffix: 'h' },
+            { key: 'm', label: 'Minutes', value: editedMin % 60, step: 5, min: 0, max: 59, suffix: 'min' },
+          ]}
+          onSave={(at, v) => {
+            const min = v.numbers.h * 60 + v.numbers.m;
+            // Untouched length keeps its seconds.
+            const ms = min === editedMin ? edited.end - edited.start : min * MIN;
+            actions.updateGame(editing.key, edited.start, { start: at, ms, game: v.name });
+          }}
+          onDelete={() => actions.removeGame(editing.key, edited.start)}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
     </Screen>
+  );
+}
+
+function SessionRow({ g, onPress }: { g: GameSession; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+      <Row>
+        <Text style={styles.mono}>
+          {fmtTime(g.start)}–{fmtTime(g.end)}
+        </Text>
+        <T small style={{ flex: 1 }}>
+          {g.game ?? 'Unnamed'}
+        </T>
+        <T small mono dim>
+          {fmtDuration(g.end - g.start)}
+        </T>
+      </Row>
+    </Pressable>
   );
 }
 

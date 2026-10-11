@@ -241,6 +241,26 @@ export const LINES = {
       '{over} over. -{penalty} XP. Apparently the budget was just a suggestion.',
     ],
   },
+  gameEdited: {
+    mild: ['Session updated: {time}.'],
+    savage: ['Session updated: {time}. I’ll allow it.', 'Edited to {time}. The records department thanks you.', '{time}. Noted. Filed. Judged.'],
+  },
+  gameEditRefund: {
+    mild: ['Session updated. {xp} XP back.'],
+    savage: [
+      'Rewriting history? Fine. {xp} XP back. I saw nothing.',
+      'Shorter than the timer said, huh. {xp} XP refunded. Suspiciously.',
+      '{xp} XP back. If that was really a forgotten timer, I apologize. If not, I know.',
+    ],
+  },
+  gameEditOver: {
+    mild: ['Session updated. That puts you {over} over budget: -{penalty} XP.'],
+    savage: [
+      'Honesty noted. {over} over budget now. -{penalty} XP. Still proud of you. Slightly.',
+      'Played longer than you logged? -{penalty} XP. Points for confessing, minus points for the rest.',
+      '{over} over budget after that edit. -{penalty} XP. The truth hurts. Mostly your XP.',
+    ],
+  },
   taskAdded: {
     mild: ['Task added.', 'On the list.'],
     savage: [

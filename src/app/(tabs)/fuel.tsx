@@ -1,13 +1,15 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EntryEditor } from '@/components/entry-editor';
+import { FoodSuggestions } from '@/components/food-search';
 import { PhotoViewer } from '@/components/photo-viewer';
-import { Bar, Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, T } from '@/components/ui';
+import { Bar, Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtTime, WEEKDAYS } from '@/lib/dates';
+import { foodNutrients, type Food } from '@/lib/food-db';
 import { caffeineMg, coffeeOf, dayOf, kcalOf, nextWaterReminder, proteinOf, recentFoods, waterMl } from '@/lib/selectors';
 import { deletePhoto, getPhoto, type PhotoSource } from '@/lib/photos';
 import { useStore } from '@/lib/store';
@@ -126,8 +128,10 @@ function CoffeeCard() {
   );
 }
 
+type Picked = { name: string; kcal100: number; protein100: number };
+
 function FoodCard() {
-  const { state, actions } = useStore();
+  const { state, actions, say } = useStore();
   const s = state.settings;
   const today = dayOf(state);
   const [name, setName] = useState('');
@@ -136,6 +140,9 @@ function FoodCard() {
   const [photo, setPhoto] = useState<string | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Picked | null>(null); // a Livsmedelsverket food, fills kcal/protein from grams
+  const [grams, setGrams] = useState(100);
+  const [looking, setLooking] = useState(false);
   const meals = [...today.food].sort((a, b) => a.at - b.at);
   const meal = meals.find((f) => f.id === editing);
   const recent = recentFoods(state);
@@ -145,11 +152,35 @@ function FoodCard() {
   const canLog = !!name.trim() || !!photo;
   const log = () => {
     if (!canLog) return;
-    actions.addFood({ name: name.trim() || 'Meal', kcal: Number(kcal) || 0, protein: Number(protein) || 0, photo: photo ?? undefined });
+    const label = picked ? `${picked.name} (${grams} g)` : name.trim() || 'Meal';
+    actions.addFood({ name: label, kcal: Number(kcal) || 0, protein: Number(protein) || 0, photo: photo ?? undefined });
     setName('');
     setKcal('');
     setProtein('');
     setPhoto(null);
+    setPicked(null);
+  };
+
+  const setAmount = (g: number, food: Picked | null = picked) => {
+    setGrams(g);
+    if (!food) return;
+    setKcal(String(Math.round((food.kcal100 * g) / 100)));
+    setProtein(String(Math.round((food.protein100 * g) / 100)));
+  };
+
+  const pick = async (food: Food) => {
+    setName(food.name);
+    setLooking(true);
+    try {
+      const n = await foodNutrients(food.id);
+      const next = { name: food.name, ...n };
+      setPicked(next);
+      setAmount(100, next);
+    } catch {
+      say("Couldn't fetch the nutrition. Check your internet, or type kcal and protein yourself.", 'bad');
+    } finally {
+      setLooking(false);
+    }
   };
 
   const snap = async (source: PhotoSource) => {
@@ -203,11 +234,39 @@ function FoodCard() {
             <Image source={{ uri: photo }} style={styles.pending} contentFit="cover" />
           </Pressable>
         ) : null}
-        <Field value={name} onChangeText={setName} placeholder="What did you eat? (e.g. 3 eggs + toast)" style={{ flex: 1 }} />
+        <Field
+          value={name}
+          onChangeText={(t) => {
+            setName(t);
+            if (picked && t !== picked.name) setPicked(null);
+          }}
+          placeholder="What did you eat? (e.g. havregryn)"
+          style={{ flex: 1 }}
+        />
         <Btn icon="barcode_scanner" kind="ghost" small onPress={() => router.push('/scan')} />
         <Btn icon="photo_camera" kind="ghost" small onPress={() => snap('camera')} />
         <Btn icon="photo_library" kind="ghost" small onPress={() => snap('library')} />
       </Row>
+      {looking ? (
+        <Row>
+          <ActivityIndicator color={C.green} />
+          <T dim small>
+            Looking up {name}…
+          </T>
+        </Row>
+      ) : picked ? (
+        <View style={{ gap: 6 }}>
+          <T dim small mono>
+            per 100 g: {picked.kcal100} kcal · {picked.protein100} g protein
+          </T>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <T>How much?</T>
+            <Stepper value={grams} onChange={(g) => setAmount(g)} step={grams >= 100 ? 25 : 5} min={5} max={2000} format={(v) => `${v} g`} />
+          </Row>
+        </View>
+      ) : (
+        <FoodSuggestions query={name} onPick={pick} />
+      )}
       <Row>
         <Field value={kcal} onChangeText={setKcal} placeholder="kcal" keyboardType="numeric" style={{ flex: 1 }} />
         <Field value={protein} onChangeText={setProtein} placeholder="protein g" keyboardType="numeric" style={{ flex: 1 }} />

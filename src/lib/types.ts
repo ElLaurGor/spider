@@ -103,7 +103,8 @@ export type DayLog = {
   moods?: MoodEntry[];
   bonusGameMin: number;
   steps?: number; // latest count from the watch via Health Connect
-  sleepMin?: number; // last night's sleep from the watch
+  sleepMin?: number; // last night's sleep, from the watch or typed in
+  sleepManual?: boolean; // sleepMin was typed in: the watch doesn't overwrite it
   stepGoalHit?: boolean;
   habits?: string[]; // ids of habits done that day
   habitsAllDone?: boolean;
