@@ -186,6 +186,9 @@ export const BOSSES = [
 
 export const weekKey = (date: Date | number = new Date()) => dayKey(startOfWeek(date));
 
+/** Minutes of social apps per day before each extra minute heals the boss 1 HP. */
+export const DOOM_FREE_MIN = 120;
+
 /** Each boss's weakness: on days that meet it, the XP earned that day hits it twice. Nothing food-related. */
 export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hit: (s: State, d: DayLog, key: string) => boolean }> = {
   procrastinator: { label: 'finishing tasks', hit: (s, _d, key) => s.tasks.some((t) => t.done && t.doneAt && dayKey(t.doneAt) === key) },
@@ -223,7 +226,7 @@ export function bossFor(s: State, date: Date | number = new Date()) {
   for (let i = 0; i < 7; i++) {
     const day = dayKey(addDays(monday, i));
     const d = dayOf(s, day);
-    healed += Math.max(0, (d.screen?.doomMin ?? 0) - 60);
+    healed += Math.max(0, (d.screen?.doomMin ?? 0) - DOOM_FREE_MIN);
     const xp = d.xpEarned ?? 0;
     damage += xp;
     if (xp > 0 && weakness.hit(s, d, day)) bonus += xp;

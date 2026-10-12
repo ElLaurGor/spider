@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 import { Bar, Btn, Card, H, Icon, Row, SpiderSays, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { fmtDuration } from '@/lib/dates';
+import { DOOM_FREE_MIN } from '@/lib/quests';
 import { openUsageSettings } from '@/lib/screentime';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
@@ -65,7 +66,7 @@ export function ScreenTimeCard() {
       ))}
       {key ? <ScreenRoast lineKey={key} app={app} time={time} /> : null}
       <T dim small>
-        {state.settings.phoneGamesCount ? '🎮 Phone games count toward your gaming budget. ' : ''}💀 Social apps over 1 h/day heal the weekly boss.
+        {state.settings.phoneGamesCount ? '🎮 Phone games count toward your gaming budget. ' : ''}💀 Social apps over {DOOM_FREE_MIN / 60} h/day heal the weekly boss.
       </T>
     </Card>
   );

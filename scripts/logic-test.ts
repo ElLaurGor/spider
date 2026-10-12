@@ -454,13 +454,15 @@ for (let i = 1; i <= 16; i++) {
 }
 assert.ok(insights(tr).some((x) => x.id === 'trk_short_hd'), JSON.stringify(insights(tr).map((x) => x.id)));
 
-// screen time: social apps over 60 min/day heal the boss; phone games count toward the budget (toggleable)
+// screen time: social apps over 120 min/day heal the boss; phone games count toward the budget (toggleable)
 const sc = defaultState();
 sc.days[dayKey()] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, screen: { totalMin: 300, doomMin: 150, gamesMin: 40, top: [] } };
 const base = bossFor(defaultState());
 const healedBoss = bossFor(sc);
-assert.equal(healedBoss.healed, 90);
-assert.equal(healedBoss.maxHp, base.maxHp + 90);
+assert.equal(healedBoss.healed, 30);
+assert.equal(healedBoss.maxHp, base.maxHp + 30);
+sc.days[dayKey()].screen!.doomMin = 120;
+assert.equal(bossFor(sc).healed, 0);
 assert.equal(Math.round(gamingUsedMs(sc) / 60_000), 40);
 sc.settings.phoneGamesCount = false;
 assert.equal(gamingUsedMs(sc), 0);
