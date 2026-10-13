@@ -169,4 +169,7 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
     icon: 'candle',
     test: (s) => allDays(s).some(([k, d]) => !!d.questsAllDone && seasonOn(new Date(`${k}T12:00`))?.id === 'lucia'),
   },
+  // cluster G
+  { id: 's_glass_cannon', title: 'Glass Cannon', desc: '3 critical hits in one day', hint: 'Lightning, three times.', icon: 'bolt', test: (s) => allDays(s).some(([, d]) => (d.critKeys?.length ?? 0) >= 3) },
+  { id: 's_entomologist', title: 'Entomologist', desc: 'Caught 10 different flies', hint: 'A jar full of tiny friends.', icon: 'bug_report', test: (s) => Object.keys(s.flies ?? {}).length >= 10 },
 ];

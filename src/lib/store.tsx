@@ -39,6 +39,8 @@ import { bossFor, pickQuests, questsFor } from './quests';
 import { canSign, contractProgress, goalOf, roughWeek } from './contracts';
 import { respectFor } from './respect';
 import { isSnow, seasonOn, winterOf } from './seasons';
+import { catchFly as catchPendingFly, caughtCount, FLIES, rollCritters } from './critters';
+import { unlockPages } from './diary';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
 import {
   activitiesOf,
@@ -82,8 +84,10 @@ import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEV
 const STORAGE_KEY = 'spider:state:v1';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
-export type Toast = { id: number; text: string; tone: Tone };
-type Msg = { text: string; tone: Tone };
+/** A button on a toast (cluster G: "Catch it!" on a fly). */
+export type ToastAction = 'catchFly';
+export type Toast = { id: number; text: string; tone: Tone; action?: ToastAction };
+type Msg = { text: string; tone: Tone; action?: ToastAction };
 
 // ---------- pure state helpers ----------
 
@@ -205,6 +209,20 @@ function checkQuests(s: State, msgs: Msg[]): State {
     next = reward(next, msgs, XP.boss, BONUS_MIN.boss);
   }
   return next;
+}
+
+/** Flies to catch and critical hits on the boss, for whatever was just logged (lib/critters.ts). */
+function checkCritters(prev: State, s: State, msgs: Msg[]): State {
+  const r = rollCritters(prev, s);
+  for (const m of r.msgs) msgs.push({ text: L(r.state, m.key, m.vars), tone: 'epic', action: m.action });
+  return r.state;
+}
+
+/** A page of S.P.I.D.E.R.'s secret diary for every 10 quests (lib/diary.ts). */
+function checkDiary(s: State, msgs: Msg[]): State {
+  const r = unlockPages(s);
+  if (r.added) msgs.push({ text: L(r.state, 'diaryPage'), tone: 'epic' });
+  return r.state;
 }
 
 function checkAchievements(s: State, msgs: Msg[]): State {
@@ -344,11 +362,11 @@ function useStoreValue() {
   // ----- toasts -----
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
-  const say = useCallback((text: string, tone: Tone = 'info') => {
+  const say = useCallback((text: string, tone: Tone = 'info', action?: ToastAction) => {
     haptic(tone);
     toastId.current += 1;
     const id = toastId.current;
-    setToasts((q) => [...q.slice(-3), { id, text, tone }]);
+    setToasts((q) => [...q.slice(-3), { id, text, tone, action }]);
   }, []);
   const dismissToast = useCallback(() => setToasts((q) => q.slice(1)), []);
 
@@ -392,10 +410,10 @@ function useStoreValue() {
     (fn: (s: State, msgs: Msg[]) => State) => {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
-      const checked = checkContract(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs);
-      const next = checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs);
+      const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs), msgs);
+      const next = checkDiary(checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs), msgs);
       commit(next);
-      msgs.forEach((m) => say(m.text, m.tone));
+      msgs.forEach((m) => say(m.text, m.tone, m.action));
       // Earned bonus minutes mid-session move the gaming alerts.
       if (next.activeGame && dayOf(next).bonusGameMin !== dayOf(prev).bonusGameMin) {
         void scheduleGameAlerts(next, gamingBudgetMin(next) - gamingUsedMs(next) / MIN);
@@ -1151,6 +1169,18 @@ function useStoreValue() {
             next = reward(next, msgs, XP.habitsAll);
           }
           return next;
+        });
+      },
+
+      // --- fly collection (cluster G) ---
+      catchFly() {
+        run((s, msgs) => {
+          const r = catchPendingFly(s);
+          if (r.key) {
+            const extra = r.newSpecies ? ` New species: ${caughtCount(r.state)}/${FLIES.length}.` : '';
+            msgs.push({ text: L(r.state, r.key, r.vars) + extra, tone: r.key === 'flyGone' ? 'info' : 'epic' });
+          }
+          return r.state;
         });
       },
 

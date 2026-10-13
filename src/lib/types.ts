@@ -120,6 +120,10 @@ export type DayLog = {
   waterGoalHit?: boolean;
   proteinGoalHit?: boolean;
   workoutCounted?: boolean;
+  // cluster G
+  critDamage?: number; // extra boss damage from critical hits that day (lib/critters.ts)
+  critKeys?: string[]; // logged things that already crit, so a re-log can't crit again
+  flySpawns?: string[]; // logged things that turned up a fly (at most 2 a day)
 };
 
 export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
@@ -204,7 +208,13 @@ export type State = {
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
   contract?: Contract | null; // this or last week's weekly contract (lib/contracts.ts)
   seasonWins?: string[]; // "halloween-2026": a boss beaten while that season was on (seasons.ts)
+  // cluster G
+  flies?: Record<string, { firstAt: number; count: number }>; // fly collection (lib/critters.ts)
+  pendingFly?: { id: string; until: number } | null; // a fly buzzing around, catchable until `until`
+  diary?: DiaryPage[]; // S.P.I.D.E.R.'s secret diary, one page per 10 quests (lib/diary.ts)
 };
+
+export type DiaryPage = { n: number; at: number; day: string; text: string };
 
 export type CalEvent = {
   key: string;
