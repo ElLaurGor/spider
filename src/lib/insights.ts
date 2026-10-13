@@ -1,8 +1,10 @@
 // Patterns in the user's own data: compares two kinds of days and reports clear differences.
-import { periodStarts } from './body';
+import { periodStarts, PHASE_NAMES, phaseOn } from './body';
+import { BED_MG, bedtimeCaffeine } from './caffeine';
+import { cycleNotes, cycleStats } from './cycle-stats';
 import { addDays, dayKey, fmtDuration, WEEKDAYS_LONG } from './dates';
 import { dayScoreFor } from './report';
-import { avgMood, coffeeOf, dayOf, gamingUsedMs, onPeriod, trainedOn, waterMl } from './selectors';
+import { avgMood, coffeeOf, dayOf, gamingUsedMs, trainedOn, waterMl } from './selectors';
 import type { DayLog, State } from './types';
 
 export type Insight = { id: string; emoji: string; text: string; detail: string; strength: number };
@@ -95,6 +97,18 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
       text: `Coffee after ${cutoff}:00 costs you ${fmtDuration((lateCoffee.no - lateCoffee.yes) * 60_000)} of sleep.`,
       detail: `${fmtDuration(lateCoffee.yes * 60_000)} vs ${fmtDuration(lateCoffee.no * 60_000)} · ${lateCoffee.n} nights`,
       strength: (lateCoffee.no - lateCoffee.yes) / 30,
+    });
+  }
+
+  // Caffeine still in the body at bedtime vs how that night felt.
+  const bedCaf = compare(days, (d) => bedtimeCaffeine(s, d.key) >= BED_MG, (d) => d.next.sleepRating ?? null);
+  if (bedCaf && bedCaf.no - bedCaf.yes >= 0.4) {
+    add({
+      id: 'caffeine_bed',
+      emoji: '☕',
+      text: `On nights you go to bed with ${BED_MG}+ mg of caffeine still in you, you rate your sleep worse. The beans clock out later than you do.`,
+      detail: `${bedCaf.yes.toFixed(1)}/5 vs ${bedCaf.no.toFixed(1)}/5 · ${bedCaf.n} nights`,
+      strength: (bedCaf.no - bedCaf.yes) / 0.6,
     });
   }
 
@@ -324,19 +338,12 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
   }
 
   // Mood by cycle phase (kind wording).
-  const starts = periodStarts(s).map((k) => new Date(`${k}T12:00`).getTime());
+  const starts = periodStarts(s);
   if (starts.length >= 2) {
-    const phaseOf = (d: Day) => {
-      if (onPeriod(d.log)) return 'period';
-      const start = [...starts].reverse().find((t) => t <= d.date.getTime());
-      if (start == null) return null;
-      const cycleDay = Math.floor((d.date.getTime() - start) / 86_400_000) + 1;
-      return cycleDay <= 13 ? 'follicular' : cycleDay <= 16 ? 'ovulation' : 'luteal';
-    };
-    const moods = new Map<string, number[]>();
+    const moods = new Map<keyof typeof PHASE_NAMES, number[]>();
     for (const d of days) {
       const m = avgMood(d.log);
-      const p = phaseOf(d);
+      const p = phaseOn(s, d.key, starts);
       if (m == null || !p) continue;
       moods.set(p, [...(moods.get(p) ?? []), m]);
     }
@@ -345,17 +352,19 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
       phases.sort((a, b) => a.m - b.m);
       const low = phases[0];
       const high = phases[phases.length - 1];
-      const names: Record<string, string> = { period: 'your period', follicular: 'the week after your period', ovulation: 'mid-cycle', luteal: 'the week before your period' };
       if (high.m - low.m >= 0.4) {
         add({
           id: 'cycle_mood',
           emoji: '🩸',
-          text: `Your mood tends to be lowest during ${names[low.p]} and highest during ${names[high.p]}. Plan easier days then. No roast.`,
+          text: `Your mood tends to be lowest during ${PHASE_NAMES[low.p]} and highest during ${PHASE_NAMES[high.p]}. Plan easier days then. No roast.`,
           detail: `${low.m.toFixed(1)}/5 vs ${high.m.toFixed(1)}/5`,
           strength: (high.m - low.m) / 0.6,
         });
       }
     }
+    // The clearest other shift through the cycle (sleep, energy, steps, training). Mood has its own line above.
+    const note = cycleNotes(cycleStats(s, now, windowDays)).find((n) => !n.id.startsWith('mood_'));
+    if (note) add({ id: 'cycle_body', emoji: '🌙', text: note.text, detail: 'From your cycle and your own logs · more on the Cycle screen', strength: note.strength });
   }
 
   return out.sort((a, b) => b.strength - a.strength);

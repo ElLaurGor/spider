@@ -98,3 +98,23 @@ export function isPredictedPeriod(info: CycleInfo | null, date: Date) {
   const start = startOfDay(info.nextStart).getTime();
   return t >= start && t < start + info.avgPeriodDays * DAY;
 }
+
+// ---- cluster D: cycle phases ----
+
+export type CyclePhase = 'period' | 'follicular' | 'ovulation' | 'luteal';
+export const PHASES: CyclePhase[] = ['period', 'follicular', 'ovulation', 'luteal'];
+export const PHASE_NAMES: Record<CyclePhase, string> = {
+  period: 'your period',
+  follicular: 'the week after your period',
+  ovulation: 'mid-cycle',
+  luteal: 'the week before your period',
+};
+
+/** Where a logged day falls in the cycle, counted from the period start before it. Null before the first logged period. */
+export function phaseOn(s: State, key: string, starts = periodStarts(s)): CyclePhase | null {
+  if (onPeriod(dayOf(s, key))) return 'period';
+  const start = [...starts].reverse().find((k) => k <= key);
+  if (!start) return null;
+  const cycleDay = Math.round((noon(key).getTime() - noon(start).getTime()) / DAY) + 1;
+  return cycleDay <= 13 ? 'follicular' : cycleDay <= 16 ? 'ovulation' : 'luteal';
+}
