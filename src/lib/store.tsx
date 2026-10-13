@@ -19,6 +19,7 @@ import { connectHealth, healthStatus, healthSupported, readHealth, type HealthDa
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, type LineKey } from './lines';
+import { IMMORTAL_DAYS, taskAgeDays } from './memory';
 import { moodInfo } from './mood';
 import {
   cancelEverything,
@@ -1123,7 +1124,9 @@ function useStoreValue() {
           if (!task) return s;
           const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: !t.done, doneAt: t.done ? undefined : Date.now() } : t));
           if (!task.done) {
-            msgs.push({ text: L(s, 'taskDone'), tone: 'good' });
+            const age = taskAgeDays(task);
+            if (age >= IMMORTAL_DAYS) msgs.push({ text: L(s, 'immortalSlain', { task: task.title, days: age }), tone: 'epic' });
+            else msgs.push({ text: L(s, 'taskDone'), tone: 'good' });
             return reward(bump({ ...s, tasks }, 'tasksDone'), msgs, XP.task, BONUS_MIN.task);
           }
           const doneToday = task.doneAt && dayKey(task.doneAt) === dayKey();

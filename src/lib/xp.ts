@@ -169,4 +169,14 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
     icon: 'candle',
     test: (s) => allDays(s).some(([k, d]) => !!d.questsAllDone && seasonOn(new Date(`${k}T12:00`))?.id === 'lucia'),
   },
+  // cluster E
+  {
+    id: 's_monster_hunter',
+    title: 'Monster Hunter',
+    desc: 'Finished a task that had been open for a week or more',
+    hint: 'Some things refuse to die. Until you.',
+    icon: 'skull',
+    // 7 days = IMMORTAL_DAYS in memory.ts (not imported: memory → report → quests → xp would be a cycle later)
+    test: (s) => s.tasks.some((t) => t.done && t.doneAt != null && t.doneAt - t.createdAt >= 7 * 86_400_000),
+  },
 ];

@@ -7,6 +7,7 @@ import { HabitsCard } from '@/components/habits-card';
 import { Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { addDays, fmtTime, WEEKDAYS } from '@/lib/dates';
+import { IMMORTAL_DAYS, taskAgeDays } from '@/lib/memory';
 import { eventsOn, freeSlots, workoutFor } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { Task } from '@/lib/types';
@@ -136,6 +137,7 @@ export default function Plan() {
             key={t.id}
             title={t.title}
             done={false}
+            age={taskAgeDays(t)}
             onToggle={() => actions.toggleTask(t.id)}
             onEdit={() => setRenaming(t)}
             onDelete={() => actions.deleteTask(t.id)}
@@ -186,12 +188,14 @@ export default function Plan() {
 function TaskRow({
   title,
   done,
+  age,
   onToggle,
   onEdit,
   onDelete,
 }: {
   title: string;
   done: boolean;
+  age?: number; // days open, for the immortal-task badge
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -203,6 +207,11 @@ function TaskRow({
         <T dim={done} style={[{ flex: 1 }, done && { textDecorationLine: 'line-through' }]}>
           {title}
         </T>
+        {!done && age != null && age >= IMMORTAL_DAYS ? (
+          <T small style={{ color: C.yellow }}>
+            🧟 {age} days
+          </T>
+        ) : null}
       </Pressable>
       <Pressable onPress={onDelete} hitSlop={8}>
         <Icon name="close" size={18} color={C.faint} />

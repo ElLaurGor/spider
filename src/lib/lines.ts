@@ -848,6 +848,25 @@ export const LINES = {
     mild: ['Outstanding! Everything on track.'],
     savage: ['Verdict: suspiciously productive. Are you okay?', 'Verdict: elite. Who replaced you?'],
   },
+
+  // ---- cluster E: personality & UX ----
+  immortalTask: {
+    mild: ['"{task}" has been on your list for {days} days. Maybe today?'],
+    savage: [
+      '🧟 "{task}" has been on your list for {days} days. It has outlived houseplants.',
+      '"{task}" is {days} days old and still breathing. I\'m starting to respect it.',
+      'Fun fact: "{task}" turned {days} days old today. It has a pension plan now.',
+      '"{task}" has survived {days} days on your list. It is no longer a task. It is a tenant.',
+    ],
+  },
+  immortalSlain: {
+    mild: ['"{task}" is finally done after {days} days. Well done!'],
+    savage: [
+      '💀 "{task}" has fallen after {days} days. They will write songs about this.',
+      'After {days} days, "{task}" is dead. I had money on it outliving us both.',
+      'The {days}-day-old "{task}" is no more. Rest in pieces.',
+    ],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

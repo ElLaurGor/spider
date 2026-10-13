@@ -18,6 +18,7 @@ import { ACRONYM, type LineKey } from '@/lib/lines';
 import { cycleInfo, sleepInfo } from '@/lib/body';
 import { nextStage, stageFor } from '@/lib/evolution';
 import { insightOfTheDay } from '@/lib/insights';
+import { immortalTask } from '@/lib/memory';
 import { moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
 import { respectFor } from '@/lib/respect';
@@ -87,6 +88,13 @@ export default function HQ() {
   const verdict = useMemo(() => quip(vKey), [quip, vKey]);
   const emptyKey = cal.status === 'granted' ? 'calFree' : 'tasksEmpty';
   const emptyLine = useMemo(() => quip(emptyKey), [quip, emptyKey]);
+
+  // A tap on the spider: a random jab, its opinion of your week, or a word about the task that won't die.
+  const tapSpider = () => {
+    const zombie = immortalTask(state);
+    if (zombie && Math.random() < 0.3) return setBubble(quip('immortalTask', { task: zombie.task.title, days: zombie.days }));
+    setBubble(quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'));
+  };
 
   // The movable cards, by id (lib/hq-layout.ts sets their order and which are hidden).
   const SECTIONS: Record<HqSectionId, () => ReactNode> = {
@@ -330,7 +338,7 @@ export default function HQ() {
         </Pressable>
       }>
       {/* Pinned: these can't be moved or hidden. */}
-      <SpiderSays text={bubble} onPress={() => setBubble(quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'))} />
+      <SpiderSays text={bubble} onPress={tapSpider} />
       <OutsideAlerts />
       <LowBatteryCard />
 

@@ -22,6 +22,7 @@ import { SECRET_ACHIEVEMENTS } from '../src/lib/xp';
 import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log';
 import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '../src/lib/xp';
 import { HQ_SECTIONS, hqOrder, hqVisible, moveSection, toggleSection } from '../src/lib/hq-layout';
+import { IMMORTAL_DAYS, immortalTask, taskAgeDays } from '../src/lib/memory';
 import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/lib/league';
 import { coinsFor, rollChest } from '../src/lib/economy';
 import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
@@ -59,7 +60,7 @@ for (let i = 0; i < 100; i++) {
   assert.ok(!t.includes('{'), t);
 }
 // every placeholder used in a pool is one we actually pass somewhere
-const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins']);
+const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins', /* cluster E */ 'task', 'days']);
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -505,9 +506,9 @@ assert.equal(Math.round(gamingUsedMs(sc) / 60_000), 40);
 sc.settings.phoneGamesCount = false;
 assert.equal(gamingUsedMs(sc), 0);
 
-// secret achievements: 22, unique, none unlocked on a fresh state, some trigger correctly
-assert.equal(SECRET_ACHIEVEMENTS.length, 22);
-assert.equal(new Set(SECRET_ACHIEVEMENTS.map((a) => a.id)).size, 22);
+// secret achievements: at least the original 22, unique, none unlocked on a fresh state, some trigger correctly
+assert.ok(SECRET_ACHIEVEMENTS.length >= 22);
+assert.equal(new Set(SECRET_ACHIEVEMENTS.map((a) => a.id)).size, SECRET_ACHIEVEMENTS.length);
 assert.equal(SECRET_ACHIEVEMENTS.filter((a) => a.test(defaultState())).length, 0);
 const sec = defaultState();
 const at3 = atTime(new Date(), -1, 3).getTime();
@@ -755,4 +756,21 @@ console.log('all logic tests passed');
   const hidden = toggleSection(null, 'league');
   assert.ok(!hqVisible(hidden).includes('league'));
   assert.ok(hqVisible(toggleSection(hidden, 'league')).includes('league'));
+
+  // the immortal task: the oldest one open a week or more, counted by age (never "days in a row")
+  const day = 86_400_000;
+  const nowMs = Date.now();
+  const it = defaultState();
+  it.tasks = [
+    { id: 'new', title: 'New', done: false, createdAt: nowMs - 2 * day },
+    { id: 'old', title: 'Call the dentist', done: false, createdAt: nowMs - 12 * day - 60_000 },
+    { id: 'older-done', title: 'Done ages ago', done: true, createdAt: nowMs - 40 * day, doneAt: nowMs - 30 * day },
+  ];
+  assert.deepEqual(immortalTask(it, nowMs), { task: it.tasks[1], days: 12 });
+  assert.equal(immortalTask({ ...it, tasks: [it.tasks[0]] }, nowMs), null);
+  assert.equal(taskAgeDays(it.tasks[0], nowMs), 2);
+  const hunter = SECRET_ACHIEVEMENTS.find((a) => a.id === 's_monster_hunter')!;
+  assert.ok(hunter.test(it)); // 'Done ages ago' was open 10 days
+  assert.ok(!hunter.test({ ...it, tasks: [it.tasks[0], it.tasks[1]] }));
+  assert.equal(IMMORTAL_DAYS, 7); // the secret's test hard-codes 7 days
 }
