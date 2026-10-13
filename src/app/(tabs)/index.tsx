@@ -6,6 +6,7 @@ import { ContractCard } from '@/components/contract-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { QuestsCard } from '@/components/quests-card';
+import { ReadinessCard } from '@/components/readiness-card';
 import { SleepCheckIn } from '@/components/sleep-checkin';
 import { SpiderAvatar } from '@/components/spider-avatar';
 import { Bar, Btn, Card, H, Icon, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
@@ -102,6 +103,7 @@ export default function HQ() {
       <OutsideAlerts />
       <CountdownRow />
       <SleepCheckIn />
+      <ReadinessCard />
       <LowBatteryCard />
       <WindDownCard />
 

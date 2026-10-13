@@ -21,6 +21,7 @@ export type HealthData = {
   restingHr: number | null;
   sleepMin: number | null; // last night
   nights: { key: string; night: Night | null }[]; // bed/wake times and stages of the nights before stepsWeek's days
+  restingDays: { key: string; bpm: number | null }[]; // resting heart rate per day, last 14 days, oldest first
   updatedAt: number;
 };
 
@@ -170,7 +171,14 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
   };
   const week = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
 
-  const [stepsWeek, sleepWeek, heart, resting, latest, sessions] = await Promise.all([
+  const restingOn = async (dayStart: Date) => {
+    const end = dayStart.getTime() === today.getTime() ? now : addDays(dayStart, 1);
+    const r = await safe(() => lib.aggregateRecord({ recordType: 'RestingHeartRate', timeRangeFilter: range(dayStart, end) }));
+    return r && r.BPM_AVG > 0 ? Math.round(r.BPM_AVG) : null;
+  };
+  const fortnight = Array.from({ length: 14 }, (_, i) => addDays(today, i - 13));
+
+  const [stepsWeek, sleepWeek, heart, resting, latest, sessions, restingDays] = await Promise.all([
     Promise.all(week.map(async (d) => ({ key: dayKey(d), steps: await stepsOn(d) }))),
     Promise.all(week.map(async (d) => ({ key: dayKey(d), sleepMin: await sleepBefore(d) }))),
     safe(() => lib.aggregateRecord({ recordType: 'HeartRate', timeRangeFilter: range(today, now) })),
@@ -183,6 +191,7 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
       }),
     ),
     readSessions(lib, new Date(nightWindow(dayKey(week[0])).from), now),
+    Promise.all(fortnight.map(async (d) => ({ key: dayKey(d), bpm: await restingOn(d) }))),
   ]);
 
   const lastRecord = latest?.records[0];
@@ -200,6 +209,7 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
     sleepMin: sleepWeek[sleepWeek.length - 1].sleepMin,
     sleepWeek,
     nights: week.map((d) => ({ key: dayKey(d), night: nightOf(sessions, dayKey(d)) })),
+    restingDays,
     updatedAt: Date.now(),
   };
 }

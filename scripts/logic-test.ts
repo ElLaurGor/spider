@@ -38,6 +38,7 @@ import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
 import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
 import { clockLabel, nightClock, nightOf, rhythmOf, withNights } from '../src/lib/sleep';
+import { readinessFor } from '../src/lib/readiness';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -813,4 +814,29 @@ console.log('all logic tests passed');
   assert.equal(r.spread, 20);
   assert.equal(r.jetlag, 122); // middle of the night: weekend 05:00 (300) vs weekdays 02:58 on average (178)
   assert.equal(rhythmOf(defaultState(), addDays(mon, 6), 7), null);
+}
+
+// morning readiness: sleep and resting heart rate against her own normal, plus her ratings
+{
+  const empty = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  const tue = new Date(2027, 0, 12, 8); // Tuesday 08:00, a Pull day in the default plan
+  const rd = defaultState();
+  assert.equal(readinessFor(rd, [], tue), null); // nothing to go on
+  for (let i = 1; i <= 7; i++) rd.days[dayKey(addDays(tue, -i))] = { ...empty, sleepMin: 450 };
+  const rest = Array.from({ length: 14 }, (_, i) => ({ key: dayKey(addDays(tue, i - 13)), bpm: 56 as number | null }));
+  // short night, heart rate up, rated badly: take it easy, and the planned workout gets a lighter option
+  rd.days[dayKey(tue)] = { ...empty, sleepMin: 350, sleepRating: 2 };
+  const low = readinessFor(rd, rest.map((r, i) => (i === 13 ? { ...r, bpm: 62 } : r)), tue)!;
+  assert.equal(low.tier, 'easy');
+  assert.ok(low.suggestion?.startsWith('Pull is on the plan'));
+  assert.ok(low.reasons.some((x) => x.includes('6 above your usual 56')));
+  // a good night and a calm heart: ready
+  rd.days[dayKey(tue)] = { ...empty, sleepMin: 500, sleepRating: 4, energy: 4 };
+  assert.equal(readinessFor(rd, rest, tue)!.tier, 'ready');
+  // today's resting rate missing: yesterday's is used
+  const noToday = rest.map((r, i) => (i === 13 ? { ...r, bpm: null } : i === 12 ? { ...r, bpm: 63 } : r));
+  rd.days[dayKey(tue)] = { ...empty, sleepMin: 450 };
+  const y = readinessFor(rd, noToday, tue)!;
+  assert.ok(y.reasons.some((x) => x.includes('Resting heart rate 63')));
+  assert.equal(y.tier, 'steady');
 }
