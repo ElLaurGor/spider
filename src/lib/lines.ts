@@ -848,6 +848,23 @@ export const LINES = {
     mild: ['Outstanding! Everything on track.'],
     savage: ['Verdict: suspiciously productive. Are you okay?', 'Verdict: elite. Who replaced you?'],
   },
+
+  // ---- cluster D: insights ----
+  experimentStarted: {
+    mild: ['Experiment on: {title}. Tick off each day you do it. Days you skip are data too.'],
+    savage: [
+      'Experiment started: {title}. Fourteen days. I will be taking notes. Scientifically. Judgmentally.',
+      '{title}, for science. Tick the days you actually do it. I can tell if you lie. I cannot, but still.',
+    ],
+  },
+  experimentDone: {
+    mild: ['Experiment over: {title}. You did it on {n} of {count} days. The results are in.'],
+    savage: ['{title}: done on {n} of {count} days. The lab results are in. Brace yourself.', 'Fourteen days of {title} are over. {n} of {count} days done. Let us see what the data says about you.'],
+  },
+  experimentStopped: {
+    mild: ['Experiment stopped. No penalty, it was your experiment.'],
+    savage: ['Experiment abandoned. Science weeps quietly in the corner. No penalty, though.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

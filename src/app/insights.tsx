@@ -1,5 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { ExperimentCard } from '@/components/experiment-card';
+import { SymptomDetective } from '@/components/symptom-detective';
 import { Card, SpiderSays, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { insights } from '@/lib/insights';
@@ -32,6 +34,8 @@ export default function InsightsScreen() {
           </View>
         </Card>
       ))}
+      <SymptomDetective state={state} />
+      <ExperimentCard />
       <T dim small style={{ textAlign: 'center' }}>
         Patterns, not proof. A pattern needs at least 3 days on each side of the comparison before it shows up here.
       </T>

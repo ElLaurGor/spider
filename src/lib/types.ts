@@ -82,7 +82,14 @@ export type CoffeeEntry = { id: string; mg: number; at: number; late?: boolean }
 export type MoodLevel = 1 | 2 | 3 | 4 | 5;
 export type MoodEntry = { id: string; level: MoodLevel; emotions: string[]; note?: string; at: number; late?: boolean };
 
-export type DayWeather = { max: number; min: number; rainMm: number; sunMin: number; code: number }; // Open-Meteo, for Insights
+export type DayWeather = {
+  max: number;
+  min: number;
+  rainMm: number;
+  sunMin: number;
+  code: number;
+  pressureDrop?: number | null; // cluster D: biggest 24 h air-pressure fall ending that day (hPa); null = unknown, missing = not fetched yet
+}; // Open-Meteo, for Insights
 
 export type DayLog = {
   water: WaterEntry[];
@@ -204,6 +211,8 @@ export type State = {
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
   contract?: Contract | null; // this or last week's weekly contract (lib/contracts.ts)
   seasonWins?: string[]; // "halloween-2026": a boss beaten while that season was on (seasons.ts)
+  // cluster D
+  experiments?: Experiment[]; // 2-week self-experiments (lib/experiments.ts), newest last
 };
 
 export type CalEvent = {
@@ -220,3 +229,17 @@ export type CalEvent = {
 export type CalInfo = { id: string; title: string; account: string; color?: string };
 
 export type CalStatus = 'unsupported' | 'unknown' | 'denied' | 'granted';
+
+// cluster D: a 2-week self-experiment. `done` holds the days she did it (not necessarily in a row).
+export type ExperimentMetric = 'sleepMin' | 'sleepRating' | 'energy' | 'mood';
+export type Experiment = {
+  id: string;
+  title: string;
+  emoji: string;
+  metric: ExperimentMetric;
+  from: string; // first day (key)
+  days: number; // length, 14
+  done: string[]; // day keys she did it
+  startedAt: number;
+  closedAt?: number; // finished or stopped
+};

@@ -100,11 +100,29 @@ export function describe(code: number): { emoji: string; label: string } {
 
 export const dayWeatherOf = (d: DayForecast): DayWeather => ({ max: d.max, min: d.min, rainMm: d.rainMm, sunMin: d.sunshineMin, code: d.code });
 
+/**
+ * The biggest 24-hour fall in air pressure ending within each day (hPa, from hourly sea-level pressure), for the
+ * symptom detective. A day without 24 h of earlier readings gets null.
+ */
+export function pressureDrops(times: string[], hPa: (number | null)[]): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  times.forEach((t, i) => {
+    const day = t.slice(0, 10);
+    const now = hPa[i];
+    const before = i >= 24 ? hPa[i - 24] : null;
+    const drop = now != null && before != null ? Math.round((before - now) * 10) / 10 : null;
+    if (!(day in out)) out[day] = null;
+    if (drop != null) out[day] = Math.max(out[day] ?? 0, drop);
+  });
+  return out;
+}
+
 /** Each day's weather over the last `days` days (the forecast API keeps recent days), for Insights. */
 export async function fetchWeatherHistory(place: Place, days = 60): Promise<Record<string, DayWeather>> {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration&past_days=${days}&forecast_days=1&timezone=auto`;
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration&hourly=pressure_msl` +
+    `&past_days=${days}&forecast_days=1&timezone=auto`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Weather history failed (${res.status})`);
   const j = (await res.json()) as {
@@ -116,7 +134,9 @@ export async function fetchWeatherHistory(place: Place, days = 60): Promise<Reco
       precipitation_sum: (number | null)[];
       sunshine_duration: (number | null)[];
     };
+    hourly?: { time: string[]; pressure_msl: (number | null)[] };
   };
+  const drops = j.hourly ? pressureDrops(j.hourly.time, j.hourly.pressure_msl) : {};
   const out: Record<string, DayWeather> = {};
   j.daily.time.forEach((date, i) => {
     out[date] = {
@@ -125,6 +145,7 @@ export async function fetchWeatherHistory(place: Place, days = 60): Promise<Reco
       rainMm: j.daily.precipitation_sum[i] ?? 0,
       sunMin: Math.round((j.daily.sunshine_duration[i] ?? 0) / 60),
       code: j.daily.weather_code[i],
+      pressureDrop: drops[date] ?? null,
     };
   });
   return out;
