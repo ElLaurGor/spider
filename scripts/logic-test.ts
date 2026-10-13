@@ -37,6 +37,13 @@ import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
 import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
 import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
+// cluster D
+import { phaseOn } from '../src/lib/body';
+import { bedtimeCaffeine, bedtimeOn, caffeineCurve, caffeineLeft } from '../src/lib/caffeine';
+import { cycleNotes, cycleStats } from '../src/lib/cycle-stats';
+import { detective } from '../src/lib/detective';
+import { experimentDays, experimentResult, verdictText } from '../src/lib/experiments';
+import { pressureDrops } from '../src/lib/weather';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -737,4 +744,121 @@ console.log('all logic tests passed');
   // The Binge Necromancer: today isn't within budget until it's over
   assert.ok(!WEAKNESS.binge.hit(base, lateDay, k));
   assert.ok(WEAKNESS.binge.hit(base, lateDay, dayKey(addDays(new Date(), -1))));
+}
+
+// ---- cluster D ----
+{
+  const blank = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+  const H = 3_600_000;
+  const at = (key: string, h: number, m = 0) => new Date(`${key}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`).getTime();
+
+  // caffeine curve: halves every 5 h, only cups already drunk count, last night's late cup still lingers a little
+  assert.ok(Math.abs(caffeineLeft([{ mg: 100, at: 0 }], 5 * H) - 50) < 0.01);
+  assert.ok(Math.abs(caffeineLeft([{ mg: 100, at: 0 }], 10 * H) - 25) < 0.01);
+  assert.equal(caffeineLeft([{ mg: 100, at: 10 * H }], 5 * H), 0);
+  assert.equal(bedtimeOn('2026-06-10', 23), at('2026-06-10', 23));
+  assert.equal(bedtimeOn('2026-06-10', 1), at('2026-06-11', 1));
+  const cs = defaultState();
+  cs.settings.sleepHour = 23;
+  cs.days['2026-06-10'] = { ...blank(), coffee: [{ id: 'c1', mg: 90, at: at('2026-06-10', 15) }] };
+  const bed = bedtimeCaffeine(cs, '2026-06-10');
+  assert.ok(Math.abs(bed - 90 * 0.5 ** (8 / 5)) < 0.01, String(bed));
+  cs.days['2026-06-09'] = { ...blank(), coffee: [{ id: 'c0', mg: 90, at: at('2026-06-09', 22) }] };
+  assert.ok(bedtimeCaffeine(cs, '2026-06-10') > bed && bedtimeCaffeine(cs, '2026-06-10') < bed + 5);
+  assert.equal(caffeineCurve(cs, '2026-06-10', 6, 24).length, 18 * 4 + 1);
+
+  // air pressure: the biggest 24 h fall ending inside each day; rising pressure = 0; no earlier reading = null
+  const times: string[] = [];
+  const hPa: number[] = [];
+  for (let d = 1; d <= 3; d++) {
+    for (let h = 0; h < 24; h++) {
+      times.push(`2026-06-0${d}T${String(h).padStart(2, '0')}:00`);
+      hPa.push(d === 1 ? 1015 : d === 2 ? 1020 : 1020 - h * 0.5); // day 2 rises, day 3 falls through the day
+    }
+  }
+  const drops = pressureDrops(times, hPa);
+  assert.equal(drops['2026-06-01'], null);
+  assert.equal(drops['2026-06-02'], 0);
+  assert.equal(drops['2026-06-03'], 11.5);
+
+  // cycle: phases from the period starts, per-phase averages and kind notes (no streaks, no roasts)
+  const cy = defaultState();
+  const cnow = new Date(2026, 5, 30, 12);
+  for (let i = 0; i < 59; i++) {
+    const date = addDays(new Date(2026, 4, 1, 12), i);
+    const key = dayKey(date);
+    const cycleDay = i < 28 ? i + 1 : i - 27;
+    const period = cycleDay <= 4;
+    const luteal = cycleDay >= 17;
+    cy.days[key] = {
+      ...blank(),
+      period: period ? { flow: 'medium', symptoms: [] } : undefined,
+      sleepMin: luteal ? 480 : 420,
+      energy: luteal ? 2 : 4,
+    };
+  }
+  assert.equal(phaseOn(cy, '2026-05-01'), 'period');
+  assert.equal(phaseOn(cy, '2026-05-08'), 'follicular');
+  assert.equal(phaseOn(cy, '2026-05-15'), 'ovulation');
+  assert.equal(phaseOn(cy, '2026-05-20'), 'luteal');
+  assert.equal(phaseOn(defaultState(), '2026-05-20'), null);
+  const stats = cycleStats(cy, cnow)!;
+  assert.equal(stats.cycles, 1);
+  assert.equal(stats.phases.find((p) => p.phase === 'luteal')?.sleepMin, 480);
+  const notes = cycleNotes(stats);
+  assert.ok(notes.some((n) => n.id === 'sleep_luteal' && n.text.includes('more')), JSON.stringify(notes));
+  assert.ok(notes.some((n) => n.id === 'energy_luteal' && n.text.includes('lower')));
+  for (const n of notes) assert.ok(!/streak|in a row|lazy|excuse/i.test(n.text), n.text);
+  assert.equal(cycleStats(defaultState(), cnow), null);
+  assert.ok(insights(cy, cnow).some((x) => x.id === 'cycle_body'), JSON.stringify(insights(cy, cnow).map((x) => x.id)));
+
+  // symptom detective: short-sleep nights line up with the headache; wording is "tends to", never "causes"
+  const dt = defaultState();
+  dt.trackers = [
+    { id: 'hd', name: 'Headache', emoji: 'x', kind: 'scale', createdAt: 0 },
+    { id: 'al', name: 'Allergy', emoji: 'y', kind: 'check', createdAt: 0 },
+  ];
+  for (let i = 1; i <= 20; i++) {
+    const key = dayKey(addDays(cnow, -i));
+    const short = i % 2 === 0;
+    const drop = i % 3 === 0;
+    dt.days[key] = {
+      ...blank(),
+      sleepMin: short ? 330 : 470,
+      weather: { max: 15, min: 8, rainMm: 0, sunMin: 100, code: 3, pressureDrop: drop ? 8 : 1 },
+      tracks: { hd: short ? 4 : 1, al: drop ? 1 : 0 },
+    };
+  }
+  const hd = detective(dt, dt.trackers[0], cnow);
+  assert.equal(hd.logged, 20);
+  assert.equal(hd.clues[0]?.id, 'short_sleep', JSON.stringify(hd.clues));
+  assert.ok(hd.clues[0].text.includes('higher'));
+  const al = detective(dt, dt.trackers[1], cnow);
+  assert.equal(al.clues[0]?.id, 'pressure', JSON.stringify(al.clues));
+  assert.ok(al.clues[0].detail.startsWith('100% vs 0%'));
+  for (const c of [...hd.clues, ...al.clues]) assert.ok(!/caus/i.test(c.text), c.text);
+  assert.equal(detective(defaultState(), dt.trackers[0], cnow).clues.length, 0);
+
+  // self-experiments: the days she did it vs the two weeks before; any days count, never "in a row"
+  const ex = defaultState();
+  for (let i = 0; i < 30; i++) {
+    const key = dayKey(addDays(new Date(2026, 5, 1, 12), i));
+    ex.days[key] = { ...blank(), sleepMin: ['2026-06-16', '2026-06-18', '2026-06-20', '2026-06-22'].includes(key) ? 480 : 420 };
+  }
+  const exp = { id: 'e', title: 'No screens after 22:00', emoji: 'x', metric: 'sleepMin' as const, from: '2026-06-15', days: 14, done: ['2026-06-15', '2026-06-17', '2026-06-19', '2026-06-21'], startedAt: 0 };
+  assert.deepEqual([experimentDays(exp)[0], experimentDays(exp)[13]], ['2026-06-15', '2026-06-28']);
+  const done = experimentResult(ex, exp, new Date(2026, 5, 30, 12));
+  assert.ok(done.ended);
+  assert.equal(done.day, 14);
+  assert.equal(done.during, 480);
+  assert.equal(done.before, 420);
+  assert.equal(done.verdict, 'better');
+  assert.ok(verdictText(exp, done).includes('better'));
+  const mid = experimentResult(ex, exp, new Date(2026, 5, 20, 12));
+  assert.ok(!mid.ended);
+  assert.equal(mid.day, 6);
+  assert.equal(experimentResult(ex, { ...exp, done: ['2026-06-15'] }, new Date(2026, 5, 30, 12)).verdict, 'unknown');
+  for (const k of ['experimentStarted', 'experimentDone', 'experimentStopped'] as const) {
+    for (const t of [...LINES[k].mild, ...LINES[k].savage]) assert.ok(!/streak|in a row/i.test(t), t);
+  }
 }

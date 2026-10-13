@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { CycleNumbers } from '@/components/cycle-numbers';
 import { Card, Chip, H, Row, SpiderSays, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { cycleInfo, flowColor, FLOWS, isPredictedPeriod, SYMPTOMS } from '@/lib/body';
@@ -114,6 +115,7 @@ export default function CycleScreen() {
         </Row>
       </Card>
 
+      <CycleNumbers state={state} />
       {info?.periodDay && state.settings.easyOnPeriod ? <SpiderSays text={kind} /> : null}
       <T dim small style={{ textAlign: 'center' }}>
         Private: this stays on your phone (and in your backups).

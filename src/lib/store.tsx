@@ -63,6 +63,8 @@ import type {
   CalStatus,
   ContractGoal,
   DayLog,
+  Experiment,
+  ExperimentMetric,
   Habit,
   MoodLevel,
   PeriodLog,
@@ -76,6 +78,7 @@ import type {
   WorkoutDay,
 } from './types';
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, withCounty, type Weather } from './weather';
+import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
 import { ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, type Air, type Alert } from './outside';
 import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
 
@@ -576,7 +579,7 @@ function useStoreValue() {
         const since = dayKey(addDays(new Date(), -60));
         const yesterday = dayKey(addDays(new Date(), -1));
         const missing = Object.entries(stateRef.current.days)
-          .filter(([k, d]) => k >= since && k < key && (!d.weather || k === yesterday))
+          .filter(([k, d]) => k >= since && k < key && (!d.weather || d.weather.pressureDrop === undefined || k === yesterday))
           .map(([k]) => k);
         if (missing.length) {
           const past = await fetchWeatherHistory(place, 60);
@@ -1344,6 +1347,42 @@ function useStoreValue() {
 
       deleteCountdown(id: string) {
         run((s) => ({ ...s, countdowns: s.countdowns.filter((c) => c.id !== id) }));
+      },
+
+      // --- self-experiments (cluster D): no XP, no penalty ---
+      startExperiment(x: { title: string; emoji: string; metric: ExperimentMetric }) {
+        run((s, msgs) => {
+          const title = x.title.trim();
+          if (activeExperiment(s) || !title) return s;
+          const e: Experiment = { id: uid(), title, emoji: x.emoji, metric: x.metric, from: dayKey(), days: EXPERIMENT_DAYS, done: [], startedAt: Date.now() };
+          msgs.push({ text: `🧪 ${L(s, 'experimentStarted', { title })}`, tone: 'info' });
+          return { ...s, experiments: [...(s.experiments ?? []), e].slice(-20) };
+        });
+      },
+
+      /** Ticks one of the running experiment's days on or off. Never a future day. */
+      toggleExperimentDay(key: string) {
+        run((s) => {
+          const e = activeExperiment(s);
+          if (!e || key > dayKey() || !experimentDays(e).includes(key)) return s;
+          const done = e.done.includes(key) ? e.done.filter((k) => k !== key) : [...e.done, key].sort();
+          return { ...s, experiments: (s.experiments ?? []).map((x) => (x.id === e.id ? { ...x, done } : x)) };
+        });
+      },
+
+      /** Closes the running experiment, finished or stopped early. */
+      closeExperiment() {
+        run((s, msgs) => {
+          const e = activeExperiment(s);
+          if (!e) return s;
+          const r = experimentResult(s, e);
+          msgs.push(
+            r.ended
+              ? { text: `🧪 ${L(s, 'experimentDone', { title: e.title, n: r.doneCount, count: e.days })}`, tone: 'epic' }
+              : { text: L(s, 'experimentStopped'), tone: 'info' },
+          );
+          return { ...s, experiments: (s.experiments ?? []).map((x) => (x.id === e.id ? { ...x, closedAt: Date.now() } : x)) };
+        });
       },
 
       // --- backup ---

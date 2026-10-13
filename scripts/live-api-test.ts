@@ -24,6 +24,9 @@ import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } fr
   const pastKeys = Object.keys(past);
   console.log('weather history', pastKeys.length, 'days,', pastKeys[0], JSON.stringify(past[pastKeys[0]]));
   assert.ok(pastKeys.length >= 60);
+  const drops = pastKeys.map((k) => past[k].pressureDrop).filter((x): x is number => x != null);
+  console.log('pressure drops', drops.length, 'days with data, biggest', Math.max(...drops), 'hPa; yesterday', past[pastKeys[pastKeys.length - 2]].pressureDrop);
+  assert.ok(drops.length >= 55, 'hourly pressure_msl gives a 24 h drop for (almost) every past day');
 
   const air = await fetchAir({ name: 'Stockholm', lat: 59.33, lon: 18.07 });
   console.log('air now', { aqi: air.aqi, pm25: air.pm25, pm10: air.pm10, uv: air.uv }, 'days', air.days.length);

@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { CaffeineCurve } from '@/components/caffeine-curve';
 import { DayPicker } from '@/components/day-picker';
 import { EntryEditor } from '@/components/entry-editor';
 import { FoodSuggestions } from '@/components/food-search';
@@ -112,6 +113,7 @@ function CoffeeCard({ day }: { day: string }) {
           ))}
         </Row>
       )}
+      <CaffeineCurve state={state} day={day} />
       <Row>
         <Btn label="+1 coffee" icon="coffee" onPress={() => actions.addCoffee(day)} style={{ flex: 1 }} />
         <Btn icon="undo" kind="ghost" small onPress={() => actions.undoCoffee(day)} disabled={cups.length === 0} />

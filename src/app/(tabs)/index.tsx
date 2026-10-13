@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ContractCard } from '@/components/contract-card';
+import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { QuestsCard } from '@/components/quests-card';
@@ -187,6 +188,7 @@ export default function HQ() {
 
       <LeagueCard />
       <ContractCard />
+      <ExperimentCard compact />
 
       {insight ? (
         <Pressable onPress={() => router.push('/insights')}>
