@@ -22,6 +22,8 @@ export type NotifyPrefs = {
   air: boolean;
   smhi: boolean;
   vma: boolean;
+  // cluster F
+  statusLine: boolean; // a silent, ongoing summary in the notification shade
 };
 
 export type Settings = {
@@ -52,6 +54,8 @@ export type Settings = {
   notify: NotifyPrefs;
   respectMeetings: boolean;
   calendarIds: string[] | null; // null = every calendar on the phone
+  // cluster F
+  redDaysOff: boolean; // red days (swedish-days.ts) are rest days: no planned workout, no gym reminders
 };
 
 // `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.
@@ -136,7 +140,13 @@ export type DayLog = {
   questFocus?: { id: string; spot: string }; // the quest aimed at the week's weak spot (weak-spot.ts)
   // cluster B
   banked?: number; // coins paid at day rollover for that day's unused bonus gaming minutes (set once)
+  // cluster F
+  night?: NightPhone; // phone use in bed the night before (usage stats), for the morning check-in
+  burned?: number; // old tasks burned on the Valborg bonfire
 };
+
+/** Phone use after bedtime, the night before a day. `lastAt` null = none worth mentioning. */
+export type NightPhone = { lateMin: number; lastAt: number | null; top: string | null };
 
 export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
 export type Contract = {
@@ -240,6 +250,9 @@ export type State = {
   chestsSinceLegendary?: number; // loot chests opened since the last legendary one (lib/economy.ts pity)
   perks?: string[]; // spider abilities taken (lib/perks.ts)
   cosmetics?: { owned: string[]; worn: Partial<Record<'hat' | 'held' | 'aura', string>>; title?: string }; // lib/cosmetics.ts
+  // cluster F
+  eggsFound?: Record<string, Record<string, number>>; // Easter hunt: year -> egg id -> found at
+  backupFolderUri?: string | null; // folder picked for automatic weekly backups (a persisted SAF uri)
 };
 
 export type DiaryPage = { n: number; at: number; day: string; text: string };

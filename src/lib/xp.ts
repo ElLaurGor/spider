@@ -1,6 +1,7 @@
 import type { AndroidSymbol } from 'expo-symbols';
 
 import { seasonOn } from './seasons';
+import { allEggsSomeYear } from './traditions';
 import { coffeeOf, gamingUsedMs, moodDays, moodsOf, totalCoffees, trainedOn, waterMl } from './selectors';
 import type { State } from './types';
 
@@ -172,4 +173,6 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
   // cluster G
   { id: 's_glass_cannon', title: 'Glass Cannon', desc: '3 critical hits in one day', hint: 'Lightning, three times.', icon: 'bolt', test: (s) => allDays(s).some(([, d]) => (d.critKeys?.length ?? 0) >= 3) },
   { id: 's_entomologist', title: 'Entomologist', desc: 'Caught 10 different flies', hint: 'A jar full of tiny friends.', icon: 'bug_report', test: (s) => Object.keys(s.flies ?? {}).length >= 10 },
+  // cluster F
+  { id: 's_egg_hunter', title: 'Egg Hunter', desc: 'Found all five Easter eggs in one year', hint: 'Something is hiding in every tab. Only at Easter.', icon: 'egg', test: allEggsSomeYear },
 ];

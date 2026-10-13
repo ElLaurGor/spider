@@ -6,7 +6,8 @@ import * as Updates from 'expo-updates';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 
-import { createBackup, readBackup } from './backup';
+import { autoBackup, createBackup, pickAutoBackupFolder, readBackup } from './backup';
+import { autoBackupDue } from './backup-due';
 import { THEMES } from '@/constants/theme';
 
 import { activityInfo } from './body';
@@ -42,7 +43,9 @@ import { respectFor } from './respect';
 import { isSnow, seasonOn, winterOf } from './seasons';
 import { catchFly as catchPendingFly, caughtCount, FLIES, rollCritters } from './critters';
 import { unlockPages } from './diary';
-import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
+import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, spansBetween, usageBetween } from './screentime';
+import { nightPhone, nightWindow } from './night';
+import { BURN_XP, BURN_XP_MAX, EGG_COINS, eggsLeft, eggsThisYear, staleTasks, type EggId } from './traditions';
 import {
   activitiesOf,
   caffeineMg,
@@ -646,6 +649,13 @@ function useStoreValue() {
         }
         if (finals.length) run((s) => finals.reduce((next, f) => patchDay(next, f.key, (d) => ({ ...d, screen: f.screen })), s));
       }
+      // Last night's phone use in bed, read once a day after 05:00 (cluster F).
+      const now = new Date();
+      if (now.getHours() >= 5 && !dayOf(stateRef.current).night) {
+        const { bed, end } = nightWindow(now, stateRef.current.settings.sleepHour);
+        const night = nightPhone(await spansBetween(bed, end), bed, end);
+        run((s) => patchDay(s, dayKey(), (d) => ({ ...d, night })));
+      }
     } catch (e) {
       console.warn('[spider] screen time failed', e);
     }
@@ -804,6 +814,32 @@ function useStoreValue() {
     });
     return () => sub.remove();
   }, [refreshCalendar, refreshHealth, refreshWeather, refreshScreen, refreshOutside, save]);
+
+  // ----- automatic weekly backup (cluster F): off the startup path, at most one try a day -----
+  const autoBackupTried = useRef('');
+  const runAutoBackup = useCallback(
+    async (force = false) => {
+      const s = stateRef.current;
+      const uri = s.backupFolderUri;
+      if (!uri) return;
+      if (!force && (autoBackupTried.current === dayKey() || !autoBackupDue(s.lastBackupAt))) return;
+      autoBackupTried.current = dayKey();
+      try {
+        const r = await autoBackup(s, uri);
+        commit({ ...stateRef.current, lastBackupAt: Date.now() });
+        say(`💾 Weekly backup saved${r.photos ? ` (+${r.photos} new photo${r.photos === 1 ? '' : 's'})` : ''}.`, 'info');
+      } catch (e) {
+        console.warn('[spider] auto backup failed', e);
+        say("💾 The weekly backup couldn't reach its folder. Pick it again in Settings → Backup.", 'bad');
+      }
+    },
+    [commit, say],
+  );
+  useEffect(() => {
+    if (!ready || !state.onboarded || !state.backupFolderUri) return;
+    const t = setTimeout(() => void runAutoBackup(), 20_000);
+    return () => clearTimeout(t);
+  }, [ready, state.onboarded, state.backupFolderUri, tick, runAutoBackup]);
 
   // ----- notifications -----
   useEffect(() => {
@@ -1620,6 +1656,51 @@ function useStoreValue() {
         say(`Backup saved: ${result.folder} (${result.photos} photos). Copy that folder to Google Drive for extra safety.`, 'good');
       },
 
+      /** Picks the folder for automatic weekly backups and writes the first one right away. */
+      async setAutoBackupFolder() {
+        const folder = await pickAutoBackupFolder();
+        if (!folder) return;
+        commit({ ...stateRef.current, backupFolderUri: folder.uri });
+        await runAutoBackup(true);
+      },
+
+      stopAutoBackup() {
+        commit({ ...stateRef.current, backupFolderUri: null });
+      },
+
+      // --- the Swedish year (cluster F) ---
+      findEgg(id: EggId) {
+        run((s, msgs) => {
+          if (seasonOn()?.id !== 'easter') return s;
+          const found = eggsThisYear(s);
+          if (id in found) return s;
+          const year = String(new Date().getFullYear());
+          const next: State = {
+            ...s,
+            eggsFound: { ...s.eggsFound, [year]: { ...found, [id]: Date.now() } },
+            coins: s.coins + EGG_COINS,
+            coinsEarned: s.coinsEarned + EGG_COINS,
+          };
+          const left = eggsLeft(next);
+          msgs.push({ text: L(next, 'eggFound', { coins: EGG_COINS, left }), tone: 'epic' });
+          if (left === 0) msgs.push({ text: L(next, 'eggAllFound'), tone: 'epic' });
+          return next;
+        });
+      },
+
+      /** Valborg: open tasks older than 30 days go on the bonfire, for a little XP. Caller confirms first. */
+      burnOldTasks() {
+        run((s, msgs) => {
+          const old = staleTasks(s);
+          if (!old.length) return s;
+          const ids = new Set(old.map((t) => t.id));
+          const xp = Math.min(BURN_XP_MAX, old.length * BURN_XP);
+          const next = patchDay({ ...s, tasks: s.tasks.filter((t) => !ids.has(t.id)) }, dayKey(), (d) => ({ ...d, burned: (d.burned ?? 0) + old.length }));
+          msgs.push({ text: L(next, 'valborgBurn', { n: old.length, xp }), tone: 'epic' });
+          return reward(next, msgs, xp);
+        });
+      },
+
       /** Picks a backup folder and replaces everything with it. Caller confirms first. */
       async restore() {
         const result = await readBackup();
@@ -1635,7 +1716,7 @@ function useStoreValue() {
         commit(defaultState());
       },
     }),
-    [run, commit, say, refreshHealth],
+    [run, commit, say, refreshHealth, runAutoBackup],
   );
 
   // ----- tapped notifications: the body opens its screen; reminder buttons ("+1 glass", "Snooze 30 min", habit "Done", mood) do their thing -----
@@ -1649,6 +1730,8 @@ function useStoreValue() {
         say(L(s, 'waterSnoozed'), 'info');
       } else if (a.kind === 'habit') {
         if (!habitsDone(s, dayKey()).includes(a.habitId)) actions.toggleHabit(a.habitId);
+      } else if (a.kind === 'focus') {
+        if (!s.activeFocus) actions.startFocus(25);
       } else actions.logMood(a.level, [], '');
     }, openSoon);
   }, [ready, actions, say]);

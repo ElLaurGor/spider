@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ContractCard } from '@/components/contract-card';
 import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
+import { SwedishDaysRow } from '@/components/swedish-year';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { PauseBanner } from '@/components/pause-card';
 import { ProgressChips } from '@/components/progress-chips';
@@ -105,6 +106,7 @@ export default function HQ() {
       <WeatherRow />
       <OutsideAlerts />
       <CountdownRow />
+      <SwedishDaysRow />
       <SleepCheckIn />
       <PauseBanner />
       <LowBatteryCard />

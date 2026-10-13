@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { CountdownsCard } from '@/components/countdowns-card';
 import { HabitsCard } from '@/components/habits-card';
+import { HiddenEgg, ValborgBonfire } from '@/components/swedish-year';
 import { Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { addDays, fmtTime, WEEKDAYS } from '@/lib/dates';
@@ -149,10 +150,12 @@ export default function Plan() {
           done.map((t) => (
             <TaskRow key={t.id} title={t.title} done onToggle={() => actions.toggleTask(t.id)} onDelete={() => actions.deleteTask(t.id)} />
           ))}
+        <ValborgBonfire />
         <T dim small>
           Each finished task: +{XP.task} XP and +{BONUS_MIN.task} min gaming time.
         </T>
       </Card>
+      <HiddenEgg id="plan" align="flex-start" />
     </Screen>
   );
 }
