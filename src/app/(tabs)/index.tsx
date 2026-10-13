@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ContractCard } from '@/components/contract-card';
 import { CountdownRow } from '@/components/countdowns-card';
+import { DebriefCard, TopThreeCard } from '@/components/debrief-cards';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { QuestsCard } from '@/components/quests-card';
 import { SleepCheckIn } from '@/components/sleep-checkin';
@@ -105,7 +106,9 @@ export default function HQ() {
     weather: () => <WeatherRow />,
     countdowns: () => <CountdownRow />,
     sleep: () => <SleepCheckIn />,
+    top3: () => <TopThreeCard />,
     winddown: () => <WindDownCard />,
+    debrief: () => <DebriefCard />,
     level: () => (
       <Card accent={C.red}>
         <Row style={{ justifyContent: 'space-between' }}>

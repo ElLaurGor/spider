@@ -24,7 +24,7 @@ import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '..
 import { HQ_SECTIONS, hqOrder, hqVisible, moveSection, toggleSection } from '../src/lib/hq-layout';
 import { fmtTime } from '../src/lib/dates';
 import { allRivalLines, rivalTalk } from '../src/lib/rival-talk';
-import { IMMORTAL_DAYS, immortalTask, taskAgeDays, yesterdayHighlight } from '../src/lib/memory';
+import { eveningKey, IMMORTAL_DAYS, immortalTask, taskAgeDays, tomorrowKey, topToday, yesterdayHighlight } from '../src/lib/memory';
 import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/lib/league';
 import { coinsFor, rollChest } from '../src/lib/economy';
 import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
@@ -838,4 +838,21 @@ console.log('all logic tests passed');
   for (const t of allRivalLines()) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.equal(m[1], 'name', t);
   }
+
+  // evening debrief: until 04:00 it's still last night; tonight's top-3 picks show up the next day only
+  const late = new Date(2027, 0, 14, 1, 30).getTime();
+  assert.equal(eveningKey(late), '2027-01-13');
+  assert.equal(tomorrowKey(late), '2027-01-14');
+  assert.equal(tomorrowKey(new Date(2027, 0, 13, 21).getTime()), '2027-01-14');
+  const tt = defaultState();
+  tt.tasks = [
+    { id: 'a', title: 'A', done: false, createdAt: 0 },
+    { id: 'b', title: 'B', done: true, createdAt: 0, doneAt: 1 },
+  ];
+  tt.topTomorrow = { day: '2027-01-14', ids: ['b', 'gone', 'a'] };
+  assert.deepEqual(
+    topToday(tt, new Date(2027, 0, 14, 9).getTime()).map((t) => t.id),
+    ['b', 'a'],
+  );
+  assert.deepEqual(topToday(tt, new Date(2027, 0, 15, 9).getTime()), []);
 }

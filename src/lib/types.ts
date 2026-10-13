@@ -208,6 +208,7 @@ export type State = {
   seasonWins?: string[]; // "halloween-2026": a boss beaten while that season was on (seasons.ts)
   // cluster E
   rivalTalk?: { week: string; rank: number; day: string; n: number } | null; // last league rank seen and today's rival remarks (rival-talk.ts)
+  topTomorrow?: { day: string; ids: string[] } | null; // task ids picked in an evening debrief for that day's top 3 (memory.ts)
 };
 
 export type CalEvent = {

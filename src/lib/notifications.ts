@@ -65,8 +65,9 @@ const LINKS: [prefix: string, href: Href][] = [
   ['game-', '/game'],
   [FOCUS_ID, '/focus'],
   ['backup-', '/settings'],
+  ['evening-', '/debrief'],
 ];
-/** The screen a notification opens. Morning, evening, sleep, wind-down and comeback ones open HQ. */
+/** The screen a notification opens. Morning, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
 
 Notifications.setNotificationHandler({

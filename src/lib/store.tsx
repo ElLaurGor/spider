@@ -19,7 +19,7 @@ import { connectHealth, healthStatus, healthSupported, readHealth, type HealthDa
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, type LineKey } from './lines';
-import { IMMORTAL_DAYS, taskAgeDays } from './memory';
+import { IMMORTAL_DAYS, taskAgeDays, tomorrowKey } from './memory';
 import { moodInfo } from './mood';
 import {
   cancelEverything,
@@ -1160,6 +1160,11 @@ function useStoreValue() {
 
       deleteTask(id: string) {
         run((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
+      },
+
+      /** Tonight's picks for tomorrow's top 3 (the evening debrief). */
+      setTopTomorrow(ids: string[]) {
+        run((s) => ({ ...s, topTomorrow: { day: tomorrowKey(), ids: ids.slice(0, 3) } }));
       },
 
       renameTask(id: string, title: string) {

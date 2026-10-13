@@ -1,4 +1,4 @@
-// What S.P.I.D.E.R. remembers about you: yesterday's highlight and the tasks that refuse to die.
+// What S.P.I.D.E.R. remembers about you: yesterday's highlight, tomorrow's top 3 and the tasks that refuse to die.
 import { addDays, dayKey, fmtTime } from './dates';
 import type { LineKey } from './lines';
 import { dayScoreFor } from './report';
@@ -17,6 +17,23 @@ export function immortalTask(s: State, now = Date.now()): { task: Task; days: nu
     if (!t.done && taskAgeDays(t, now) >= IMMORTAL_DAYS && (!oldest || t.createdAt < oldest.createdAt)) oldest = t;
   }
   return oldest ? { task: oldest, days: taskAgeDays(oldest, now) } : null;
+}
+
+// ---- tonight's debrief, tomorrow's top 3 ----
+
+const NIGHT_MS = 4 * 3_600_000; // until 04:00 it's still last night
+
+/** The evening a moment belongs to. */
+export const eveningKey = (now = Date.now()) => dayKey(now - NIGHT_MS);
+
+/** The day an evening debrief plans for. */
+export const tomorrowKey = (now = Date.now()) => dayKey(addDays(now - NIGHT_MS, 1));
+
+/** Today's top 3 as picked in last night's debrief: the tasks that still exist, done or not. */
+export function topToday(s: State, now = Date.now()): Task[] {
+  const top = s.topTomorrow;
+  if (!top || top.day !== dayKey(now)) return [];
+  return top.ids.flatMap((id) => s.tasks.filter((t) => t.id === id));
 }
 
 // ---- yesterday ----

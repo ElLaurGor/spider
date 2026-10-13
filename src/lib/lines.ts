@@ -909,6 +909,15 @@ export const LINES = {
     mild: ['Yesterday was a slow one. Today the bar is low. You can clear it.'],
     savage: ['Yesterday scored {score}. Today has a very low bar to clear. Clear it.', 'Yesterday: {score} out of 100. Today, beat it. The bar is on the floor.'],
   },
+  // The evening debrief (app/debrief.tsx).
+  debriefIntro: {
+    mild: ["Let's close the day, {name}. Four quick steps.", 'Evening, {name}. A short look back, then rest.'],
+    savage: ["Evening debrief, {name}. Thirty seconds. I'm timing you.", 'Day review time. Sit down, {name}. This will only hurt a little.'],
+  },
+  debriefDone: {
+    mild: ['All wrapped up. Sleep well, {name}.', 'Day closed. Tomorrow is planned. Rest now.'],
+    savage: ['Debrief complete. Now go to bed before you undo all of it.', 'Day closed. File archived. Go to sleep, {name}.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;
