@@ -23,6 +23,7 @@ import {
   lowBattery,
   onPeriod,
   trainedOn,
+  waterGoalFor,
   waterMl,
   waterSlots,
   workoutFor,
@@ -37,7 +38,7 @@ import { upcomingDays } from './swedish-days';
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status' } as const;
 
 // Notifications re-planned on every app change; gaming/rest alerts are managed separately.
-const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-'];
+const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-'];
 const MOOD_HOURS = [13, 20];
 const GAME_IDS = ['game-warn', 'game-over', 'game-way-over'];
 const REST_ID = 'rest-done';
@@ -70,6 +71,7 @@ const LINKS: [prefix: string, href: Href][] = [
   [FOCUS_ID, '/focus'],
   ['backup-', '/settings'],
   ['evening-', '/debrief'],
+  ['move-', '/movement'],
 ];
 /** The screen a notification opens. Morning, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
@@ -159,7 +161,7 @@ function daySummary(s: State, now: Date) {
   const coffee = coffeeOf(d).length;
   const steps =
     (d.steps != null ? ` · 👣 ${d.steps.toLocaleString('sv-SE')}` : '') + (d.screen ? ` · 📱 ${fmtDuration(d.screen.totalMin * MIN)}` : '');
-  return `💧 ${waterMl(d)}/${s.settings.waterGoalMl} ml · 🏋️ ${gym} · ☕ ${coffee} · 🎮 ${fmtDuration(gamingUsedMs(s))} · ✅ ${tasks} tasks${steps}`;
+  return `💧 ${waterMl(d)}/${waterGoalFor(s, dayKey(now))} ml · 🏋️ ${gym} · ☕ ${coffee} · 🎮 ${fmtDuration(gamingUsedMs(s))} · ✅ ${tasks} tasks${steps}`;
 }
 
 let running: Promise<void> | null = null;
@@ -197,7 +199,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   const now = new Date();
   const jobs: Promise<void>[] = [];
   // A snoozed water reminder is pointless once the goal is hit or water reminders are off.
-  if (!st.notify.water || waterMl(dayOf(s, dayKey(now))) >= st.waterGoalMl) {
+  if (!st.notify.water || waterMl(dayOf(s, dayKey(now))) >= waterGoalFor(s, dayKey(now))) {
     jobs.push(Notifications.cancelScheduledNotificationAsync(SNOOZE_ID).catch(() => {}));
   }
 
@@ -208,11 +210,12 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     const plan = workoutFor(s, date);
     const paused = pausedOn(s, key); // sick or away: no water or gym nagging
 
-    if (st.notify.water && !paused && !(d === 0 && waterMl(log) >= st.waterGoalMl)) {
+    const waterGoal = waterGoalFor(s, key);
+    if (st.notify.water && !paused && !(d === 0 && waterMl(log) >= waterGoal)) {
       for (const t of waterSlots(s)) {
         const when = atTime(now, d, Math.floor(t / 60), t % 60);
         if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
-        const progress = d === 0 ? ` (${waterMl(log)}/${st.waterGoalMl} ml)` : '';
+        const progress = d === 0 ? ` (${waterMl(log)}/${waterGoal} ml)` : '';
         jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', say(s, 'waterRemind') + progress, CH.remind, { category: CATEGORY.water }));
       }
     }
@@ -280,6 +283,15 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
             data: { habitId: h.id },
           }),
         );
+      }
+    }
+
+    // Workdays at her stillest hour (movement map), if she turned it on. Not on low-battery days or in meetings.
+    const moveHour = st.moveNudgeHour;
+    if (moveHour != null && date.getDay() >= 1 && date.getDay() <= 5 && moveHour > st.wakeHour && moveHour < st.sleepHour) {
+      const when = atTime(now, d, moveHour, 5);
+      if (!(d === 0 && lowBattery(log)) && !(st.respectMeetings && inMeeting(events, when.getTime()))) {
+        jobs.push(scheduleAt(`move-${key}`, when, '🚶 Move break', say(s, 'moveNudge'), CH.remind));
       }
     }
 

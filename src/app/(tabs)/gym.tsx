@@ -9,6 +9,7 @@ import { ProgressPhotos } from '@/components/progress-photos';
 import { Big, Btn, Card, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { WatchCard } from '@/components/watch-card';
 import { HiddenEgg } from '@/components/swedish-year';
+import { WorkoutHeartCard } from '@/components/workout-heart';
 import { C } from '@/constants/theme';
 import { fmtClock, WEEK_ORDER, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { changeOver, fmtChange, latest } from '@/lib/body-log';
@@ -50,6 +51,7 @@ export default function Gym() {
       <RestTimer endsAt={state.restEndsAt} onAdd={() => actions.addRest(30)} onSkip={actions.skipRest} />
 
       <WatchCard />
+      <WorkoutHeartCard />
 
       <Row gap={10}>
         <Stat label="This week" value={`${week.done}/${week.planned}`} />

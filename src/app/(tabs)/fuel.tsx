@@ -13,7 +13,7 @@ import { HiddenEgg } from '@/components/swedish-year';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtTime, WEEKDAYS } from '@/lib/dates';
 import { foodNutrients, type Food } from '@/lib/food-db';
-import { caffeineMg, coffeeOf, dayOf, kcalOf, nextWaterReminder, proteinOf, recentFoods, waterMl } from '@/lib/selectors';
+import { caffeineMg, coffeeOf, dayOf, kcalOf, nextWaterReminder, proteinOf, recentFoods, waterGoalFor, waterGoalParts, waterMl } from '@/lib/selectors';
 import { deletePhoto, getPhoto, type PhotoSource } from '@/lib/photos';
 import { useStore } from '@/lib/store';
 
@@ -26,17 +26,18 @@ export default function Fuel() {
   const today = dayOf(state);
   const shown = dayOf(state, day);
   const water = waterMl(shown);
-  const pct = water / s.waterGoalMl;
+  const goal = waterGoalParts(state, day);
+  const pct = water / goal.ml;
   const next = nextWaterReminder(state);
 
   const hour = new Date().getHours();
-  const todayPct = waterMl(today) / s.waterGoalMl; // the spider talks about today, whichever day is shown
+  const todayPct = waterMl(today) / waterGoalFor(state); // the spider talks about today, whichever day is shown
   const lineKey = today.food.length === 0 && hour >= 11 ? 'foodNone' : todayPct >= 1 ? 'waterGoal' : 'waterRemind';
   const spiderLine = useMemo(() => quip(lineKey), [quip, lineKey]);
 
   const week = Array.from({ length: 7 }, (_, i) => {
     const d = addDays(new Date(), i - 6);
-    return { label: WEEKDAYS[d.getDay()][0], ml: waterMl(dayOf(state, dayKey(d))) };
+    return { label: WEEKDAYS[d.getDay()][0], ml: waterMl(dayOf(state, dayKey(d))), goal: waterGoalFor(state, dayKey(d)) };
   });
 
   return (
@@ -55,8 +56,13 @@ export default function Fuel() {
             <View>
               <Big color={C.water}>{water}</Big>
               <T dim small mono>
-                / {s.waterGoalMl} ml
+                / {goal.ml} ml
               </T>
+              {goal.why.length ? (
+                <T dim small>
+                  {goal.why.join(' · ')}
+                </T>
+              ) : null}
             </View>
             <Btn label={`Glass +${s.glassMl}`} icon="water_drop" kind="blue" onPress={() => actions.addWater(s.glassMl, day)} />
             <Row>
@@ -71,9 +77,9 @@ export default function Fuel() {
               <View
                 style={{
                   width: '70%',
-                  height: Math.max(3, Math.min(1, d.ml / s.waterGoalMl) * 40),
+                  height: Math.max(3, Math.min(1, d.ml / d.goal) * 40),
                   borderRadius: 4,
-                  backgroundColor: d.ml >= s.waterGoalMl ? C.water : C.blueDim,
+                  backgroundColor: d.ml >= d.goal ? C.water : C.blueDim,
                 }}
               />
               <Text style={styles.weekLabel}>{d.label}</Text>

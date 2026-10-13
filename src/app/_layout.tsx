@@ -182,6 +182,16 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
+            name="sleep"
+            options={{
+              headerShown: true,
+              title: 'Sleep',
+              headerStyle: { backgroundColor: C.bg },
+              headerTintColor: C.text,
+              headerShadowVisible: false,
+            }}
+          />
+          <Stack.Screen
             name="diary"
             options={{
               headerShown: true,
@@ -226,6 +236,16 @@ export default function RootLayout() {
             options={{
               headerShown: true,
               title: 'Evening debrief',
+              headerStyle: { backgroundColor: C.bg },
+              headerTintColor: C.text,
+              headerShadowVisible: false,
+            }}
+          />
+          <Stack.Screen
+            name="movement"
+            options={{
+              headerShown: true,
+              title: 'Movement',
               headerStyle: { backgroundColor: C.bg },
               headerTintColor: C.text,
               headerShadowVisible: false,

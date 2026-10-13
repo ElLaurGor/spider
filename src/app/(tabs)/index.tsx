@@ -12,6 +12,7 @@ import { PauseBanner } from '@/components/pause-card';
 import { ProgressChips } from '@/components/progress-chips';
 import { QuestsCard } from '@/components/quests-card';
 import { WildCard } from '@/components/hq-wild';
+import { ReadinessCard } from '@/components/readiness-card';
 import { SleepCheckIn } from '@/components/sleep-checkin';
 import { SpiderAvatar } from '@/components/spider-avatar';
 import { Bar, Btn, Card, H, Icon, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
@@ -43,6 +44,7 @@ import {
   proteinOf,
   trainedOn,
   verdictKey,
+  waterGoalFor,
   waterMl,
   workoutFor,
   workoutsThisWeek,
@@ -192,9 +194,9 @@ export default function HQ() {
         <Tile icon="water_drop" color={C.water} label="Water" onPress={() => router.navigate('/fuel')}>
           <Text style={styles.tileVal}>
             {(water / 1000).toFixed(1)}
-            <Text style={styles.tileUnit}> / {(s.waterGoalMl / 1000).toFixed(1)} L</Text>
+            <Text style={styles.tileUnit}> / {(waterGoalFor(state) / 1000).toFixed(1)} L</Text>
           </Text>
-          <Bar pct={water / s.waterGoalMl} color={C.water} height={6} />
+          <Bar pct={water / waterGoalFor(state)} color={C.water} height={6} />
         </Tile>
         <Tile icon="fitness_center" color={C.red} label="Gym" onPress={() => router.navigate('/gym')}>
           <Text style={styles.tileVal}>{plan ? (gymDone ? 'Done ✓' : plan.name) : 'Rest'}</Text>
@@ -339,6 +341,7 @@ export default function HQ() {
       </Card>
     ),
     swedishDays: () => <SwedishDaysRow />,
+    readiness: () => <ReadinessCard />,
     progress: () => <ProgressChips />,
     experiment: () => <ExperimentCard compact />,
     wild: () => <WildCard />,

@@ -58,6 +58,10 @@ export type Settings = {
   redDaysOff: boolean; // red days (swedish-days.ts) are rest days: no planned workout, no gym reminders
   // cluster E
   hq?: { order: string[]; hidden: string[] }; // HQ card order and hidden cards (lib/hq-layout.ts); unset = the default
+  // cluster C
+  adaptiveWater?: boolean; // hot days and training days raise the water goal (default on)
+  maxHr?: number; // for heart rate zones in training (lib/workout-heart.ts DEFAULT_MAX_HR when unset)
+  moveNudgeHour?: number | null; // workdays at this hour: a nudge to move (her stillest hour on the movement map); unset = off
 };
 
 // `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.
@@ -145,10 +149,16 @@ export type DayLog = {
   // cluster F
   night?: NightPhone; // phone use in bed the night before (usage stats), for the morning check-in
   burned?: number; // old tasks burned on the Valborg bonfire
+  // cluster C: the night before this day, from the watch (lib/sleep.ts); not set when sleep was typed in
+  bedAt?: number;
+  wakeAt?: number;
+  sleepStages?: SleepStages;
 };
 
 /** Phone use after bedtime, the night before a day. `lastAt` null = none worth mentioning. */
 export type NightPhone = { lateMin: number; lastAt: number | null; top: string | null };
+
+export type SleepStages = { deep: number; light: number; rem: number; awake: number }; // minutes
 
 export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
 export type Contract = {

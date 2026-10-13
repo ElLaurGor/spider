@@ -42,6 +42,7 @@ import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './p
 import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
 import { rivalTalk } from './rival-talk';
+import { withNights } from './sleep';
 import { isSnow, seasonOn, winterOf } from './seasons';
 import { catchFly as catchPendingFly, caughtCount, FLIES, rollCritters } from './critters';
 import { unlockPages } from './diary';
@@ -60,6 +61,7 @@ import {
   moodsOf,
   proteinOf,
   syncedSleep,
+  waterGoalFor,
   waterMl,
   withPastHealth,
 } from './selectors';
@@ -581,10 +583,10 @@ function useStoreValue() {
       const past = data.stepsWeek
         .filter((x) => x.key !== key)
         .map((x) => ({ key: x.key, steps: x.steps, sleepMin: data.sleepWeek.find((y) => y.key === x.key)?.sleepMin ?? null }));
-      const pastChanged = withPastHealth(s0, past) !== s0;
+      const pastChanged = withPastHealth(s0, past) !== s0 || withNights(s0, data.nights, key) !== s0;
       if (!pastChanged && today.steps === steps && today.sleepMin === sleep && (today.stepGoalHit || steps < s0.settings.stepGoal)) return;
       run((s, msgs) => {
-        let next = patchDay(withPastHealth(s, past), key, (d) => ({ ...d, steps, sleepMin: sleep }));
+        let next = patchDay(withNights(withPastHealth(s, past), data.nights, key), key, (d) => ({ ...d, steps, sleepMin: sleep }));
         if (!dayOf(s, key).stepGoalHit && steps >= s.settings.stepGoal) {
           next = patchDay(next, key, (d) => ({ ...d, stepGoalHit: true }));
           msgs.push({
@@ -911,7 +913,8 @@ function useStoreValue() {
           let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: Date.now() }] }));
           const d = dayOf(next, key);
           const total = waterMl(d);
-          if (!d.waterGoalHit && total >= s.settings.waterGoalMl) {
+          const goal = waterGoalFor(next, key);
+          if (!d.waterGoalHit && total >= goal) {
             next = patchDay(next, key, (x) => ({ ...x, waterGoalHit: true }));
             msgs.push({
               text: `${L(next, 'waterGoal')} +${XP.waterGoal} XP · +${BONUS_MIN.waterGoal} min gaming`,
@@ -920,7 +923,7 @@ function useStoreValue() {
             next = reward(next, msgs, XP.water + XP.waterGoal, BONUS_MIN.waterGoal);
             return hasPerk(next, 'hydro_glands') ? perkCoins(next, msgs, 25, '💧 Hydro Glands') : next;
           }
-          msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, s.settings.waterGoalMl - total) }), tone: 'good' });
+          msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, goal - total) }), tone: 'good' });
           return reward(next, msgs, XP.water);
         });
       },

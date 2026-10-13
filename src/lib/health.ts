@@ -4,6 +4,7 @@ import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 
 import { addDays, dayKey, startOfDay } from './dates';
+import { nightOf, nightWindow, type Night, type RawSession } from './sleep';
 
 type HC = typeof import('react-native-health-connect');
 
@@ -19,6 +20,8 @@ export type HealthData = {
   heartLatest: { bpm: number; at: number } | null;
   restingHr: number | null;
   sleepMin: number | null; // last night
+  nights: { key: string; night: Night | null }[]; // bed/wake times and stages of the nights before stepsWeek's days
+  restingDays: { key: string; bpm: number | null }[]; // resting heart rate per day, last 14 days, oldest first
   updatedAt: number;
 };
 
@@ -78,6 +81,53 @@ async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
   }
 }
 
+/** Sleep sessions overlapping [from, to), with their stages. */
+async function readSessions(lib: HC, from: Date, to: Date): Promise<RawSession[]> {
+  const out: RawSession[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 5; page++) {
+    const token = pageToken;
+    const r = await safe(() =>
+      lib.readRecords('SleepSession', { timeRangeFilter: range(from, to), ascendingOrder: true, pageSize: 200, ...(token ? { pageToken: token } : {}) }),
+    );
+    if (!r) break;
+    for (const rec of r.records) {
+      out.push({
+        start: new Date(rec.startTime).getTime(),
+        end: new Date(rec.endTime).getTime(),
+        stages: (rec.stages ?? []).map((st) => ({ start: new Date(st.startTime).getTime(), end: new Date(st.endTime).getTime(), stage: st.stage })),
+      });
+    }
+    pageToken = r.pageToken || undefined;
+    if (!pageToken) break;
+  }
+  return out;
+}
+
+/** The night before `key` with every stage, for the sleep screen. Null without data or outside the installed app. */
+export async function readSleepNight(key: string): Promise<Night | null> {
+  const lib = hc;
+  if (!lib || !(await ready(lib))) return null;
+  const { from, to } = nightWindow(key);
+  const end = Math.min(to, Date.now());
+  if (end <= from) return null;
+  return nightOf(await readSessions(lib, new Date(from), new Date(end)), key);
+}
+
+/** Steps per hour for the last `days` days (oldest first), for the movement map. Empty outside the installed app. */
+export async function readStepsByHour(days = 14, now = new Date()): Promise<{ at: number; steps: number }[]> {
+  const lib = hc;
+  if (!lib || !(await ready(lib))) return [];
+  const r = await safe(() =>
+    lib.aggregateGroupByDuration({
+      recordType: 'Steps',
+      timeRangeFilter: range(addDays(startOfDay(now), -days), now),
+      timeRangeSlicer: { duration: 'HOURS', length: 1 },
+    }),
+  );
+  return (r ?? []).map((x) => ({ at: new Date(x.startTime).getTime(), steps: x.result.COUNT_TOTAL ?? 0 }));
+}
+
 export type HeartSample = { at: number; bpm: number };
 
 /** Every heart rate sample of one day (oldest first) and that day's resting rate. Empty outside the installed app. */
@@ -135,7 +185,14 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
   };
   const week = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
 
-  const [stepsWeek, sleepWeek, heart, resting, latest] = await Promise.all([
+  const restingOn = async (dayStart: Date) => {
+    const end = dayStart.getTime() === today.getTime() ? now : addDays(dayStart, 1);
+    const r = await safe(() => lib.aggregateRecord({ recordType: 'RestingHeartRate', timeRangeFilter: range(dayStart, end) }));
+    return r && r.BPM_AVG > 0 ? Math.round(r.BPM_AVG) : null;
+  };
+  const fortnight = Array.from({ length: 14 }, (_, i) => addDays(today, i - 13));
+
+  const [stepsWeek, sleepWeek, heart, resting, latest, sessions, restingDays] = await Promise.all([
     Promise.all(week.map(async (d) => ({ key: dayKey(d), steps: await stepsOn(d) }))),
     Promise.all(week.map(async (d) => ({ key: dayKey(d), sleepMin: await sleepBefore(d) }))),
     safe(() => lib.aggregateRecord({ recordType: 'HeartRate', timeRangeFilter: range(today, now) })),
@@ -147,6 +204,8 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
         pageSize: 1,
       }),
     ),
+    readSessions(lib, new Date(nightWindow(dayKey(week[0])).from), now),
+    Promise.all(fortnight.map(async (d) => ({ key: dayKey(d), bpm: await restingOn(d) }))),
   ]);
 
   const lastRecord = latest?.records[0];
@@ -163,6 +222,8 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
     restingHr: resting && resting.BPM_AVG > 0 ? Math.round(resting.BPM_AVG) : null,
     sleepMin: sleepWeek[sleepWeek.length - 1].sleepMin,
     sleepWeek,
+    nights: week.map((d) => ({ key: dayKey(d), night: nightOf(sessions, dayKey(d)) })),
+    restingDays,
     updatedAt: Date.now(),
   };
 }

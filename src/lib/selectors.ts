@@ -97,6 +97,32 @@ export const workoutFor = (s: State, date: Date | number = new Date()): WorkoutD
 /** An official red day (swedish-days.ts); de facto days off like midsommarafton don't count. */
 const redDay = (date: Date | number) => holidayOn(date)?.red ?? false;
 
+/**
+ * The day's water goal and why it's higher than the base: hot days (that day's saved weather) and
+ * training days (planned or done) add some, unless adaptive water is off. Only ever raises the goal,
+ * and a goal already hit stays hit (waterGoalHit is never taken back).
+ */
+export function waterGoalParts(s: State, key = dayKey()): { ml: number; why: string[] } {
+  const base = s.settings.waterGoalMl;
+  if (s.settings.adaptiveWater === false) return { ml: base, why: [] };
+  const d = dayOf(s, key);
+  const why: string[] = [];
+  let extra = 0;
+  const max = d.weather?.max;
+  if (max != null && max >= 22) {
+    const add = max >= 25 ? 500 : 300;
+    extra += add;
+    why.push(`+${add} ml: ${Math.round(max)}°`);
+  }
+  if (workoutFor(s, new Date(`${key}T12:00`)) || trainedOn(d)) {
+    extra += 400;
+    why.push('+400 ml: training day');
+  }
+  return { ml: base + extra, why };
+}
+
+export const waterGoalFor = (s: State, key = dayKey()) => waterGoalParts(s, key).ml;
+
 export const gamingBudgetMin = (s: State, key = dayKey()) => s.settings.gamingBudgetMin + dayOf(s, key).bonusGameMin;
 
 /** XP lost for gaming `overMs` past the budget: 2 per started 5 minutes, the first minute is free. */

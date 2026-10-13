@@ -67,7 +67,10 @@ export function WatchCard() {
             / {fmtSteps(goal)} steps
           </T>
         </View>
-        <Icon name="directions_walk" size={40} color={steps >= goal ? C.green : C.faint} />
+        <Pressable onPress={() => router.push('/movement')} hitSlop={8} style={{ alignItems: 'center' }}>
+          <Icon name="directions_walk" size={40} color={steps >= goal ? C.green : C.faint} />
+          <Text style={styles.byHour}>by hour →</Text>
+        </Pressable>
       </Row>
       <Bar pct={steps / goal} color={C.green} height={10} />
 
@@ -88,7 +91,7 @@ export function WatchCard() {
           sub={d?.heartMin ? `${d.heartMin}–${d.heartMax} bpm` : d?.restingHr ? `rest ${d.restingHr}` : 'avg bpm'}
           onPress={openHeart}
         />
-        <Metric icon="bedtime" color={C.purple} label="Sleep" value={sleepText || '–'} sub="last night" />
+        <Metric icon="bedtime" color={C.purple} label="Sleep" value={sleepText || '–'} sub="last night" onPress={() => router.push('/sleep')} />
       </Row>
 
       <Row gap={6} style={{ alignItems: 'flex-end', height: 70 }}>
@@ -147,6 +150,7 @@ function Metric({
 }
 
 const styles = StyleSheet.create({
+  byHour: { color: C.green, fontSize: 11, fontWeight: '700' },
   metric: { flex: 1, backgroundColor: C.card2, borderRadius: 12, padding: 10, gap: 2 },
   metricLabel: { color: C.dim, fontSize: 11, fontWeight: '700' },
   metricVal: { color: C.text, fontSize: 20, fontWeight: '800', fontFamily: MONO },

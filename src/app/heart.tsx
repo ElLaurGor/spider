@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, Card, Chip, H, Icon, Row, T } from '@/components/ui';
+import { WorkoutHeart } from '@/components/workout-heart';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtTime, pad, WEEKDAYS } from '@/lib/dates';
 import { openHealthSettings, readHeartDay, type HeartSample } from '@/lib/health';
+import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import { workoutWindows, type TrainWindow } from '@/lib/workout-heart';
 
 const CHART_H = 160;
 const BUCKET_MIN = 10;
@@ -33,7 +36,7 @@ function bucketsOf(samples: HeartSample[], dayStart: number): Bucket[] {
 
 const clock = (minutes: number) => `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`;
 
-function Timeline({ buckets, resting }: { buckets: Bucket[]; resting: number | null }) {
+function Timeline({ buckets, resting, windows, dayStart }: { buckets: Bucket[]; resting: number | null; windows: TrainWindow[]; dayStart: number }) {
   const [width, setWidth] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const lowest = Math.min(...buckets.map((b) => b.min), resting ?? Infinity);
@@ -72,6 +75,16 @@ function Timeline({ buckets, resting }: { buckets: Bucket[]; resting: number | n
           style={{ flex: 1, height: CHART_H }}
           onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
           onPress={(e) => pick(e.nativeEvent.locationX)}>
+          {width > 0 &&
+            windows.map((w) => {
+              const left = ((w.start - dayStart) / 86_400_000) * width;
+              return (
+                <View
+                  key={w.start}
+                  style={[styles.train, { left, width: Math.max(2, ((w.end - w.start) / 86_400_000) * width) }]}
+                />
+              );
+            })}
           {grid.map((v) => (
             <View key={v} style={[styles.gridLine, { top: y(v) }]} />
           ))}
@@ -105,9 +118,18 @@ function Timeline({ buckets, resting }: { buckets: Bucket[]; resting: number | n
             </Text>
           ))}
       </View>
-      {resting != null ? (
+      {resting != null || windows.length ? (
         <T dim small>
-          <Text style={{ color: C.cyan }}>━</Text> resting {resting} bpm
+          {resting != null ? (
+            <>
+              <Text style={{ color: C.cyan }}>━</Text> resting {resting} bpm{windows.length ? '  ' : ''}
+            </>
+          ) : null}
+          {windows.length ? (
+            <>
+              <Text style={{ color: C.green }}>■</Text> training
+            </>
+          ) : null}
         </T>
       ) : null}
     </View>
@@ -125,7 +147,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 export default function HeartScreen() {
-  const { health } = useStore();
+  const { state, health } = useStore();
   const today = dayKey();
   const [day, setDay] = useState(today);
   const [result, setResult] = useState<{ key: string; samples: HeartSample[]; resting: number | null } | null>(null);
@@ -174,6 +196,7 @@ export default function HeartScreen() {
   const bpms = samples.map((s) => s.bpm);
   const avg = bpms.length ? Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length) : null;
   const latest = samples[samples.length - 1];
+  const windows = workoutWindows(dayOf(state, day));
 
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
@@ -201,7 +224,7 @@ export default function HeartScreen() {
             No heart rate {day === today ? 'yet today' : 'for this day'}. If the watch was on, check that Zepp syncs Heart rate to Health Connect.
           </T>
         ) : (
-          <Timeline key={day} buckets={buckets} resting={resting} />
+          <Timeline key={day} buckets={buckets} resting={resting} windows={windows} dayStart={dayStart} />
         )}
       </Card>
 
@@ -217,6 +240,7 @@ export default function HeartScreen() {
             <Stat label="Resting" value={resting != null ? `${resting}` : '–'} sub={resting != null ? 'from the watch' : 'no data'} />
             <Stat label="Readings" value={`${samples.length}`} />
           </Row>
+          <WorkoutHeart samples={samples} windows={windows} />
         </>
       ) : null}
 
@@ -236,6 +260,7 @@ const styles = StyleSheet.create({
   restLine: { position: 'absolute', pointerEvents: 'none', left: 0, right: 0, height: 1, backgroundColor: C.cyan, opacity: 0.7 },
   // Not touchable, so a tap's locationX is always relative to the chart.
   bar: { position: 'absolute', borderRadius: 1, pointerEvents: 'none' },
+  train: { position: 'absolute', pointerEvents: 'none', top: 0, bottom: 0, backgroundColor: C.green, opacity: 0.14 },
   stat: { flex: 1, backgroundColor: C.card2, borderRadius: 12, padding: 10, gap: 2 },
   statLabel: { color: C.dim, fontSize: 11, fontWeight: '700' },
   statVal: { color: C.text, fontSize: 20, fontWeight: '800', fontFamily: MONO },

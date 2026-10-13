@@ -31,7 +31,7 @@ import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
 import { insights } from '../src/lib/insights';
 import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
-import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, waterMl, withPastHealth } from '../src/lib/selectors';
+import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, waterGoalFor, waterGoalParts, waterMl, withPastHealth } from '../src/lib/selectors';
 import { searchFoods } from '../src/lib/food-db';
 import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS, xpPace } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
@@ -71,6 +71,10 @@ import { allEggsSomeYear, EGGS, eggsFoundOn, eggsLeft, oldTasksDoneOn, staleTask
 import { nightPhone, nightWindow } from '../src/lib/night';
 import { autoBackupDue } from '../src/lib/backup-due';
 import { workoutFor } from '../src/lib/selectors';
+import { clockLabel, nightClock, nightOf, rhythmOf, withNights } from '../src/lib/sleep';
+import { readinessFor } from '../src/lib/readiness';
+import { heartIn, workoutWindows } from '../src/lib/workout-heart';
+import { movementMap, stillestHour } from '../src/lib/movement';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -639,7 +643,7 @@ console.log('all logic tests passed');
   }
   // Captain Dehydration's weakness is water: a water-goal day doubles that day's damage
   const water = WEAKNESS.dehydration.hit;
-  b.days[k] = { ...b.days[k], water: [{ id: 'w', ml: b.settings.waterGoalMl, at: Date.now() }] };
+  b.days[k] = { ...b.days[k], water: [{ id: 'w', ml: waterGoalFor(b, k), at: Date.now() }] };
   assert.ok(water(b, b.days[k], k));
   assert.ok(!water(defaultState(), { water: [], food: [], sets: [], games: [], bonusGameMin: 0 }, k));
   // the snooze button: something logged before 08:00
@@ -690,6 +694,7 @@ console.log('all logic tests passed');
   const k = (d: Date) => dayKey(d);
   const c = { week: k(monday), from: k(wed), goal: 'water' as const, target: 2, stake: 100, status: 'open' as const };
   const cs = defaultState();
+  cs.settings.adaptiveWater = false; // the plain goal; the adaptive one is tested on its own
   const goalDay = (n: number) => ({ water: [{ id: `w${n}`, ml: cs.settings.waterGoalMl, at: 0 }], food: [], sets: [], games: [], bonusGameMin: 0 });
   cs.days[k(monday)] = goalDay(1); // before signing: doesn't count
   cs.days[k(wed)] = goalDay(2);
@@ -1092,6 +1097,7 @@ console.log('all logic tests passed');
   const rm = rageMonday!;
   const rk = (n: number) => dayKey(addDays(rm, n));
   const rs = defaultState();
+  rs.settings.adaptiveWater = false; // the plain goal, whatever the day's plan says
   for (let i = 1; i <= 10; i++) rs.days[rk(-i)] = { ...empty(), xpEarned: 100 };
   const wet = () => [{ id: 'w', ml: rs.settings.waterGoalMl, at: new Date(`${rk(1)}T12:00`).getTime() }];
   rs.days[rk(0)] = { ...empty(), xpEarned: 100 };
@@ -1494,4 +1500,156 @@ console.log('all logic tests passed');
     ['b', 'a'],
   );
   assert.deepEqual(topToday(tt, new Date(2027, 0, 15, 9).getTime()), []);
+}
+
+// ---- cluster C ----
+// adaptive water: hot days and training days raise the goal; off means the plain goal
+{
+  const w = defaultState();
+  const sunday = '2027-01-10'; // a rest day in the default plan
+  const monday = '2027-01-11'; // Push day
+  w.days[sunday] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl);
+  assert.equal(waterGoalFor(w, monday), w.settings.waterGoalMl + 400);
+  w.days[sunday] = { ...w.days[sunday], weather: { max: 23, min: 14, rainMm: 0, sunMin: 300, code: 0 } };
+  assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl + 300);
+  w.days[sunday] = { ...w.days[sunday], weather: { max: 27, min: 16, rainMm: 0, sunMin: 500, code: 0 } };
+  w.days[sunday].activities = [{ id: 'a', kind: 'cardio', minutes: 30, at: 0 }]; // trained on a rest day
+  const parts = waterGoalParts(w, sunday);
+  assert.equal(parts.ml, w.settings.waterGoalMl + 900);
+  assert.deepEqual(parts.why, ['+500 ml: 27°', '+400 ml: training day']);
+  w.settings.adaptiveWater = false;
+  assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl);
+}
+
+// sleep nights: the main session plus a split-off piece, stages summed; typed-in nights stay the watch's own business
+{
+  const key = '2027-01-12';
+  const at = (h: number, m = 0) => new Date(`${key}T00:00`).getTime() + (h * 60 + m) * 60_000; // hours from that midnight
+  const main = {
+    start: at(-1),
+    end: at(5),
+    stages: [
+      { start: at(-1), end: at(0), stage: 4 },
+      { start: at(0), end: at(2), stage: 5 },
+      { start: at(2), end: at(2, 30), stage: 1 },
+      { start: at(2, 30), end: at(5), stage: 6 },
+    ],
+  };
+  const tail = { start: at(5, 40), end: at(7), stages: [{ start: at(5, 40), end: at(7), stage: 4 }] };
+  const nap = { start: at(15), end: at(16), stages: [] }; // after 14:00: tomorrow's window, not this night
+  const night = nightOf([nap, tail, main], key)!;
+  assert.equal(night.bedAt, at(-1));
+  assert.equal(night.wakeAt, at(7));
+  assert.deepEqual(night.stages, { deep: 120, light: 140, rem: 150, awake: 30 });
+  assert.equal(nightOf([nap], key), null);
+  assert.equal(nightOf([{ ...main, stages: [{ start: at(-1), end: at(5), stage: 2 }] }], key)!.stages, null); // only "sleeping"
+  assert.equal(nightClock(at(-1), key), -60);
+  assert.equal(clockLabel(-60), '23:00');
+  assert.equal(clockLabel(45), '00:45');
+
+  const ns = defaultState();
+  const empty = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  ns.days['2027-01-11'] = { ...empty, sleepMin: 400, sleepManual: true };
+  const after = withNights(ns, [{ key, night }, { key: '2027-01-11', night }, { key: '2027-01-10', night }], key);
+  assert.equal(after.days[key].bedAt, at(-1)); // today: created
+  assert.equal(after.days['2027-01-11'].bedAt, undefined); // typed in by hand
+  assert.equal(after.days['2027-01-10'], undefined); // a day never opened stays empty
+  assert.equal(withNights(after, [{ key, night }], key), after); // nothing new: same object
+
+  // rhythm: usual bedtime, spread, and weekend nights later than weekday ones
+  const rs = defaultState();
+  const mon = new Date(2027, 0, 11); // Monday
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(mon, i);
+    const k = dayKey(d);
+    const weekend = d.getDay() === 6 || d.getDay() === 0;
+    const bed = weekend ? 60 : i % 2 ? -50 : -70; // 01:00 on weekend nights, 22:50 or 23:10 on weekdays
+    const mid = new Date(`${k}T00:00`).getTime();
+    rs.days[k] = { ...empty, bedAt: mid + bed * 60_000, wakeAt: mid + (bed + 480) * 60_000 };
+  }
+  const r = rhythmOf(rs, addDays(mon, 6), 7)!;
+  assert.equal(r.nights.length, 7);
+  assert.equal(r.bedMedian, -50);
+  assert.equal(r.spread, 20);
+  assert.equal(r.jetlag, 122); // middle of the night: weekend 05:00 (300) vs weekdays 02:58 on average (178)
+  assert.equal(rhythmOf(defaultState(), addDays(mon, 6), 7), null);
+}
+
+// morning readiness: sleep and resting heart rate against her own normal, plus her ratings
+{
+  const empty = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  const tue = new Date(2027, 0, 12, 8); // Tuesday 08:00, a Pull day in the default plan
+  const rd = defaultState();
+  assert.equal(readinessFor(rd, [], tue), null); // nothing to go on
+  for (let i = 1; i <= 7; i++) rd.days[dayKey(addDays(tue, -i))] = { ...empty, sleepMin: 450 };
+  const rest = Array.from({ length: 14 }, (_, i) => ({ key: dayKey(addDays(tue, i - 13)), bpm: 56 as number | null }));
+  // short night, heart rate up, rated badly: take it easy, and the planned workout gets a lighter option
+  rd.days[dayKey(tue)] = { ...empty, sleepMin: 350, sleepRating: 2 };
+  const low = readinessFor(rd, rest.map((r, i) => (i === 13 ? { ...r, bpm: 62 } : r)), tue)!;
+  assert.equal(low.tier, 'easy');
+  assert.ok(low.suggestion?.startsWith('Pull is on the plan'));
+  assert.ok(low.reasons.some((x) => x.includes('6 above your usual 56')));
+  // a good night and a calm heart: ready
+  rd.days[dayKey(tue)] = { ...empty, sleepMin: 500, sleepRating: 4, energy: 4 };
+  assert.equal(readinessFor(rd, rest, tue)!.tier, 'ready');
+  // today's resting rate missing: yesterday's is used
+  const noToday = rest.map((r, i) => (i === 13 ? { ...r, bpm: null } : i === 12 ? { ...r, bpm: 63 } : r));
+  rd.days[dayKey(tue)] = { ...empty, sleepMin: 450 };
+  const y = readinessFor(rd, noToday, tue)!;
+  assert.ok(y.reasons.some((x) => x.includes('Resting heart rate 63')));
+  assert.equal(y.tier, 'steady');
+}
+
+// heart in training: sets grouped into sessions, activities counted back from when they were logged, zones by max HR
+{
+  const t0 = new Date(2027, 0, 12, 17).getTime();
+  const m = (n: number) => t0 + n * 60_000;
+  const set = (id: string, at: number) => ({ id, exercise: 'Squat', weight: 60, reps: 5, at });
+  const day = {
+    water: [],
+    food: [],
+    sets: [set('a', m(0)), set('b', m(10)), set('c', m(25)), set('late', m(120))],
+    games: [],
+    bonusGameMin: 0,
+    activities: [{ id: 'k', kind: 'cardio' as const, minutes: 20, at: m(45) }], // 17:25–17:45: overlaps the sets
+  };
+  const ws = workoutWindows(day);
+  assert.equal(ws.length, 2);
+  assert.deepEqual([ws[0].start, ws[0].end, ws[0].label], [m(-5), m(45), 'Gym']);
+  assert.deepEqual([ws[1].start, ws[1].end], [m(115), m(125)]);
+  assert.equal(workoutWindows({ ...day, sets: [] })[0].label, 'Kondition');
+  // one sample a minute: 10 min at 100 bpm (Z1 at max 190 → 52 %), 10 min at 160 (84 %, Z4), a 21-min gap, 90 (no zone)
+  const samples = [
+    ...Array.from({ length: 10 }, (_, i) => ({ at: m(i), bpm: 100 })),
+    ...Array.from({ length: 10 }, (_, i) => ({ at: m(10 + i), bpm: 160 })),
+    { at: m(40), bpm: 90 },
+    { at: m(60), bpm: 150 }, // outside the window
+  ];
+  const h = heartIn(samples, ws[0], 190)!;
+  assert.equal(h.max, 160);
+  assert.equal(h.avg, Math.round((10 * 100 + 10 * 160 + 90) / 21));
+  assert.deepEqual(h.zoneMin, [10, 0, 0, 11, 0]); // the gap after the last 160 counts 2 min, not 21
+  assert.equal(heartIn(samples, ws[1], 190), null); // no data in the later window
+}
+
+// movement map: average steps per weekday and hour, watch-off days left out; stillest workday desk hour
+{
+  const slots: { at: number; steps: number }[] = [];
+  const mon = new Date(2027, 0, 11); // Monday
+  for (let i = 0; i < 7; i++) {
+    for (let h = 0; h < 24; h++) {
+      const steps = h >= 8 && h <= 20 ? (h === 14 ? 50 : h === 20 ? 10 : 400) : 0; // 14:00 is the desk slump, 20:00 the sofa
+      slots.push({ at: new Date(2027, 0, 11 + i, h).getTime(), steps: i === 6 ? 0 : steps }); // Sunday: watch off
+    }
+  }
+  slots.push({ at: new Date(2027, 0, 18, 14).getTime(), steps: 150 }); // next Monday, 14:00 only: under 500, left out
+  const mm = movementMap(slots);
+  assert.equal(mm.days[1], 1); // the second Monday doesn't count
+  assert.equal(mm.days[0], 0);
+  assert.equal(mm.grid[2][9], 400);
+  assert.equal(mm.grid[2][14], 50);
+  assert.deepEqual(stillestHour(mm, 7, 23), { hour: 14, steps: 50 }); // 20:00 is past the desk hours
+  assert.equal(stillestHour(movementMap(slots.filter((x) => new Date(x.at).getDay() === 1)), 7, 23), null); // one workday
+  assert.equal(new Date(mon).getDay(), 1);
 }
