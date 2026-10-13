@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import { router, type Href } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -28,7 +29,7 @@ import {
   notifyNow,
   replanNotifications,
   scheduleGameAlerts,
-  onReminderAction,
+  onNotificationTap,
   scheduleFocusDone,
   scheduleRestDone,
   snoozeWater,
@@ -311,6 +312,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value = useStoreValue();
   if (!value.ready) return null; // splash screen stays up until data is loaded
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+/** Opens a tapped notification's screen. On a cold start the navigator may still be mounting, so it retries for a few seconds. */
+function openSoon(href: Href, tries = 20) {
+  try {
+    router.navigate(href);
+  } catch {
+    if (tries > 0) setTimeout(() => openSoon(href, tries - 1), 150);
+  }
 }
 
 function haptic(tone: Tone) {
@@ -1362,10 +1372,10 @@ function useStoreValue() {
     [run, commit, say, refreshHealth],
   );
 
-  // ----- buttons on reminders: "+1 glass", "Snooze 30 min", habit "Done", mood -----
+  // ----- tapped notifications: the body opens its screen; reminder buttons ("+1 glass", "Snooze 30 min", habit "Done", mood) do their thing -----
   useEffect(() => {
     if (!ready) return;
-    return onReminderAction((a) => {
+    return onNotificationTap((a) => {
       const s = stateRef.current;
       if (a.kind === 'glass') actions.addWater(s.settings.glassMl);
       else if (a.kind === 'snooze') {
@@ -1374,7 +1384,7 @@ function useStoreValue() {
       } else if (a.kind === 'habit') {
         if (!habitsDone(s, dayKey()).includes(a.habitId)) actions.toggleHabit(a.habitId);
       } else actions.logMood(a.level, [], '');
-    });
+    }, openSoon);
   }, [ready, actions, say]);
 
   // ----- Web Focus: complete (or snap) when the time is up -----

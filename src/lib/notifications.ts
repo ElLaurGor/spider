@@ -1,3 +1,4 @@
+import type { Href } from 'expo-router';
 import { Platform } from 'react-native';
 
 import { C } from '@/constants/theme';
@@ -43,6 +44,29 @@ const SNOOZE_ID = 'snooze-water'; // not a planned prefix, so a replan leaves it
 // Buttons on reminders. Tapping one opens the app, which does the thing (see onReminderAction).
 const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood' } as const;
 const MOOD_BUTTONS: MoodLevel[] = [4, 3, 2];
+
+// Where tapping a notification takes you, by its id's prefix (so ones scheduled before this existed work too).
+const LINKS: [prefix: string, href: Href][] = [
+  ['water-', '/fuel'],
+  [SNOOZE_ID, '/fuel'],
+  ['gym-', '/gym'],
+  [REST_ID, '/gym'],
+  ['mood-', '/mood'],
+  ['habit-', '/plan'],
+  ['countdown-', '/plan'],
+  ['report-', '/report'],
+  ['league-', '/league'],
+  ['wrapped-', '/wrapped'],
+  ['cycle-', '/cycle'],
+  ['pollen-', '/outside'],
+  ['air-', '/outside'],
+  ['alert-', '/outside'],
+  ['game-', '/game'],
+  [FOCUS_ID, '/focus'],
+  ['backup-', '/settings'],
+];
+/** The screen a notification opens. Morning, evening, sleep, wind-down and comeback ones open HQ. */
+export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -328,13 +352,21 @@ export type ReminderAction = { kind: 'glass' } | { kind: 'snooze' } | { kind: 'h
 
 const handled = new Set<string>(); // module-wide: the response that launched the app is seen twice otherwise
 
-/** Calls `onAction` for reminder buttons, including the one that opened the app. Returns the unsubscribe. */
-export function onReminderAction(onAction: (a: ReminderAction) => void): () => void {
+/**
+ * Calls `onAction` for reminder buttons and `onOpen` with the screen for a tap on the notification itself,
+ * including the tap that opened the app. Returns the unsubscribe.
+ */
+export function onNotificationTap(onAction: (a: ReminderAction) => void, onOpen: (href: Href) => void): () => void {
   const handle = (r: Notifications.NotificationResponse | null) => {
-    if (!r || r.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+    if (!r) return;
     const id = `${r.notification.request.identifier}|${r.actionIdentifier}|${r.notification.date}`;
     if (handled.has(id)) return;
     handled.add(id);
+    Notifications.clearLastNotificationResponseAsync().catch(() => {}); // or every later launch would open it again
+    if (r.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+      onOpen(linkFor(r.notification.request.identifier));
+      return;
+    }
     const a = r.actionIdentifier;
     const habitId = r.notification.request.content.data?.habitId;
     const mood = /^mood_([1-5])$/.exec(a);
@@ -343,7 +375,6 @@ export function onReminderAction(onAction: (a: ReminderAction) => void): () => v
     else if (a === 'habit_done' && typeof habitId === 'string') onAction({ kind: 'habit', habitId });
     else if (mood) onAction({ kind: 'mood', level: Number(mood[1]) as MoodLevel });
     Notifications.dismissNotificationAsync(r.notification.request.identifier).catch(() => {});
-    Notifications.clearLastNotificationResponseAsync().catch(() => {});
   };
   Notifications.getLastNotificationResponseAsync()
     .then(handle)
@@ -376,6 +407,7 @@ export const cancelFocusDone = () => Notifications.cancelScheduledNotificationAs
 export async function notifyNow(title: string, body: string) {
   if (!permitted) return;
   await Notifications.scheduleNotificationAsync({
+    identifier: `alert-${Date.now()}`, // opens Outside (linkFor)
     content: { title, body, color: C.red },
     trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 1, channelId: channelsOk ? CH.remind : undefined },
   });
