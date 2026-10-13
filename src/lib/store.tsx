@@ -11,7 +11,7 @@ import { THEMES } from '@/constants/theme';
 
 import { activityInfo } from './body';
 import { calendarPermission, calendarSupported, loadCalendars, loadEvents } from './calendar';
-import { coinsFor, rollChest, SHOP_ITEMS, type ShopItemId } from './economy';
+import { bankFor, coinsFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
 import { stageFor, themesUnlockedBetween } from './evolution';
 import { addDays, dayKey, fmtDuration, MIN, startOfDay, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
@@ -36,7 +36,7 @@ import {
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, pickQuests, questsFor } from './quests';
-import { canSign, contractProgress, goalOf, roughWeek } from './contracts';
+import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
 import { isSnow, seasonOn, winterOf } from './seasons';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
@@ -78,6 +78,11 @@ import type {
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, withCounty, type Weather } from './weather';
 import { ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, type Air, type Alert } from './outside';
 import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
+// cluster B: economy & progression
+import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWorn, type Slot } from './cosmetics';
+import { goldChest } from './loot';
+import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
+import { restedAfter, restedGain, restedSplit } from './rested';
 
 const STORAGE_KEY = 'spider:state:v1';
 
@@ -116,9 +121,12 @@ const bump = (s: State, counter: keyof State['counters'], by = 1): State => ({
 
 function reward(s: State, msgs: Msg[], rawXp: number, bonusMin = 0): State {
   const before = levelForXp(s.xp);
-  const xp = rawXp > 0 && s.doubleXpUntil && Date.now() < s.doubleXpUntil ? rawXp * 2 : rawXp;
+  const base = rawXp > 0 && s.doubleXpUntil && Date.now() < s.doubleXpUntil ? rawXp * 2 : rawXp;
+  const rested = restedSplit(s.rested ?? 0, rawXp); // back from a break: +50 % until the pool is used up
+  const xp = base + rested.extra;
   const coins = coinsFor(xp);
   let next: State = { ...s, xp: Math.max(0, s.xp + xp), coins: s.coins + coins, coinsEarned: s.coinsEarned + coins };
+  if (rested.extra) next = { ...next, rested: rested.left };
   next = patchDay(next, dayKey(), (d) => ({ ...d, xpEarned: Math.max(0, (d.xpEarned ?? 0) + xp) }));
   if (bonusMin) next = patchDay(next, dayKey(), (d) => ({ ...d, bonusGameMin: Math.max(0, d.bonusGameMin + bonusMin) }));
   const after = levelForXp(next.xp);
@@ -251,10 +259,11 @@ function checkRespect(s: State, msgs: Msg[]): State {
 function checkContract(s: State, msgs: Msg[]): State {
   const c = s.contract;
   if (!c || c.status !== 'open') return s;
-  const vars = { goal: goalOf(c.goal).title(c.target), stake: c.stake, coins: c.stake * 2 };
+  const payout = payoutOf(c, contractBonus(s));
+  const vars = { goal: goalOf(c.goal).title(c.target), stake: c.stake, coins: payout };
   if (contractProgress(s, c) >= c.target) {
     msgs.push({ text: `📜 ${L(s, 'contractWon', vars)}`, tone: 'epic' });
-    return { ...s, contract: { ...c, status: 'won' }, coins: s.coins + c.stake * 2, coinsEarned: s.coinsEarned + c.stake };
+    return { ...s, contract: { ...c, status: 'won' }, coins: s.coins + payout, coinsEarned: s.coinsEarned + payout - c.stake };
   }
   if (c.week === weekKeyOf()) return s;
   if (roughWeek(s, c)) {
@@ -263,6 +272,54 @@ function checkContract(s: State, msgs: Msg[]): State {
   }
   msgs.push({ text: `📜 ${L(s, 'contractLost', vars)}`, tone: 'bad' });
   return { ...s, contract: { ...c, status: 'lost' } };
+}
+
+// ---- cluster B: economy & progression ----
+
+/** Once a day, at the first change: fills the rested pool for missed days and banks unused bonus gaming minutes. */
+function checkDayRollover(s: State, msgs: Msg[]): State {
+  if (!s.onboarded) return s;
+  const today = dayKey();
+  if (s.lastRollover === today) return s;
+  const now = new Date();
+  const yesterday = dayKey(addDays(now, -1));
+  const weekAgo = dayKey(addDays(now, -7));
+  let next: State = { ...s, lastRollover: today };
+  // From the last day the app was opened (which may have stayed empty too), a week back at most.
+  const since = s.lastRollover && s.lastRollover < today ? s.lastRollover : yesterday;
+  const pool = restedAfter(s.rested ?? 0, restedGain(s, since < weekAgo ? weekAgo : since, yesterday));
+  if (pool > (s.rested ?? 0)) {
+    next = { ...next, rested: pool };
+    msgs.push({ text: `😴 ${L(next, 'restedReady', { xp: pool })}`, tone: 'info' });
+  }
+  for (const key of [dayKey(addDays(now, -2)), yesterday]) next = bankGaming(next, key, msgs);
+  return next;
+}
+
+/** Pays coins once for a finished day's unused bonus gaming minutes. */
+function bankGaming(s: State, key: string, msgs: Msg[]): State {
+  const d = s.days[key];
+  if (!d || d.banked != null || d.bonusGameMin <= 0) return s;
+  if (s.activeGame && dayKey(s.activeGame.start) === key) return s; // still playing: tomorrow's rollover banks it
+  const { rate, cap } = bankRate(s);
+  const b = bankFor(d.bonusGameMin, gamingBudgetMin(s, key), gamingUsedMs(s, key) / MIN, rate, cap);
+  const next = patchDay(s, key, (x) => ({ ...x, banked: b.coins }));
+  if (!b.coins) return next;
+  msgs.push({ text: `🏦 ${L(next, 'gamingBanked', { minutes: b.minutes, coins: b.coins })}`, tone: 'good' });
+  return { ...next, coins: next.coins + b.coins, coinsEarned: next.coinsEarned + b.coins };
+}
+
+/** Coins from an ability. */
+function perkCoins(s: State, msgs: Msg[], coins: number, label: string): State {
+  msgs.push({ text: `${label}: +${coins} 🪙`, tone: 'good' });
+  return { ...s, coins: s.coins + coins, coinsEarned: s.coinsEarned + coins };
+}
+
+/** Boss damage from an ability, on this week's boss. */
+function perkBomb(s: State, msgs: Msg[], damage: number, label: string): State {
+  const week = weekKeyOf();
+  msgs.push({ text: `${label}: ${damage} damage to the boss.`, tone: 'good' });
+  return { ...s, bossBombs: { ...s.bossBombs, [week]: (s.bossBombs[week] ?? 0) + damage } };
 }
 
 /** Anything that got a reaction has a small chance to turn up a golden line for the Roast Book. Not while going easy. */
@@ -282,7 +339,7 @@ function startWorkout(s: State, msgs: Msg[]): State {
   if (dayOf(s, key).workoutCounted) return s;
   const next = bump(patchDay(s, key, (d) => ({ ...d, workoutCounted: true })), 'workouts');
   msgs.push({ text: L(next, 'gymStarted'), tone: 'epic' });
-  return reward(next, msgs, XP.workout, BONUS_MIN.workout);
+  return reward(next, msgs, XP.workout, workoutBonusMin(next));
 }
 
 function recomputePr(s: State, exercise: string): State {
@@ -392,7 +449,8 @@ function useStoreValue() {
     (fn: (s: State, msgs: Msg[]) => State) => {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
-      const checked = checkContract(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs);
+      const rolled = checkDayRollover(prev, msgs);
+      const checked = checkContract(checkQuests(checkLeague(fn(rolled, msgs), msgs), msgs), msgs);
       const next = checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone));
@@ -468,6 +526,7 @@ function useStoreValue() {
             tone: 'epic',
           });
           next = reward(next, msgs, XP.stepGoal, BONUS_MIN.stepGoal);
+          if (hasPerk(next, 'second_wind')) next = perkBomb(next, msgs, 50, '👣 Second Wind');
         }
         return next;
       });
@@ -745,7 +804,8 @@ function useStoreValue() {
               text: `${L(next, 'waterGoal')} +${XP.waterGoal} XP · +${BONUS_MIN.waterGoal} min gaming`,
               tone: 'epic',
             });
-            return reward(next, msgs, XP.water + XP.waterGoal, BONUS_MIN.waterGoal);
+            next = reward(next, msgs, XP.water + XP.waterGoal, BONUS_MIN.waterGoal);
+            return hasPerk(next, 'hydro_glands') ? perkCoins(next, msgs, 25, '💧 Hydro Glands') : next;
           }
           msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, s.settings.waterGoalMl - total) }), tone: 'good' });
           return reward(next, msgs, XP.water);
@@ -970,7 +1030,7 @@ function useStoreValue() {
           if (firstOfDay) {
             next = bump(next, 'workouts');
             msgs.push({ text: `${L(next, 'gymStarted')}`, tone: 'epic' });
-            next = reward(next, msgs, XP.workout + XP.set, BONUS_MIN.workout);
+            next = reward(next, msgs, XP.workout + XP.set, workoutBonusMin(next));
           }
           if (isPR) {
             next = bump(next, 'prs');
@@ -1160,8 +1220,15 @@ function useStoreValue() {
           const key = dayKey();
           const d = dayOf(s, key);
           if (!d.chestReady || d.chest) return s;
-          const prize = rollChest();
+          const since = s.chestsSinceLegendary ?? 0;
+          const prize = rollChest(Math.random(), { gold: goldChest(s), pity: since >= PITY_AFTER, luck: chestLuck(s) });
           let next = patchDay(s, key, (x) => ({ ...x, chest: prize }));
+          next = { ...next, chestsSinceLegendary: prize.kind === 'legendary' ? 0 : since + 1 };
+          const drop = prize.kind === 'legendary' ? legendaryDrop(next) : null;
+          if (drop) {
+            next = withOwned(next, drop.id);
+            msgs.push({ text: `${drop.emoji} Rare drop: ${drop.name} for your spider. Wear it from the Shop.`, tone: 'epic' });
+          }
           if (prize.kind === 'coins' || prize.kind === 'legendary') {
             next = { ...next, coins: next.coins + prize.amount, coinsEarned: next.coinsEarned + prize.amount };
           }
@@ -1171,7 +1238,8 @@ function useStoreValue() {
             const week = weekKeyOf();
             next = { ...next, bossBombs: { ...next.bossBombs, [week]: (next.bossBombs[week] ?? 0) + prize.amount } };
           }
-          msgs.push({ text: prize.kind === 'legendary' ? L(next, 'legendaryRoast') : L(next, 'chestOpened', { prize: prize.text }), tone: 'epic' });
+          const text = prize.kind === 'legendary' ? L(next, 'legendaryRoast') : L(next, 'chestOpened', { prize: prize.text });
+          msgs.push({ text: prize.gold ? `✨ Gold chest! ${text}` : text, tone: 'epic' });
           return next;
         });
       },
@@ -1180,11 +1248,12 @@ function useStoreValue() {
         run((s, msgs) => {
           const item = SHOP_ITEMS.find((i) => i.id === id);
           if (!item) return s;
-          if (s.coins < item.cost) {
-            msgs.push({ text: L(s, 'tooPoor', { missing: item.cost - s.coins }), tone: 'bad' });
+          const cost = shopPrice(id, s.perks);
+          if (s.coins < cost) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: cost - s.coins }), tone: 'bad' });
             return s;
           }
-          let next: State = { ...s, coins: s.coins - item.cost, purchases: [...s.purchases, { id: uid(), title: item.title, emoji: item.emoji, cost: item.cost, at: Date.now() }].slice(-100) };
+          let next: State = { ...s, coins: s.coins - cost, purchases: [...s.purchases, { id: uid(), title: item.title, emoji: item.emoji, cost, at: Date.now() }].slice(-100) };
           if (id === 'gaming30') next = patchDay(next, dayKey(), (d) => ({ ...d, bonusGameMin: d.bonusGameMin + 30 }));
           if (id === 'double_xp') next = { ...next, doubleXpUntil: Math.max(Date.now(), next.doubleXpUntil ?? 0) + 60 * MIN };
           if (id === 'bomb') {
@@ -1196,20 +1265,72 @@ function useStoreValue() {
         });
       },
 
-      /** Stakes coins on a weekly goal (Monday to Wednesday, one per week). */
-      signContract(goal: ContractGoal, stake: number) {
+      /** Stakes coins on a weekly goal (Monday to Wednesday, one per week), at a difficulty that sets target and payout. */
+      signContract(goal: ContractGoal, stake: number, difficulty: Difficulty = 'normal') {
         run((s0, msgs) => {
           const s = checkContract(s0, msgs); // last week's, if it's still open
           const week = weekKeyOf();
-          if (!canSign() || s.contract?.week === week) return s;
+          if (!canSign() || s.contract?.week === week || !difficultyOk(goal, difficulty)) return s;
           if (s.coins < stake) {
             msgs.push({ text: L(s, 'tooPoor', { missing: stake - s.coins }), tone: 'bad' });
             return s;
           }
-          const def = goalOf(goal);
-          msgs.push({ text: `📜 ${L(s, 'contractSigned', { goal: def.title(def.target), stake })}`, tone: 'info' });
-          return { ...s, coins: s.coins - stake, contract: { week, from: dayKey(), signedAt: Date.now(), goal, target: def.target, stake, status: 'open' } };
+          const target = targetFor(goal, difficulty);
+          msgs.push({ text: `📜 ${L(s, 'contractSigned', { goal: goalOf(goal).title(target), stake })}`, tone: 'info' });
+          return {
+            ...s,
+            coins: s.coins - stake,
+            contract: { week, from: dayKey(), signedAt: Date.now(), goal, target, stake, status: 'open', difficulty },
+          };
         });
+      },
+
+      // --- abilities & wardrobe (cluster B) ---
+      takePerk(id: PerkId) {
+        run((s, msgs) => {
+          const p = perkOf(id);
+          if (!p || perkBlocker(s, id)) return s;
+          msgs.push({ text: `${p.emoji} ${L(s, 'perkTaken', { title: p.name })}`, tone: 'epic' });
+          return { ...s, perks: [...(s.perks ?? []), id] };
+        });
+      },
+
+      /** Gives every ability point back, for a price. */
+      respecPerks() {
+        run((s, msgs) => {
+          if (!(s.perks ?? []).length) return s;
+          if (s.coins < RESPEC_COST) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: RESPEC_COST - s.coins }), tone: 'bad' });
+            return s;
+          }
+          msgs.push({ text: 'Abilities reset. Every point is yours to spend again.', tone: 'info' });
+          return { ...s, perks: [], coins: s.coins - RESPEC_COST };
+        });
+      },
+
+      buyCosmetic(id: string) {
+        run((s, msgs) => {
+          const c = cosmeticOf(id);
+          if (!c || c.price == null || owns(s, id) || !buyable(c)) return s;
+          if (s.coins < c.price) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: c.price - s.coins }), tone: 'bad' });
+            return s;
+          }
+          msgs.push({ text: `${c.emoji} ${L(s, 'cosmeticBought', { title: c.name })}`, tone: 'good' });
+          const next = withWorn(withOwned(s, id), c.slot, id);
+          const purchase = { id: uid(), title: c.name, emoji: c.emoji, cost: c.price, at: Date.now() };
+          return { ...next, coins: next.coins - c.price, purchases: [...next.purchases, purchase].slice(-100) };
+        });
+      },
+
+      /** Puts on an owned item, or takes the slot off (null). */
+      wearCosmetic(slot: Slot, id: string | null) {
+        run((s) => (id && !owns(s, id) ? s : withWorn(s, slot, id)));
+      },
+
+      /** The title shown on HQ; null goes back to the current level's. */
+      setTitle(title: string | null) {
+        run((s) => withTitle(s, title));
       },
 
       addReward(r: Omit<Reward, 'id'>) {
@@ -1257,7 +1378,7 @@ function useStoreValue() {
             msgs.push({ text: `🕸️ ${L(next, 'focusSnapped', { app: snapped })}`, tone: 'bad' });
             return next;
           }
-          const bonus = Math.floor(f.minutes / 5);
+          const bonus = focusBonusMin(s, f.minutes);
           msgs.push({ text: `🕸️ ${L(next, 'focusDone', { minutes: f.minutes })} +${bonus} min gaming`, tone: 'epic' });
           return reward(next, msgs, focusXp(f.minutes), bonus);
         });

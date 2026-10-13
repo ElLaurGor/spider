@@ -70,7 +70,7 @@ export type ScreenDay = {
   gamesMin: number; // apps in Android's "game" category
   top: { label: string; min: number; game: boolean; doom: boolean }[];
 };
-export type ChestPrize = { kind: 'coins' | 'gaming' | 'double_xp' | 'boss_bomb' | 'legendary'; amount: number; text: string };
+export type ChestPrize = { kind: 'coins' | 'gaming' | 'double_xp' | 'boss_bomb' | 'legendary'; amount: number; text: string; gold?: boolean };
 export type FocusEntry = { id: string; start: number; end: number; minutes: number; label?: string; snapped?: string };
 export type Tracker = { id: string; name: string; emoji: string; kind: 'scale' | 'number' | 'check'; unit?: string; createdAt: number };
 export type Reward = { id: string; title: string; emoji: string; cost: number };
@@ -120,6 +120,8 @@ export type DayLog = {
   waterGoalHit?: boolean;
   proteinGoalHit?: boolean;
   workoutCounted?: boolean;
+  // cluster B
+  banked?: number; // coins paid at day rollover for that day's unused bonus gaming minutes (set once)
 };
 
 export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
@@ -131,6 +133,7 @@ export type Contract = {
   target: number;
   stake: number;
   status: 'open' | 'won' | 'lost' | 'voided';
+  difficulty?: 'easy' | 'normal' | 'hard'; // cluster B; older contracts are normal
 };
 
 export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number };
@@ -204,6 +207,12 @@ export type State = {
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
   contract?: Contract | null; // this or last week's weekly contract (lib/contracts.ts)
   seasonWins?: string[]; // "halloween-2026": a boss beaten while that season was on (seasons.ts)
+  // cluster B: economy & progression
+  lastRollover?: string; // last day the day-start bookkeeping ran (rested pool, gaming bank)
+  rested?: number; // rested-bonus XP left to hand out (lib/rested.ts)
+  chestsSinceLegendary?: number; // loot chests opened since the last legendary one (lib/economy.ts pity)
+  perks?: string[]; // spider abilities taken (lib/perks.ts)
+  cosmetics?: { owned: string[]; worn: Partial<Record<'hat' | 'held' | 'aura', string>>; title?: string }; // lib/cosmetics.ts
 };
 
 export type CalEvent = {

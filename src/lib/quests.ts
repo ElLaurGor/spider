@@ -17,6 +17,7 @@ import {
 } from './selectors';
 import { seasonOn, type SeasonId } from './seasons';
 import type { DayLog, State } from './types';
+import { healShare } from './perks';
 import { levelForXp } from './xp';
 
 export type Quest = {
@@ -258,6 +259,7 @@ export function bossFor(s: State, date: Date | number = new Date()) {
     damage += xp;
     if (xp > 0 && weakness.hit(s, d, day)) bonus += Math.round(xp * WEAKNESS_BONUS);
   }
+  healed = Math.round(healed * healShare(s)); // the Thick Silk ability halves it (perks.ts)
   // Sized to beat your usual week; a brand-new player gets a starter boss instead.
   const pace = xpPace(s, monday);
   const startHp = pace == null ? 500 + 50 * levelForXp(s.xp) : Math.max(500, Math.round((pace * 7 * BOSS_PACE) / 50) * 50);

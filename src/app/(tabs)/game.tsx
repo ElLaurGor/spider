@@ -6,6 +6,7 @@ import { ScreenTimeCard } from '@/components/screen-time-card';
 import { Bar, Big, Btn, Card, Chip, Field, H, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtClock, fmtDuration, fmtTime, MIN, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
+import { bankRate, workoutBonusMin } from '@/lib/perks';
 import { dayOf, gameTotals, gamingBudgetMin, gamingUsedMs, recentGames } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { GameSession } from '@/lib/types';
@@ -123,7 +124,8 @@ export default function Game() {
           {fmtDuration(usedMs)} used of {fmtDuration(budgetMs)} ({state.settings.gamingBudgetMin}m base + {today.bonusGameMin}m earned)
         </T>
         <T dim small>
-          Earn more: workout +{BONUS_MIN.workout}m · water goal +{BONUS_MIN.waterGoal}m · each task +{BONUS_MIN.task}m. Going over costs XP.
+          Earn more: workout +{workoutBonusMin(state)}m · water goal +{BONUS_MIN.waterGoal}m · each task +{BONUS_MIN.task}m. Going over costs XP.
+          Earned minutes you don&apos;t play are banked at midnight: {bankRate(state).rate} 🪙 each.
         </T>
         {today.games.map((g) => (
           <SessionRow key={g.start} g={g} onPress={() => setEditing({ key: dayKey(), start: g.start })} />

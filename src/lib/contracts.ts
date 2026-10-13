@@ -56,6 +56,30 @@ export const CONTRACT_GOALS: GoalDef[] = [
 
 export const STAKES = [100, 250, 500];
 
+/** How hard a contract is: the target moves and so does the payout (the stake times `mult`). */
+export const DIFFICULTIES = {
+  easy: { label: 'Easy', delta: -1, mult: 1.5 },
+  normal: { label: 'Normal', delta: 0, mult: 2 },
+  hard: { label: 'Hard', delta: 2, mult: 3 },
+} as const;
+export type Difficulty = keyof typeof DIFFICULTIES;
+
+/** Goals counted in days: their target can't be more than the days left in the week. */
+const PER_DAY: ContractGoal[] = ['train', 'water', 'steps', 'habits', 'gaming'];
+
+/** Days from `now` to Sunday, both counted (Monday 7, Wednesday 5). */
+export const daysLeftInWeek = (now = new Date()) => 7 - ((now.getDay() + 6) % 7);
+
+export const targetFor = (goal: ContractGoal, difficulty: Difficulty = 'normal') => Math.max(1, goalOf(goal).target + DIFFICULTIES[difficulty].delta);
+
+/** A difficulty you can still sign today: a target counted in days has to fit in what's left of the week. */
+export const difficultyOk = (goal: ContractGoal, difficulty: Difficulty, now = new Date()) =>
+  !PER_DAY.includes(goal) || targetFor(goal, difficulty) <= daysLeftInWeek(now);
+
+/** Coins paid when a contract is won (`bonus`: the Coin Spinner ability's extra share). */
+export const payoutOf = (c: Pick<Contract, 'stake' | 'difficulty'>, bonus = 0) =>
+  Math.round(c.stake * DIFFICULTIES[c.difficulty ?? 'normal'].mult * (1 + bonus));
+
 /** Contracts can be signed Monday to Wednesday, so there's a real week left to do it in. */
 export const canSign = (now = new Date()) => [1, 2, 3].includes(now.getDay());
 
