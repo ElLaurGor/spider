@@ -16,6 +16,10 @@ export const stageFor = (level: number) => [...STAGES].reverse().find((s) => lev
 export const nextStage = (level: number) => STAGES.find((s) => s.level > level) ?? null;
 
 export const themeIds = Object.keys(THEMES) as ThemeId[];
-export const themeUnlocked = (id: ThemeId, level: number) => level >= THEMES[id].level;
+const isTrophy = (id: ThemeId) => 'unlock' in THEMES[id];
+/** Level themes unlock by level; the trophy theme by beating the Couch King. */
+export const themeUnlocked = (id: ThemeId, level: number, s?: { syndicateBroken?: number }) =>
+  isTrophy(id) ? !!s?.syndicateBroken : level >= THEMES[id].level;
 /** Themes newly unlocked when going from one level to a higher one. */
-export const themesUnlockedBetween = (from: number, to: number) => themeIds.filter((id) => THEMES[id].level > from && THEMES[id].level <= to);
+export const themesUnlockedBetween = (from: number, to: number) =>
+  themeIds.filter((id) => !isTrophy(id) && THEMES[id].level > from && THEMES[id].level <= to);

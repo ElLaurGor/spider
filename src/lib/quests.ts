@@ -15,8 +15,10 @@ import {
   waterMl,
   workoutFor,
 } from './selectors';
+import { pausedOn } from './pause';
 import { seasonOn, type SeasonId } from './seasons';
 import type { DayLog, State } from './types';
+import { WEAK_SPOT_QUESTS, weakSpot } from './weak-spot';
 import { levelForXp } from './xp';
 
 export type Quest = {
@@ -146,23 +148,56 @@ const hash = (str: string) => {
   return h >>> 0;
 };
 
-/** Picks 3 quests for a day (one seasonal, in season); the same day always gets the same picks. */
-export function pickQuests(s: State, date = new Date()) {
+/**
+ * Picks 3 quests for a day (one seasonal, in season); the same day always gets the same picks.
+ * When the last 7 days had a weak spot (weak-spot.ts), the second slot goes to a quest that works on it.
+ */
+export function pickQuestsWithFocus(s: State, date = new Date()) {
   const key = dayKey(date);
   const season = seasonOn(date)?.id;
   const pool = QUESTS.filter((q) => (!q.season || q.season === season) && q.available(s, date));
   const ranked = (qs: QuestDef[]) => qs.map((q) => ({ id: q.id, r: hash(`${key}:${q.id}`) })).sort((a, b) => a.r - b.r);
   const seasonal = ranked(pool.filter((q) => q.season)).slice(0, 1);
-  return [...seasonal, ...ranked(pool.filter((q) => !q.season))]
-    .slice(0, 3)
-    .map((q) => q.id);
+  const rest = ranked(pool.filter((q) => !q.season));
+  let ids = [...seasonal, ...rest].slice(0, 3).map((q) => q.id);
+  const spot = weakSpot(s, date);
+  const aimed = spot ? WEAK_SPOT_QUESTS[spot].find((id) => rest.some((q) => q.id === id)) : undefined;
+  if (spot && aimed) {
+    ids = ids.filter((id) => id !== aimed);
+    ids.splice(1, 0, aimed);
+    ids = ids.slice(0, 3);
+  }
+  return { ids, focus: spot && aimed ? { id: aimed, spot } : null };
+}
+
+export const pickQuests = (s: State, date = new Date()) => pickQuestsWithFocus(s, date).ids;
+
+/** Coins for swapping one of the day's quests (once a day). */
+export const QUEST_REROLL_COST = 40;
+
+/**
+ * The quest that would replace `id` today, or null when it can't be swapped: once a day, never a
+ * seasonal or finished quest, and only quests with no progress yet on both sides (no instant XP).
+ */
+export function rerollFor(s: State, id: string, date = new Date()): string | null {
+  const key = dayKey(date);
+  const d = dayOf(s, key);
+  const picked = d.quests;
+  if (!picked?.includes(id) || d.questRerolled || (d.questsDone ?? []).includes(id)) return null;
+  const def = QUESTS.find((q) => q.id === id);
+  if (!def || def.season || def.build(s, d, date).progress > 0) return null;
+  const next = QUESTS.filter((q) => !q.season && !picked.includes(q.id) && q.available(s, date))
+    .map((q) => ({ q, r: hash(`${key}:${q.id}`) }))
+    .sort((a, b) => a.r - b.r)
+    .find(({ q }) => q.build(s, d, date).progress === 0);
+  return next?.q.id ?? null;
 }
 
 export function questsFor(s: State, date = new Date()): Quest[] {
   const d = dayOf(s, dayKey(date));
   const picked = d.quests ?? pickQuests(s, date);
-  // Low-battery mode: just one quest today.
-  const ids = lowBattery(d) ? picked.slice(0, 1) : picked;
+  // Low-battery mode and sick/away days: just one quest.
+  const ids = lowBattery(d) || pausedOn(s, dayKey(date)) ? picked.slice(0, 1) : picked;
   return ids.flatMap((id) => {
     const def = QUESTS.find((q) => q.id === id);
     if (!def) return [];
@@ -186,6 +221,47 @@ export const BOSSES = [
 
 export const weekKey = (date: Date | number = new Date()) => dayKey(startOfWeek(date));
 
+/** The Lazy Syndicate's ruler: the week after all 8 bosses have fallen at least once. Every weakness hurts it. */
+export const FINAL_BOSS = { id: 'couch_king', name: 'The Couch King', emoji: '👑' } as const;
+export type BossId = (typeof BOSSES)[number]['id'] | typeof FINAL_BOSS.id;
+/** The Couch King's HP compared to an ordinary boss. */
+export const FINAL_HP = 1.5;
+
+/** Coins per wave of henchmen after the boss has fallen, and a wave's size as a share of the boss's HP. */
+export const MINION_COINS = 20;
+export const MINION_SHARE = 0.15;
+
+const weekIndexOf = (monday: Date) => Math.floor(monday.getTime() / (7 * 86_400_000));
+
+/** The first day you earned XP, which is when bosses start counting. */
+export const firstXpDay = (s: State) =>
+  Object.keys(s.days)
+    .filter((k) => (s.days[k].xpEarned ?? 0) > 0)
+    .sort()[0] as string | undefined;
+
+/** How many times this week's boss has shown up since you started, this week included. Bosses return every 8 weeks. */
+export function bossRank(s: State, date: Date | number = new Date()) {
+  const first = firstXpDay(s);
+  if (!first) return 1;
+  const now = weekIndexOf(startOfWeek(date));
+  const start = weekIndexOf(startOfWeek(new Date(`${first}T12:00`)));
+  return now < start ? 1 : 1 + Math.floor((now - start) / BOSSES.length);
+}
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+const roman = (n: number) => ROMAN[n] ?? String(n);
+
+/** All 8 bosses have fallen in weeks before `week`, and the Couch King hasn't been scheduled yet. */
+export function finalBossDue(s: State, week: string) {
+  if (s.finalBossWeek) return false;
+  const beaten = new Set(
+    Object.entries(s.bossesDefeated)
+      .filter(([w]) => w < week)
+      .map(([, id]) => id),
+  );
+  return BOSSES.every((b) => beaten.has(b.id));
+}
+
 /** Minutes of social apps per day before each extra minute heals the boss 1 HP. */
 export const DOOM_FREE_MIN = 120;
 
@@ -198,7 +274,7 @@ export const BOSS_PACE = 1.1;
 /** XP per action was halved on this day; days before it count half when sizing the boss. */
 const XP_HALVED_ON = '2026-10-14';
 
-/** Your average XP per day over the 4 weeks before `monday`, from your first day with XP. Null with under 3 days to go on. */
+/** Your average XP per day over the 4 weeks before `monday`, from your first day with XP (paused days left out). Null with under 3 days to go on. */
 export function xpPace(s: State, monday: Date): number | null {
   const first = Object.keys(s.days)
     .filter((k) => (s.days[k].xpEarned ?? 0) > 0)
@@ -208,7 +284,7 @@ export function xpPace(s: State, monday: Date): number | null {
   let days = 0;
   for (let i = 28; i >= 1; i--) {
     const key = dayKey(addDays(monday, -i));
-    if (key < first) continue;
+    if (key < first || pausedOn(s, key)) continue;
     const xp = dayOf(s, key).xpEarned ?? 0;
     total += key < XP_HALVED_ON ? xp / 2 : xp;
     days++;
@@ -241,37 +317,80 @@ const HALLOWEEN: Record<(typeof BOSSES)[number]['id'], { name: string; emoji: st
   binge: { name: 'The Binge Necromancer, Unholy Edition', emoji: '⚰️' },
 };
 
+const ANY_WEAKNESS = {
+  label: "any boss's weakness",
+  hit: (s: State, d: DayLog, key: string) => BOSSES.some((b) => WEAKNESS[b.id].hit(s, d, key)),
+};
+
+/** The second weakness a boss shows once it's below half HP: another boss's, picked by the week. */
+export const rageWeaknessOf = (id: string, week: string) => {
+  const others = BOSSES.filter((b) => b.id !== id);
+  return others[hash(`${week}:rage`) % others.length].id;
+};
+
 export function bossFor(s: State, date: Date | number = new Date()) {
   const monday = startOfWeek(date);
-  const weekIndex = Math.floor(monday.getTime() / (7 * 86_400_000));
-  const base = BOSSES[weekIndex % BOSSES.length];
-  const boss = seasonOn(date)?.id === 'halloween' ? { ...base, ...HALLOWEEN[base.id] } : base;
-  const weakness = WEAKNESS[base.id];
-  let healed = 0;
-  let damage = 0;
-  let bonus = 0; // extra damage from days that hit the weakness
-  for (let i = 0; i < 7; i++) {
-    const day = dayKey(addDays(monday, i));
-    const d = dayOf(s, day);
-    healed += Math.max(0, (d.screen?.doomMin ?? 0) - DOOM_FREE_MIN);
-    const xp = d.xpEarned ?? 0;
-    damage += xp + (d.critDamage ?? 0); // critical hits (lib/critters.ts, cluster G)
-    if (xp > 0 && weakness.hit(s, d, day)) bonus += Math.round(xp * WEAKNESS_BONUS);
-  }
-  // Sized to beat your usual week; a brand-new player gets a starter boss instead.
-  const pace = xpPace(s, monday);
-  const startHp = pace == null ? 500 + 50 * levelForXp(s.xp) : Math.max(500, Math.round((pace * 7 * BOSS_PACE) / 50) * 50);
-  const maxHp = startHp + healed;
   const key = dayKey(monday);
-  damage += bonus + (s.bossBombs?.[key] ?? 0);
+  const final = s.finalBossWeek === key;
+  const base = final ? FINAL_BOSS : BOSSES[weekIndexOf(monday) % BOSSES.length];
+  const skin = !final && seasonOn(date)?.id === 'halloween' ? HALLOWEEN[base.id as (typeof BOSSES)[number]['id']] : null;
+  const rank = final ? 1 : bossRank(s, monday);
+  const name = (skin?.name ?? base.name) + (rank > 1 ? ` ${roman(rank)}` : '');
+  const weakness = final ? ANY_WEAKNESS : WEAKNESS[base.id as (typeof BOSSES)[number]['id']];
+  const rage = final ? null : rageWeaknessOf(base.id, key);
+  const days = Array.from({ length: 7 }, (_, i) => dayKey(addDays(monday, i)));
+  const paused = days.filter((k) => pausedOn(s, k)).length;
+
+  // Sized to beat your usual week; a brand-new player gets a starter boss instead. Paused days shrink it.
+  let healed = 0;
+  for (const day of days) if (!pausedOn(s, day)) healed += Math.max(0, (dayOf(s, day).screen?.doomMin ?? 0) - DOOM_FREE_MIN);
+  const pace = xpPace(s, monday);
+  const full = pace == null ? 500 + 50 * levelForXp(s.xp) : Math.max(500, Math.round((pace * 7 * BOSS_PACE) / 50) * 50);
+  const sized = Math.round((full * (final ? FINAL_HP : 1) * Math.max(1, 7 - paused)) / 7 / 50) * 50;
+  const maxHp = Math.max(50, sized) + healed;
+
+  // Day by day: a day that hits the weakness does 50 % more. Below half HP the boss rages, and from the
+  // next day a second weakness counts too (still at most one bonus a day).
+  let damage = s.bossBombs?.[key] ?? 0;
+  let bonus = 0;
+  let ragedOn: string | null = null;
+  for (const day of days) {
+    const d = dayOf(s, day);
+    const xp = d.xpEarned ?? 0;
+    const raging = rage != null && ragedOn != null && day > ragedOn;
+    if (xp > 0 && (weakness.hit(s, d, day) || (raging && WEAKNESS[rage].hit(s, d, day)))) {
+      const extra = Math.round(xp * WEAKNESS_BONUS);
+      bonus += extra;
+      damage += extra;
+    }
+    damage += xp + (d.critDamage ?? 0); // critical hits (lib/critters.ts)
+    if (ragedOn == null && damage >= maxHp / 2) ragedOn = day;
+  }
+
+  // Overkill: past zero HP, the rest of the week's damage takes down waves of henchmen.
+  const overkill = Math.max(0, damage - maxHp);
+  const minionHp = Math.max(50, Math.round((maxHp * MINION_SHARE) / 10) * 10);
+  const minions = Math.floor(overkill / minionHp);
+
   return {
-    ...boss,
+    id: base.id as BossId,
+    name,
+    emoji: skin?.emoji ?? base.emoji,
     key,
+    rank,
+    final,
     maxHp,
     damage,
     healed,
     bonus,
+    paused,
     weakness: weakness.label,
+    /** Below half HP: the day it happened, and the extra weakness that counts from the day after. */
+    ragedOn,
+    rageWeakness: rage && ragedOn ? WEAKNESS[rage].label : null,
+    minions,
+    minionHp,
+    minionProgress: overkill - minions * minionHp,
     hp: Math.max(0, maxHp - damage),
     defeated: !!s.bossesDefeated[key],
   };

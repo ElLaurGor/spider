@@ -1,5 +1,6 @@
 // Weekly league against rival bots: Bronze → Diamond, top 3 promote, bottom 3 demote.
 import { addDays, dayKey, startOfWeek } from './dates';
+import { pausedInWeek } from './pause';
 import { dayOf } from './selectors';
 import type { League, Rival, State } from './types';
 
@@ -94,13 +95,17 @@ export function standings(s: State, now = new Date()): Standing[] {
   return rows.sort((a, b) => b.xp - a.xp || (a.me ? -1 : b.me ? 1 : 0));
 }
 
-/** Final result of a finished league week, judged at Sunday 23:59. */
+/** Sick/away days in a league week that protect you from demotion. */
+export const PAUSE_SAFE_DAYS = 3;
+
+/** Final result of a finished league week, judged at Sunday 23:59. 3+ sick/away days: no demotion. */
 export function settle(s: State) {
   const l = s.league!;
   const end = addDays(new Date(`${l.week}T23:59`), 6);
   const table = standings(s, end);
   const rank = table.findIndex((r) => r.me) + 1;
-  const tier = rank <= PROMOTE ? Math.min(TIERS.length - 1, l.tier + 1) : rank > table.length - DEMOTE ? Math.max(0, l.tier - 1) : l.tier;
+  const demoted = rank > table.length - DEMOTE && pausedInWeek(s, mondayOf(l.week)) < PAUSE_SAFE_DAYS;
+  const tier = rank <= PROMOTE ? Math.min(TIERS.length - 1, l.tier + 1) : demoted ? Math.max(0, l.tier - 1) : l.tier;
   const prize = rank === 1 ? 300 : rank === 2 ? 200 : rank === 3 ? 100 : 0;
   return { rank, tier, prize, xp: table.find((r) => r.me)?.xp ?? 0 };
 }

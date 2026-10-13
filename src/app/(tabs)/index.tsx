@@ -6,6 +6,7 @@ import { ContractCard } from '@/components/contract-card';
 import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
+import { PauseBanner } from '@/components/pause-card';
 import { QuestsCard } from '@/components/quests-card';
 import { WildCard } from '@/components/hq-wild';
 import { SleepCheckIn } from '@/components/sleep-checkin';
@@ -103,6 +104,7 @@ export default function HQ() {
       <OutsideAlerts />
       <CountdownRow />
       <SleepCheckIn />
+      <PauseBanner />
       <LowBatteryCard />
       <WindDownCard />
 

@@ -9,6 +9,7 @@ import { line, type LineKey } from './lines';
 import * as Notifications from './local-notifications';
 import { cycleInfo } from './body';
 import { standings } from './league';
+import { pausedOn } from './pause';
 import { nextDate } from './countdowns';
 import {
   coffeeOf,
@@ -190,8 +191,9 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     const key = dayKey(date);
     const log = dayOf(s, key);
     const plan = workoutFor(s, date);
+    const paused = pausedOn(s, key); // sick or away: no water or gym nagging
 
-    if (st.notify.water && !(d === 0 && waterMl(log) >= st.waterGoalMl)) {
+    if (st.notify.water && !paused && !(d === 0 && waterMl(log) >= st.waterGoalMl)) {
       for (const t of waterSlots(s)) {
         const when = atTime(now, d, Math.floor(t / 60), t % 60);
         if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
@@ -200,7 +202,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       }
     }
 
-    if (st.notify.gym && plan && !trainedOn(log)) {
+    if (st.notify.gym && plan && !paused && !trainedOn(log)) {
       const gymAt = atTime(now, d, st.gymHour, st.gymMinute).getTime();
       jobs.push(scheduleAt(`gym-${key}-pre`, gymAt - 30 * MIN, `🏋️ ${plan.name} day`, say(s, 'gymRemind', { workout: plan.name }), CH.gym));
       const shameAt = Math.min(gymAt + 3 * 60 * MIN, atTime(now, d, st.sleepHour).getTime() - 30 * MIN);
@@ -304,7 +306,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   }
 
   // League: Sunday 17:00 heads-up with the rank at planning time.
-  if (st.notify.league && s.league) {
+  if (st.notify.league && s.league && !pausedOn(s, dayKey(now))) {
     const daysToSun = (7 - now.getDay()) % 7;
     const at = atTime(now, daysToSun, 17);
     const rank = standings(s, now).findIndex((r) => r.me) + 1;
@@ -318,9 +320,11 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     jobs.push(scheduleAt(`wrapped-${dayKey(first)}`, first, `🎁 ${month} Wrapped`, say(s, 'wrappedReady', { month }), CH.remind));
   }
 
-  // Pushed forward every time the app is used, so these only fire if it's ignored.
-  jobs.push(scheduleAt('comeback-3', atTime(now, 3, 18), '🕷️ Hello?', say(s, 'comeback'), CH.remind));
-  jobs.push(scheduleAt('comeback-6', atTime(now, 6, 18), '🕷️ Still here. Still judging.', say(s, 'comeback'), CH.remind));
+  // Pushed forward every time the app is used, so these only fire if it's ignored. Not while sick or away.
+  if (!pausedOn(s, dayKey(now))) {
+    jobs.push(scheduleAt('comeback-3', atTime(now, 3, 18), '🕷️ Hello?', say(s, 'comeback'), CH.remind));
+    jobs.push(scheduleAt('comeback-6', atTime(now, 6, 18), '🕷️ Still here. Still judging.', say(s, 'comeback'), CH.remind));
+  }
 
   await Promise.all(jobs);
 }

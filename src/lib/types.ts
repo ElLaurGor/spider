@@ -131,6 +131,9 @@ export type DayLog = {
   critDamage?: number; // extra boss damage from critical hits that day (lib/critters.ts)
   critKeys?: string[]; // logged things that already crit, so a re-log can't crit again
   flySpawns?: string[]; // logged things that turned up a fly (at most 2 a day)
+  // cluster A
+  questRerolled?: boolean; // today's one paid quest swap is used (quests.ts rerollFor)
+  questFocus?: { id: string; spot: string }; // the quest aimed at the week's weak spot (weak-spot.ts)
 };
 
 export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
@@ -221,6 +224,13 @@ export type State = {
   flies?: Record<string, { firstAt: number; count: number }>; // fly collection (lib/critters.ts)
   pendingFly?: { id: string; until: number } | null; // a fly buzzing around, catchable until `until`
   diary?: DiaryPage[]; // S.P.I.D.E.R.'s secret diary, one page per 10 quests (lib/diary.ts)
+  // cluster A
+  minionsPaid?: Record<string, number>; // week key -> minion waves already paid out
+  bossPhaseSeen?: string; // week key whose boss rage (phase 2) was announced
+  bossKilledAt?: Record<string, number>; // week key -> when its boss fell, for the bestiary
+  finalBossWeek?: string; // week key of the Couch King fight, once all 8 bosses have fallen
+  syndicateBroken?: number; // when the Couch King fell: unlocks its theme
+  pauses?: Pause[]; // sick/away periods (pause.ts)
 };
 
 export type DiaryPage = { n: number; at: number; day: string; text: string };
@@ -253,3 +263,7 @@ export type Experiment = {
   startedAt: number;
   closedAt?: number; // finished or stopped
 };
+
+// cluster A
+/** Sick or away, from and to inclusive (day keys). */
+export type Pause = { from: string; to: string; kind: 'sick' | 'away' };

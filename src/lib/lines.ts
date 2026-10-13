@@ -894,6 +894,62 @@ export const LINES = {
     mild: ['📓 A new page of my secret diary unlocked. Open it from HQ.'],
     savage: ["📓 You unlocked a page of my private observation log. Read it. Or don't. I know what it says."],
   },
+  // ---- cluster A: boss & quests ----
+  minionDown: {
+    mild: ['Henchmen wave {n} cleared. +{coins} 🪙 for the cleanup.'],
+    savage: [
+      'The boss is dead and its henchmen are still twitching. Wave {n} cleared, +{coins} 🪙.',
+      'Overkill pays. Henchmen wave {n} gone. +{coins} 🪙.',
+      'Wave {n} of the minions: deleted. They had families. Small, lazy families. +{coins} 🪙.',
+    ],
+  },
+  bossEnraged: {
+    mild: ['{boss} is below half HP and getting desperate. From tomorrow it is also weak to {weakness}.'],
+    savage: [
+      '{boss} is ENRAGED. Half dead and sloppy: from tomorrow {weakness} hits it 50% harder too.',
+      '{boss} lost half its HP and its temper. New weak spot from tomorrow: {weakness}. Exploit it.',
+    ],
+  },
+  bossRematch: {
+    mild: ['{boss} is back, and it remembers you. Last time it fell on a {day}.'],
+    savage: [
+      '{boss} returns, stronger. It still has nightmares about that {day}.',
+      'Rematch. {boss} trained for this. You beat it on a {day} last time. Do it faster.',
+    ],
+  },
+  taunt_couch_king: {
+    mild: ['{boss} rules the Lazy Syndicate. Every boss weakness hurts it, but it has a lot of HP.'],
+    savage: [
+      '{boss} has entered the chat. Eight lieutenants down, one throne left. Every weakness counts.',
+      '{boss} sits on a throne built from your old excuses. Knock it over.',
+    ],
+  },
+  finalBossArrives: {
+    mild: ['All eight bosses beaten. The Lazy Syndicate sends its ruler this week: {boss}. Every weakness counts.'],
+    savage: [
+      'You beat all eight. The Lazy Syndicate is furious. Its ruler, {boss}, has left the couch. This week, every weakness counts.',
+    ],
+  },
+  syndicateBroken: {
+    mild: ['{boss} has fallen. The Lazy Syndicate is broken. +500 🪙 and a new theme in Settings.'],
+    savage: ["{boss} is off the throne. The Lazy Syndicate is finished. +500 🪙 and the Couch King's Crown theme. I'm almost proud."],
+  },
+  questRerolled: {
+    mild: ['Swapped in: {quest}. -40 🪙.'],
+    savage: ['Quest rerolled: {quest}. You paid 40 🪙 to dodge the other one. Noted.', 'New quest: {quest}. 40 🪙 well spent, or so you tell yourself.'],
+  },
+  pauseSick: {
+    mild: ['Sick mode until {until}. Rest. One quest a day, no gym or water nagging, and the boss waits.'],
+    savage: ['Sick mode until {until}. Get better. I will hold the roasts, keep it to one quest a day, and the boss waits.'],
+  },
+  pauseAway: {
+    mild: ['Away mode until {until}. Enjoy it. One quest a day, no nagging, and the boss takes a break too.'],
+    savage: ['Away mode until {until}. Go. The boss is on holiday too, and I promise not to nag. Much.'],
+  },
+  pauseOff: {
+    mild: ['Welcome back. Everything counts again, gently.'],
+    savage: ['Back in action. The boss missed you. I did not. (I did.)'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;
