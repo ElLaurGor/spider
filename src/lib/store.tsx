@@ -951,6 +951,16 @@ function useStoreValue() {
         run((s) => patchDay(s, key, (d) => ({ ...d, moods: moodsOf(d).filter((m) => m.id !== id) })));
       },
 
+      /** Fixes a check-in's mood, emotions or note. Its time and XP stay as they were. */
+      updateMood(id: string, patch: { level: MoodLevel; emotions: string[]; note: string }, key = dayKey()) {
+        run((s) =>
+          patchDay(s, key, (d) => ({
+            ...d,
+            moods: moodsOf(d).map((m) => (m.id === id ? { ...m, level: patch.level, emotions: patch.emotions, note: patch.note.trim() || undefined } : m)),
+          })),
+        );
+      },
+
       // --- gym ---
       logSet(exercise: string, weight: number, reps: number) {
         const next = run((s, msgs) => {
@@ -992,6 +1002,16 @@ function useStoreValue() {
           if (!set) return s;
           const next = patchDay(s, dayKey(), (d) => ({ ...d, sets: d.sets.filter((x) => x.id !== id) }));
           return reward(recomputePr(next, set.exercise), msgs, -XP.set);
+        });
+      },
+
+      /** Fixes a typo in one of today's sets. The record follows the new numbers; no XP changes hands. */
+      updateSet(id: string, patch: { weight: number; reps: number }) {
+        run((s) => {
+          const set = dayOf(s).sets.find((x) => x.id === id);
+          if (!set) return s;
+          const next = patchDay(s, dayKey(), (d) => ({ ...d, sets: d.sets.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+          return recomputePr(next, set.exercise);
         });
       },
 
@@ -1113,6 +1133,12 @@ function useStoreValue() {
 
       deleteTask(id: string) {
         run((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
+      },
+
+      renameTask(id: string, title: string) {
+        const t = title.trim();
+        if (!t) return;
+        run((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, title: t } : x)) }));
       },
 
       clearDoneTasks() {

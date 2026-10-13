@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { ActivityCard } from '@/components/activity-card';
+import { EntryEditor } from '@/components/entry-editor';
 import { ProgressPhotos } from '@/components/progress-photos';
 import { Big, Btn, Card, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { WatchCard } from '@/components/watch-card';
@@ -12,7 +13,7 @@ import { fmtClock, WEEK_ORDER, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { changeOver, fmtChange, latest } from '@/lib/body-log';
 import { dayOf, lastSession, prFor, trainMinutes, workoutFor, workoutsThisWeek } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
-import type { Weekday } from '@/lib/types';
+import type { SetEntry, Weekday } from '@/lib/types';
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -152,6 +153,7 @@ function ExerciseCard({ name }: { name: string }) {
   const seed = todaySets.at(-1) ?? last?.best;
   const [weight, setWeight] = useState(seed?.weight ?? 20);
   const [reps, setReps] = useState(seed?.reps ?? 8);
+  const [editing, setEditing] = useState<{ set: SetEntry; n: number } | null>(null);
 
   return (
     <Card>
@@ -179,7 +181,7 @@ function ExerciseCard({ name }: { name: string }) {
       {todaySets.length > 0 ? (
         <Row gap={6} style={{ flexWrap: 'wrap' }}>
           {todaySets.map((x, i) => (
-            <Pressable key={x.id} onLongPress={() => actions.removeSet(x.id)} style={styles.setChip}>
+            <Pressable key={x.id} onPress={() => setEditing({ set: x, n: i + 1 })} onLongPress={() => actions.removeSet(x.id)} style={styles.setChip}>
               <Text style={styles.setText}>
                 {i + 1}. {x.weight}×{x.reps}
               </Text>
@@ -195,8 +197,21 @@ function ExerciseCard({ name }: { name: string }) {
       <Btn label="Log set" icon="add" onPress={() => actions.logSet(name, weight, reps)} />
       {todaySets.length > 0 ? (
         <T dim small>
-          Long-press a set to delete it.
+          Tap a set to fix it, long-press to delete it.
         </T>
+      ) : null}
+      {editing ? (
+        <EntryEditor
+          title={`${name} · set ${editing.n}`}
+          numbers={[
+            { key: 'weight', label: 'Weight', value: editing.set.weight, step: 2.5, min: 0, max: 500, suffix: 'kg' },
+            { key: 'reps', label: 'Reps', value: editing.set.reps, step: 1, min: 1, max: 100, suffix: 'reps' },
+          ]}
+          note="Fixing a typo keeps the XP as it was. Your record follows the new numbers."
+          onSave={(_at, v) => actions.updateSet(editing.set.id, { weight: v.numbers.weight, reps: v.numbers.reps })}
+          onDelete={() => actions.removeSet(editing.set.id)}
+          onClose={() => setEditing(null)}
+        />
       ) : null}
     </Card>
   );
