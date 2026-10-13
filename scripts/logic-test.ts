@@ -40,6 +40,7 @@ import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
 import { clockLabel, nightClock, nightOf, rhythmOf, withNights } from '../src/lib/sleep';
 import { readinessFor } from '../src/lib/readiness';
 import { heartIn, workoutWindows } from '../src/lib/workout-heart';
+import { movementMap, stillestHour } from '../src/lib/movement';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -872,4 +873,25 @@ console.log('all logic tests passed');
   assert.equal(h.avg, Math.round((10 * 100 + 10 * 160 + 90) / 21));
   assert.deepEqual(h.zoneMin, [10, 0, 0, 11, 0]); // the gap after the last 160 counts 2 min, not 21
   assert.equal(heartIn(samples, ws[1], 190), null); // no data in the later window
+}
+
+// movement map: average steps per weekday and hour, watch-off days left out; stillest workday desk hour
+{
+  const slots: { at: number; steps: number }[] = [];
+  const mon = new Date(2027, 0, 11); // Monday
+  for (let i = 0; i < 7; i++) {
+    for (let h = 0; h < 24; h++) {
+      const steps = h >= 8 && h <= 20 ? (h === 14 ? 50 : h === 20 ? 10 : 400) : 0; // 14:00 is the desk slump, 20:00 the sofa
+      slots.push({ at: new Date(2027, 0, 11 + i, h).getTime(), steps: i === 6 ? 0 : steps }); // Sunday: watch off
+    }
+  }
+  slots.push({ at: new Date(2027, 0, 18, 14).getTime(), steps: 150 }); // next Monday, 14:00 only: under 500, left out
+  const mm = movementMap(slots);
+  assert.equal(mm.days[1], 1); // the second Monday doesn't count
+  assert.equal(mm.days[0], 0);
+  assert.equal(mm.grid[2][9], 400);
+  assert.equal(mm.grid[2][14], 50);
+  assert.deepEqual(stillestHour(mm, 7, 23), { hour: 14, steps: 50 }); // 20:00 is past the desk hours
+  assert.equal(stillestHour(movementMap(slots.filter((x) => new Date(x.at).getDay() === 1)), 7, 23), null); // one workday
+  assert.equal(new Date(mon).getDay(), 1);
 }

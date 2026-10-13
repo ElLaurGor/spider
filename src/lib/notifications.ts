@@ -34,7 +34,7 @@ import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outsi
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming' } as const;
 
 // Notifications re-planned on every app change; gaming/rest alerts are managed separately.
-const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-'];
+const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-'];
 const MOOD_HOURS = [13, 20];
 const GAME_IDS = ['game-warn', 'game-over', 'game-way-over'];
 const REST_ID = 'rest-done';
@@ -65,6 +65,7 @@ const LINKS: [prefix: string, href: Href][] = [
   ['game-', '/game'],
   [FOCUS_ID, '/focus'],
   ['backup-', '/settings'],
+  ['move-', '/movement'],
 ];
 /** The screen a notification opens. Morning, evening, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
@@ -264,6 +265,15 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
             data: { habitId: h.id },
           }),
         );
+      }
+    }
+
+    // Workdays at her stillest hour (movement map), if she turned it on. Not on low-battery days or in meetings.
+    const moveHour = st.moveNudgeHour;
+    if (moveHour != null && date.getDay() >= 1 && date.getDay() <= 5 && moveHour > st.wakeHour && moveHour < st.sleepHour) {
+      const when = atTime(now, d, moveHour, 5);
+      if (!(d === 0 && lowBattery(log)) && !(st.respectMeetings && inMeeting(events, when.getTime()))) {
+        jobs.push(scheduleAt(`move-${key}`, when, '🚶 Move break', say(s, 'moveNudge'), CH.remind));
       }
     }
 

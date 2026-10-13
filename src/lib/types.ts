@@ -55,6 +55,7 @@ export type Settings = {
   // cluster C
   adaptiveWater?: boolean; // hot days and training days raise the water goal (default on)
   maxHr?: number; // for heart rate zones in training (lib/workout-heart.ts DEFAULT_MAX_HR when unset)
+  moveNudgeHour?: number | null; // workdays at this hour: a nudge to move (her stillest hour on the movement map); unset = off
 };
 
 // `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.

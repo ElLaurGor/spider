@@ -848,6 +848,16 @@ export const LINES = {
     mild: ['Outstanding! Everything on track.'],
     savage: ['Verdict: suspiciously productive. Are you okay?', 'Verdict: elite. Who replaced you?'],
   },
+  // ---- cluster C: body & sleep ----
+  // A walk at her stillest hour on workdays (movement map). Helpful first, a wink at most.
+  moveNudge: {
+    mild: ['This is usually your stillest hour. Five minutes on your feet?', 'Quick walk? Even to the coffee machine and back counts.'],
+    savage: [
+      'Your stillest hour of the day, according to the watch. Stand up. Walk somewhere. Come back.',
+      'Chair time detected. A five-minute lap and your legs remember they exist.',
+      'The watch says this is when you turn into furniture. Prove it wrong.',
+    ],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

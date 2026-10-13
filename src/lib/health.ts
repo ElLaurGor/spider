@@ -114,6 +114,20 @@ export async function readSleepNight(key: string): Promise<Night | null> {
   return nightOf(await readSessions(lib, new Date(from), new Date(end)), key);
 }
 
+/** Steps per hour for the last `days` days (oldest first), for the movement map. Empty outside the installed app. */
+export async function readStepsByHour(days = 14, now = new Date()): Promise<{ at: number; steps: number }[]> {
+  const lib = hc;
+  if (!lib || !(await ready(lib))) return [];
+  const r = await safe(() =>
+    lib.aggregateGroupByDuration({
+      recordType: 'Steps',
+      timeRangeFilter: range(addDays(startOfDay(now), -days), now),
+      timeRangeSlicer: { duration: 'HOURS', length: 1 },
+    }),
+  );
+  return (r ?? []).map((x) => ({ at: new Date(x.startTime).getTime(), steps: x.result.COUNT_TOTAL ?? 0 }));
+}
+
 export type HeartSample = { at: number; bpm: number };
 
 /** Every heart rate sample of one day (oldest first) and that day's resting rate. Empty outside the installed app. */
