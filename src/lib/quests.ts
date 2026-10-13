@@ -12,6 +12,7 @@ import {
   proteinOf,
   trainedOn,
   trainMinutes,
+  waterGoalFor,
   waterMl,
   workoutFor,
 } from './selectors';
@@ -48,7 +49,7 @@ const QUESTS: QuestDef[] = [
     id: 'water_goal',
     xp: 10,
     available: () => true,
-    build: (s, d) => ({ title: `Drink ${(s.settings.waterGoalMl / 1000).toFixed(1)} L`, progress: waterMl(d), target: s.settings.waterGoalMl }),
+    build: (s, d, date) => ({ title: `Drink ${(waterGoalFor(s, dayKey(date)) / 1000).toFixed(1)} L`, progress: waterMl(d), target: waterGoalFor(s, dayKey(date)) }),
   },
   {
     id: 'protein',
@@ -136,7 +137,7 @@ const QUESTS: QuestDef[] = [
     xp: 20,
     season: 'solstice',
     available: (s) => !hasSteps(s),
-    build: (s, d) => ({ title: '🌑 Darkest day: hit your water goal anyway', progress: waterMl(d), target: s.settings.waterGoalMl }),
+    build: (s, d, date) => ({ title: '🌑 Darkest day: hit your water goal anyway', progress: waterMl(d), target: waterGoalFor(s, dayKey(date)) }),
   },
 ];
 
@@ -222,7 +223,7 @@ export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hi
   couch_goblin: { label: 'moving: step goal or training', hit: (_s, d) => !!d.stepGoalHit || trainedOn(d) },
   doomscroll: { label: 'finishing a Web Focus session', hit: (_s, d) => (d.focus ?? []).some((f) => !f.snapped) },
   snooze: { label: 'logging something before 08:00', hit: (_s, d) => loggedBefore8(d) },
-  dehydration: { label: 'hitting your water goal', hit: (s, d) => liveWaterMl(d) >= s.settings.waterGoalMl },
+  dehydration: { label: 'hitting your water goal', hit: (s, d, key) => liveWaterMl(d) >= waterGoalFor(s, key) },
   leg_day: { label: 'training', hit: (_s, d) => trainedOn(d) },
   sugar_baron: { label: 'checking off a habit', hit: (s, _d, key) => habitsDone(s, key).length > 0 },
   // Only finished days: today isn't within budget until it's over.

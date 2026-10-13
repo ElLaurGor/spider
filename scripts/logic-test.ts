@@ -27,7 +27,7 @@ import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
 import { insights } from '../src/lib/insights';
 import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
-import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, waterMl, withPastHealth } from '../src/lib/selectors';
+import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, waterGoalFor, waterGoalParts, waterMl, withPastHealth } from '../src/lib/selectors';
 import { searchFoods } from '../src/lib/food-db';
 import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS, xpPace } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
@@ -604,7 +604,7 @@ console.log('all logic tests passed');
   }
   // Captain Dehydration's weakness is water: a water-goal day doubles that day's damage
   const water = WEAKNESS.dehydration.hit;
-  b.days[k] = { ...b.days[k], water: [{ id: 'w', ml: b.settings.waterGoalMl, at: Date.now() }] };
+  b.days[k] = { ...b.days[k], water: [{ id: 'w', ml: waterGoalFor(b, k), at: Date.now() }] };
   assert.ok(water(b, b.days[k], k));
   assert.ok(!water(defaultState(), { water: [], food: [], sets: [], games: [], bonusGameMin: 0 }, k));
   // the snooze button: something logged before 08:00
@@ -655,6 +655,7 @@ console.log('all logic tests passed');
   const k = (d: Date) => dayKey(d);
   const c = { week: k(monday), from: k(wed), goal: 'water' as const, target: 2, stake: 100, status: 'open' as const };
   const cs = defaultState();
+  cs.settings.adaptiveWater = false; // the plain goal; the adaptive one is tested on its own
   const goalDay = (n: number) => ({ water: [{ id: `w${n}`, ml: cs.settings.waterGoalMl, at: 0 }], food: [], sets: [], games: [], bonusGameMin: 0 });
   cs.days[k(monday)] = goalDay(1); // before signing: doesn't count
   cs.days[k(wed)] = goalDay(2);
@@ -737,4 +738,24 @@ console.log('all logic tests passed');
   // The Binge Necromancer: today isn't within budget until it's over
   assert.ok(!WEAKNESS.binge.hit(base, lateDay, k));
   assert.ok(WEAKNESS.binge.hit(base, lateDay, dayKey(addDays(new Date(), -1))));
+}
+
+// ---- cluster C ----
+// adaptive water: hot days and training days raise the goal; off means the plain goal
+{
+  const w = defaultState();
+  const sunday = '2027-01-10'; // a rest day in the default plan
+  const monday = '2027-01-11'; // Push day
+  w.days[sunday] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl);
+  assert.equal(waterGoalFor(w, monday), w.settings.waterGoalMl + 400);
+  w.days[sunday] = { ...w.days[sunday], weather: { max: 23, min: 14, rainMm: 0, sunMin: 300, code: 0 } };
+  assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl + 300);
+  w.days[sunday] = { ...w.days[sunday], weather: { max: 27, min: 16, rainMm: 0, sunMin: 500, code: 0 } };
+  w.days[sunday].activities = [{ id: 'a', kind: 'cardio', minutes: 30, at: 0 }]; // trained on a rest day
+  const parts = waterGoalParts(w, sunday);
+  assert.equal(parts.ml, w.settings.waterGoalMl + 900);
+  assert.deepEqual(parts.why, ['+500 ml: 27°', '+400 ml: training day']);
+  w.settings.adaptiveWater = false;
+  assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl);
 }

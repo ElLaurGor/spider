@@ -171,6 +171,12 @@ export default function SettingsScreen() {
         <SettingRow label="Water goal">
           <Stepper value={s.waterGoalMl} step={250} min={500} max={6000} format={(v) => `${v} ml`} onChange={(v) => set({ waterGoalMl: v })} />
         </SettingRow>
+        <Toggle
+          label="Adapt water to the day"
+          hint="+300–500 ml on hot days, +400 ml on training days"
+          value={s.adaptiveWater !== false}
+          onChange={(v) => set({ adaptiveWater: v })}
+        />
         <SettingRow label="Glass size">
           <Stepper value={s.glassMl} step={50} min={100} max={1000} format={(v) => `${v} ml`} onChange={(v) => set({ glassMl: v })} />
         </SettingRow>

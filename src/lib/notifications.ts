@@ -21,6 +21,7 @@ import {
   lowBattery,
   onPeriod,
   trainedOn,
+  waterGoalFor,
   waterMl,
   waterSlots,
   workoutFor,
@@ -143,7 +144,7 @@ function daySummary(s: State, now: Date) {
   const coffee = coffeeOf(d).length;
   const steps =
     (d.steps != null ? ` · 👣 ${d.steps.toLocaleString('sv-SE')}` : '') + (d.screen ? ` · 📱 ${fmtDuration(d.screen.totalMin * MIN)}` : '');
-  return `💧 ${waterMl(d)}/${s.settings.waterGoalMl} ml · 🏋️ ${gym} · ☕ ${coffee} · 🎮 ${fmtDuration(gamingUsedMs(s))} · ✅ ${tasks} tasks${steps}`;
+  return `💧 ${waterMl(d)}/${waterGoalFor(s, dayKey(now))} ml · 🏋️ ${gym} · ☕ ${coffee} · 🎮 ${fmtDuration(gamingUsedMs(s))} · ✅ ${tasks} tasks${steps}`;
 }
 
 let running: Promise<void> | null = null;
@@ -181,7 +182,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   const now = new Date();
   const jobs: Promise<void>[] = [];
   // A snoozed water reminder is pointless once the goal is hit or water reminders are off.
-  if (!st.notify.water || waterMl(dayOf(s, dayKey(now))) >= st.waterGoalMl) {
+  if (!st.notify.water || waterMl(dayOf(s, dayKey(now))) >= waterGoalFor(s, dayKey(now))) {
     jobs.push(Notifications.cancelScheduledNotificationAsync(SNOOZE_ID).catch(() => {}));
   }
 
@@ -191,11 +192,12 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     const log = dayOf(s, key);
     const plan = workoutFor(s, date);
 
-    if (st.notify.water && !(d === 0 && waterMl(log) >= st.waterGoalMl)) {
+    const waterGoal = waterGoalFor(s, key);
+    if (st.notify.water && !(d === 0 && waterMl(log) >= waterGoal)) {
       for (const t of waterSlots(s)) {
         const when = atTime(now, d, Math.floor(t / 60), t % 60);
         if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
-        const progress = d === 0 ? ` (${waterMl(log)}/${st.waterGoalMl} ml)` : '';
+        const progress = d === 0 ? ` (${waterMl(log)}/${waterGoal} ml)` : '';
         jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', say(s, 'waterRemind') + progress, CH.remind, { category: CATEGORY.water }));
       }
     }

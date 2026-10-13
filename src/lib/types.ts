@@ -52,6 +52,8 @@ export type Settings = {
   notify: NotifyPrefs;
   respectMeetings: boolean;
   calendarIds: string[] | null; // null = every calendar on the phone
+  // cluster C
+  adaptiveWater?: boolean; // hot days and training days raise the water goal (default on)
 };
 
 // `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.

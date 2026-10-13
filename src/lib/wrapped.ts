@@ -4,7 +4,7 @@ import { dayKey, fmtDuration, fmtTime, MIN } from './dates';
 import { emotionEmoji, moodInfo } from './mood';
 import { BOSSES } from './quests';
 import { dayScoreFor, gradeOf, type Grade } from './report';
-import { activitiesOf, avgMood, coffeeOf, dayOf, gamingBudgetMin, gamingUsedMs, moodsOf, trainedOn, trainMinutes, waterMl } from './selectors';
+import { activitiesOf, avgMood, coffeeOf, dayOf, gamingBudgetMin, gamingUsedMs, moodsOf, trainedOn, trainMinutes, waterGoalFor, waterMl } from './selectors';
 import type { ActivityKind, State } from './types';
 
 export type SlideColor = 'red' | 'water' | 'yellow' | 'green' | 'purple' | 'cyan' | 'blue';
@@ -40,7 +40,7 @@ export function monthWrapped(s: State, year: number, month: number, now = new Da
 
   // Water
   const water = logs.map((x) => waterMl(x.log));
-  const goalDays = water.filter((ml) => ml >= s.settings.waterGoalMl).length;
+  const goalDays = logs.filter((x) => waterMl(x.log) >= waterGoalFor(s, x.key)).length;
   if (water.some((ml) => ml > 0)) {
     const ratio = goalDays / n;
     slides.push({

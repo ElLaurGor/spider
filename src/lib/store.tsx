@@ -52,6 +52,7 @@ import {
   moodsOf,
   proteinOf,
   syncedSleep,
+  waterGoalFor,
   waterMl,
   withPastHealth,
 } from './selectors';
@@ -739,7 +740,8 @@ function useStoreValue() {
           let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: Date.now() }] }));
           const d = dayOf(next, key);
           const total = waterMl(d);
-          if (!d.waterGoalHit && total >= s.settings.waterGoalMl) {
+          const goal = waterGoalFor(next, key);
+          if (!d.waterGoalHit && total >= goal) {
             next = patchDay(next, key, (x) => ({ ...x, waterGoalHit: true }));
             msgs.push({
               text: `${L(next, 'waterGoal')} +${XP.waterGoal} XP · +${BONUS_MIN.waterGoal} min gaming`,
@@ -747,7 +749,7 @@ function useStoreValue() {
             });
             return reward(next, msgs, XP.water + XP.waterGoal, BONUS_MIN.waterGoal);
           }
-          msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, s.settings.waterGoalMl - total) }), tone: 'good' });
+          msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, goal - total) }), tone: 'good' });
           return reward(next, msgs, XP.water);
         });
       },

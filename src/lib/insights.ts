@@ -2,7 +2,7 @@
 import { periodStarts } from './body';
 import { addDays, dayKey, fmtDuration, WEEKDAYS_LONG } from './dates';
 import { dayScoreFor } from './report';
-import { avgMood, coffeeOf, dayOf, gamingUsedMs, onPeriod, trainedOn, waterMl } from './selectors';
+import { avgMood, coffeeOf, dayOf, gamingUsedMs, onPeriod, trainedOn, waterGoalFor, waterMl } from './selectors';
 import type { DayLog, State } from './types';
 
 export type Insight = { id: string; emoji: string; text: string; detail: string; strength: number };
@@ -111,7 +111,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
   }
 
   // Gaming on water-goal days.
-  const waterGame = compare(days, (d) => waterMl(d.log) >= s.settings.waterGoalMl, (d) => gamingUsedMs(s, d.key) / 60_000);
+  const waterGame = compare(days, (d) => waterMl(d.log) >= waterGoalFor(s, d.key), (d) => gamingUsedMs(s, d.key) / 60_000);
   if (waterGame && Math.abs(waterGame.yes - waterGame.no) >= 20) {
     const more = waterGame.no > waterGame.yes;
     add({

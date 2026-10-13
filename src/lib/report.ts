@@ -13,6 +13,7 @@ import {
   proteinOf,
   trainedOn,
   trainMinutes,
+  waterGoalFor,
   waterMl,
   workoutFor,
 } from './selectors';
@@ -39,7 +40,7 @@ function taskShare(s: State, date: Date): number | null {
 export function dayScoreFor(s: State, date: Date) {
   const key = dayKey(date);
   const d = dayOf(s, key);
-  const water = clamp01(waterMl(d) / s.settings.waterGoalMl) * 30;
+  const water = clamp01(waterMl(d) / waterGoalFor(s, key)) * 30;
   const gym = !workoutFor(s, date) || trainedOn(d) ? 25 : 0;
   const protein = s.settings.proteinGoal ? clamp01(proteinOf(d) / s.settings.proteinGoal) * 20 : 20;
   // Follow-through: habits due that day and tasks on the list, whichever there are.
@@ -59,7 +60,7 @@ export function weekReport(s: State, weekOffset = 0, now = new Date()) {
   const st = s.settings;
   const cats: Category[] = [];
 
-  const waterHit = logs.filter((x) => waterMl(x.log) >= st.waterGoalMl).length;
+  const waterHit = logs.filter((x) => waterMl(x.log) >= waterGoalFor(s, x.key)).length;
   cats.push({
     id: 'water',
     label: 'Water',
