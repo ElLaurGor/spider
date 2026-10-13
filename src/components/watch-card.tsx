@@ -88,7 +88,7 @@ export function WatchCard() {
           sub={d?.heartMin ? `${d.heartMin}–${d.heartMax} bpm` : d?.restingHr ? `rest ${d.restingHr}` : 'avg bpm'}
           onPress={openHeart}
         />
-        <Metric icon="bedtime" color={C.purple} label="Sleep" value={sleepText || '–'} sub="last night" />
+        <Metric icon="bedtime" color={C.purple} label="Sleep" value={sleepText || '–'} sub="last night" onPress={() => router.push('/sleep')} />
       </Row>
 
       <Row gap={6} style={{ alignItems: 'flex-end', height: 70 }}>

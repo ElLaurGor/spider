@@ -171,6 +171,16 @@ export default function RootLayout() {
               headerShadowVisible: false,
             }}
           />
+          <Stack.Screen
+            name="sleep"
+            options={{
+              headerShown: true,
+              title: 'Sleep',
+              headerStyle: { backgroundColor: C.bg },
+              headerTintColor: C.text,
+              headerShadowVisible: false,
+            }}
+          />
           <Stack.Screen name="onboarding" options={{ gestureEnabled: false, animation: 'fade' }} />
         </Stack>
         <ToastHost />

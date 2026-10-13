@@ -122,7 +122,13 @@ export type DayLog = {
   waterGoalHit?: boolean;
   proteinGoalHit?: boolean;
   workoutCounted?: boolean;
+  // cluster C: the night before this day, from the watch (lib/sleep.ts); not set when sleep was typed in
+  bedAt?: number;
+  wakeAt?: number;
+  sleepStages?: SleepStages;
 };
+
+export type SleepStages = { deep: number; light: number; rem: number; awake: number }; // minutes
 
 export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
 export type Contract = {

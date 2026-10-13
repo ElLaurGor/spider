@@ -3,6 +3,7 @@ import { periodStarts } from './body';
 import { addDays, dayKey, fmtDuration, WEEKDAYS_LONG } from './dates';
 import { dayScoreFor } from './report';
 import { avgMood, coffeeOf, dayOf, gamingUsedMs, onPeriod, trainedOn, waterGoalFor, waterMl } from './selectors';
+import { clockLabel, nightClock, rhythmOf } from './sleep';
 import type { DayLog, State } from './types';
 
 export type Insight = { id: string; emoji: string; text: string; detail: string; strength: number };
@@ -356,6 +357,39 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
         });
       }
     }
+  }
+
+  // ---- cluster C: sleep rhythm (the watch's bed and wake times) ----
+  // A regular bedtime vs the next morning's energy and mood. `d.next` holds the night after `d`.
+  const beds = days.filter((d) => d.next.bedAt != null).map((d) => nightClock(d.next.bedAt!, dayKey(addDays(d.date, 1))));
+  if (beds.length >= 2 * MIN_EACH) {
+    const usual = [...beds].sort((a, b) => a - b)[Math.floor(beds.length / 2)];
+    const regular = (d: Day) => d.next.bedAt != null && Math.abs(nightClock(d.next.bedAt, dayKey(addDays(d.date, 1))) - usual) <= 45;
+    const onlyNights = (v: number | null | undefined, d: Day) => (d.next.bedAt != null ? (v ?? null) : null);
+    const energy = compare(days, regular, (d) => onlyNights(d.next.energy, d));
+    const mood = compare(days, regular, (d) => onlyNights(avgMood(d.next), d));
+    const best = [energy && { what: 'energy', r: energy }, mood && { what: 'mood', r: mood }]
+      .filter((x): x is { what: string; r: NonNullable<typeof energy> } => !!x && x.r.yes - x.r.no >= 0.3)
+      .sort((a, b) => b.r.yes - b.r.no - (a.r.yes - a.r.no))[0];
+    if (best) {
+      add({
+        id: 'regular_bed',
+        emoji: '🛏️',
+        text: `After nights you go to bed near your usual ${clockLabel(usual)}, your ${best.what} the next day is better.`,
+        detail: `${best.r.yes.toFixed(1)}/5 vs ${best.r.no.toFixed(1)}/5 · within 45 min · ${best.r.n} mornings`,
+        strength: (best.r.yes - best.r.no) / 0.5,
+      });
+    }
+  }
+  const rhythm = rhythmOf(s, now, 28);
+  if (rhythm?.jetlag != null && rhythm.jetlag >= 60) {
+    add({
+      id: 'social_jetlag',
+      emoji: '🛫',
+      text: `Weekends move your sleep ${fmtDuration(rhythm.jetlag * 60_000)} later. Monday mornings feel like landing from another time zone.`,
+      detail: `middle of the night, weekend vs weekday · ${rhythm.nights.length} nights`,
+      strength: rhythm.jetlag / 90,
+    });
   }
 
   return out.sort((a, b) => b.strength - a.strength);

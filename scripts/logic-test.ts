@@ -37,6 +37,7 @@ import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
 import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
 import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
+import { clockLabel, nightClock, nightOf, rhythmOf, withNights } from '../src/lib/sleep';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -758,4 +759,58 @@ console.log('all logic tests passed');
   assert.deepEqual(parts.why, ['+500 ml: 27°', '+400 ml: training day']);
   w.settings.adaptiveWater = false;
   assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl);
+}
+
+// sleep nights: the main session plus a split-off piece, stages summed; typed-in nights stay the watch's own business
+{
+  const key = '2027-01-12';
+  const at = (h: number, m = 0) => new Date(`${key}T00:00`).getTime() + (h * 60 + m) * 60_000; // hours from that midnight
+  const main = {
+    start: at(-1),
+    end: at(5),
+    stages: [
+      { start: at(-1), end: at(0), stage: 4 },
+      { start: at(0), end: at(2), stage: 5 },
+      { start: at(2), end: at(2, 30), stage: 1 },
+      { start: at(2, 30), end: at(5), stage: 6 },
+    ],
+  };
+  const tail = { start: at(5, 40), end: at(7), stages: [{ start: at(5, 40), end: at(7), stage: 4 }] };
+  const nap = { start: at(15), end: at(16), stages: [] }; // after 14:00: tomorrow's window, not this night
+  const night = nightOf([nap, tail, main], key)!;
+  assert.equal(night.bedAt, at(-1));
+  assert.equal(night.wakeAt, at(7));
+  assert.deepEqual(night.stages, { deep: 120, light: 140, rem: 150, awake: 30 });
+  assert.equal(nightOf([nap], key), null);
+  assert.equal(nightOf([{ ...main, stages: [{ start: at(-1), end: at(5), stage: 2 }] }], key)!.stages, null); // only "sleeping"
+  assert.equal(nightClock(at(-1), key), -60);
+  assert.equal(clockLabel(-60), '23:00');
+  assert.equal(clockLabel(45), '00:45');
+
+  const ns = defaultState();
+  const empty = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  ns.days['2027-01-11'] = { ...empty, sleepMin: 400, sleepManual: true };
+  const after = withNights(ns, [{ key, night }, { key: '2027-01-11', night }, { key: '2027-01-10', night }], key);
+  assert.equal(after.days[key].bedAt, at(-1)); // today: created
+  assert.equal(after.days['2027-01-11'].bedAt, undefined); // typed in by hand
+  assert.equal(after.days['2027-01-10'], undefined); // a day never opened stays empty
+  assert.equal(withNights(after, [{ key, night }], key), after); // nothing new: same object
+
+  // rhythm: usual bedtime, spread, and weekend nights later than weekday ones
+  const rs = defaultState();
+  const mon = new Date(2027, 0, 11); // Monday
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(mon, i);
+    const k = dayKey(d);
+    const weekend = d.getDay() === 6 || d.getDay() === 0;
+    const bed = weekend ? 60 : i % 2 ? -50 : -70; // 01:00 on weekend nights, 22:50 or 23:10 on weekdays
+    const mid = new Date(`${k}T00:00`).getTime();
+    rs.days[k] = { ...empty, bedAt: mid + bed * 60_000, wakeAt: mid + (bed + 480) * 60_000 };
+  }
+  const r = rhythmOf(rs, addDays(mon, 6), 7)!;
+  assert.equal(r.nights.length, 7);
+  assert.equal(r.bedMedian, -50);
+  assert.equal(r.spread, 20);
+  assert.equal(r.jetlag, 122); // middle of the night: weekend 05:00 (300) vs weekdays 02:58 on average (178)
+  assert.equal(rhythmOf(defaultState(), addDays(mon, 6), 7), null);
 }

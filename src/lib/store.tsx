@@ -38,6 +38,7 @@ import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './phot
 import { bossFor, pickQuests, questsFor } from './quests';
 import { canSign, contractProgress, goalOf, roughWeek } from './contracts';
 import { respectFor } from './respect';
+import { withNights } from './sleep';
 import { isSnow, seasonOn, winterOf } from './seasons';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
 import {
@@ -458,10 +459,10 @@ function useStoreValue() {
       const past = data.stepsWeek
         .filter((x) => x.key !== key)
         .map((x) => ({ key: x.key, steps: x.steps, sleepMin: data.sleepWeek.find((y) => y.key === x.key)?.sleepMin ?? null }));
-      const pastChanged = withPastHealth(s0, past) !== s0;
+      const pastChanged = withPastHealth(s0, past) !== s0 || withNights(s0, data.nights, key) !== s0;
       if (!pastChanged && today.steps === steps && today.sleepMin === sleep && (today.stepGoalHit || steps < s0.settings.stepGoal)) return;
       run((s, msgs) => {
-        let next = patchDay(withPastHealth(s, past), key, (d) => ({ ...d, steps, sleepMin: sleep }));
+        let next = patchDay(withNights(withPastHealth(s, past), data.nights, key), key, (d) => ({ ...d, steps, sleepMin: sleep }));
         if (!dayOf(s, key).stepGoalHit && steps >= s.settings.stepGoal) {
           next = patchDay(next, key, (d) => ({ ...d, stepGoalHit: true }));
           msgs.push({
