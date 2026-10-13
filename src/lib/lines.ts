@@ -204,10 +204,10 @@ export const LINES = {
     ],
   },
   gymStarted: {
-    mild: ['Workout started! +40 XP and +30 min gaming earned.'],
+    mild: ['Workout started! +20 XP and +30 min gaming earned.'],
     savage: [
       "Workout started. +30 min gaming earned. Don't spend it all in one rage-quit.",
-      'Look who showed up. +40 XP. The bar was low, but you cleared it.',
+      'Look who showed up. +20 XP. The bar was low, but you cleared it.',
       'First set down. The couch is filing a missing person report.',
     ],
   },
@@ -354,9 +354,9 @@ export const LINES = {
     ],
   },
   taskDone: {
-    mild: ['Done! +10 XP and +10 min gaming.', 'Nice work, {name}!'],
+    mild: ['Done! +5 XP and +10 min gaming.', 'Nice work, {name}!'],
     savage: [
-      'Task done. +10 XP. Look at you, being a functional member of society.',
+      'Task done. +5 XP. Look at you, being a functional member of society.',
       "Completed. I've lowered my threat level to 'mildly concerned'.",
       'Done. Productivity detected. Alarming.',
       "One down. Don't celebrate too hard, there are more.",
@@ -535,8 +535,8 @@ export const LINES = {
     ],
   },
   habitAllDone: {
-    mild: ['All habits done today! +15 XP.'],
-    savage: ['Every habit done. Disciplined. Suspiciously disciplined. +15 XP.', 'All habits checked. Who replaced you with a productive person? +15 XP.'],
+    mild: ['All habits done today! +10 XP.'],
+    savage: ['Every habit done. Disciplined. Suspiciously disciplined. +10 XP.', 'All habits checked. Who replaced you with a productive person? +10 XP.'],
   },
   habitRemind: {
     mild: ['Reminder: {habit}.'],
@@ -552,35 +552,35 @@ export const LINES = {
   },
   // Each boss's own taunts while it's still fresh (quests.ts BOSSES ids). The mild ones hint at its weakness.
   taunt_procrastinator: {
-    mild: ['{boss} is in no hurry. Days you finish tasks hit it twice as hard.'],
+    mild: ['{boss} is in no hurry. Days you finish tasks hit it 50% harder.'],
     savage: ['"I\'ll lose tomorrow. Maybe." – {boss}', '{boss} has scheduled your victory for next week. Tentatively.', '{boss} is napping on your to-do list.'],
   },
   taunt_couch_goblin: {
-    mild: ['{boss} hates movement. Step-goal and training days hit it twice as hard.'],
+    mild: ['{boss} hates movement. Step-goal and training days hit it 50% harder.'],
     savage: ['{boss} has claimed the couch. And your evening.', '{boss} whispers: "Just one more episode."', '{boss} fears exactly one thing: your sneakers.'],
   },
   taunt_doomscroll: {
-    mild: ['{boss} hates focus. Days with a finished Web Focus hit it twice as hard.'],
+    mild: ['{boss} hates focus. Days with a finished Web Focus hit it 50% harder.'],
     savage: ['{boss} refreshes. And refreshes. And refreshes.', '{boss} feeds on infinite scroll. Starve it.', '"Just checking one thing." – {boss}, three hours later'],
   },
   taunt_snooze: {
-    mild: ['{boss} owns the mornings. Log something before 08:00 to hit it twice as hard.'],
+    mild: ['{boss} owns the mornings. Log something before 08:00 to hit it 50% harder.'],
     savage: ['{boss}: "Five more minutes." Every single time.', '{boss} owns your mornings. Take one back.', '{boss} is betting you sleep through 08:00 again.'],
   },
   taunt_dehydration: {
-    mild: ['{boss} hates water. Water-goal days hit it twice as hard.'],
+    mild: ['{boss} hates water. Water-goal days hit it 50% harder.'],
     savage: ["{boss} has heard about your water bottle. He's not worried.", '{boss} is drier than your excuses.', '{boss} rules the desert. Drown him.'],
   },
   taunt_leg_day: {
-    mild: ['{boss} never trains. Your training days hit it twice as hard.'],
+    mild: ['{boss} never trains. Your training days hit it 50% harder.'],
     savage: ['{boss} stands on two very thin legs. Kick them.', '"Legs are optional." – {boss}', "{boss} skipped leg day so you'd feel better about skipping yours. Don't."],
   },
   taunt_sugar_baron: {
-    mild: ['{boss} hates routines. Days you check off a habit hit it twice as hard.'],
+    mild: ['{boss} hates routines. Days you check off a habit hit it 50% harder.'],
     savage: ['{boss} runs on shortcuts. Your habits are his kryptonite.', '{boss} thinks routines are for robots. Prove him wrong.', '{boss} is betting you forget your habits today.'],
   },
   taunt_binge: {
-    mild: ['{boss} feeds on long sessions. Days within your gaming budget hit it twice as hard.'],
+    mild: ['{boss} feeds on long sessions. Days within your gaming budget hit it 50% harder.'],
     savage: ['{boss} raises one more episode from the dead.', '"Next episode starts in 5… 4…" – {boss}', '{boss} feeds on autoplay and broken budgets.'],
   },
   bossHurt: {
@@ -771,8 +771,8 @@ export const LINES = {
     savage: ['Full battery. No excuses are available today. Zero.', 'Fully charged. Today the quests fear YOU.'],
   },
   windDownDone: {
-    mild: ['Wind-down done. Sleep well! +10 XP'],
-    savage: ['Wind-down complete. +10 XP. Now actually sleep. Not "one more game".'],
+    mild: ['Wind-down done. Sleep well! +5 XP'],
+    savage: ['Wind-down complete. +5 XP. Now actually sleep. Not "one more game".'],
   },
   windDownRemind: {
     mild: ['Time to wind down for the night.'],

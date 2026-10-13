@@ -4,30 +4,37 @@ import { seasonOn } from './seasons';
 import { coffeeOf, gamingUsedMs, moodDays, moodsOf, totalCoffees, trainedOn, waterMl } from './selectors';
 import type { State } from './types';
 
+// Everyday actions give about half of what they did before 2026-10-14 (it came too easy); milestones
+// (achievements, secrets, the boss) kept theirs. Coins per XP doubled, so coin income stayed the same.
 export const XP = {
-  water: 2,
-  waterGoal: 25,
-  food: 2,
-  proteinGoal: 15,
-  set: 3,
-  workout: 40,
-  pr: 15,
-  task: 10,
-  mood: 3,
-  stepGoal: 20,
-  progressPhoto: 10,
-  habit: 5,
-  habitsAll: 15,
-  questsAll: 30,
+  water: 1,
+  waterGoal: 15,
+  food: 1,
+  proteinGoal: 10,
+  set: 2,
+  workout: 20,
+  pr: 10,
+  task: 5,
+  mood: 2,
+  stepGoal: 10,
+  progressPhoto: 5,
+  habit: 3,
+  habitsAll: 10,
+  questsAll: 15,
   boss: 100,
-  sleepRating: 3,
-  energy: 2,
-  windDown: 10,
-  breath: 5,
+  sleepRating: 2,
+  energy: 1,
+  windDown: 5,
+  breath: 3,
   secret: 50,
-  body: 2,
+  body: 1,
   achievement: 20,
 } as const;
+
+/** Timed training (Maskiner / Kondition / Fria vikter): 1 XP per 10 minutes, at most 10. */
+export const activityXp = (minutes: number) => Math.min(10, Math.round(minutes / 10));
+/** A finished Web Focus session: 1 XP per 5 minutes. */
+export const focusXp = (minutes: number) => Math.round(minutes / 5);
 
 export const BONUS_MIN = { workout: 30, waterGoal: 15, task: 10, stepGoal: 15, questsAll: 15, boss: 30 } as const;
 

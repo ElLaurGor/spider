@@ -1,5 +1,5 @@
 // Daily quests (3 per day, picked from a pool that fits your setup) and a weekly
-// boss whose HP drops with every XP you earn that week.
+// boss whose HP drops with every XP you earn that week. Its HP follows your own pace.
 import { addDays, dayKey, startOfWeek } from './dates';
 import { habitsDone, habitsFor } from './habits';
 import {
@@ -42,43 +42,43 @@ const hasSteps = (s: State) => Object.values(s.days).some((d) => d.steps != null
 const loggedBefore8 = (d: DayLog) => [...d.water, ...d.sets, ...(d.moods ?? [])].some((x) => !('late' in x && x.late) && new Date(x.at).getHours() < 8);
 
 const QUESTS: QuestDef[] = [
-  { id: 'water_noon', xp: 20, available: () => true, build: (_s, d) => ({ title: 'Drink 3 glasses before 12:00', progress: before(d, 12), target: 3 }) },
-  { id: 'early_sip', xp: 10, available: () => true, build: (_s, d) => ({ title: 'Log water before 09:00', progress: before(d, 9), target: 1 }) },
+  { id: 'water_noon', xp: 10, available: () => true, build: (_s, d) => ({ title: 'Drink 3 glasses before 12:00', progress: before(d, 12), target: 3 }) },
+  { id: 'early_sip', xp: 5, available: () => true, build: (_s, d) => ({ title: 'Log water before 09:00', progress: before(d, 9), target: 1 }) },
   {
     id: 'water_goal',
-    xp: 20,
+    xp: 10,
     available: () => true,
     build: (s, d) => ({ title: `Drink ${(s.settings.waterGoalMl / 1000).toFixed(1)} L`, progress: waterMl(d), target: s.settings.waterGoalMl }),
   },
   {
     id: 'protein',
-    xp: 20,
+    xp: 10,
     available: (s) => s.settings.proteinGoal > 0,
     build: (s, d) => ({ title: `Eat ${s.settings.proteinGoal} g protein`, progress: proteinOf(d), target: s.settings.proteinGoal }),
   },
-  { id: 'meals', xp: 15, available: () => true, build: (_s, d) => ({ title: 'Log 3 meals', progress: d.food.length, target: 3 }) },
+  { id: 'meals', xp: 8, available: () => true, build: (_s, d) => ({ title: 'Log 3 meals', progress: d.food.length, target: 3 }) },
   {
     id: 'workout',
-    xp: 25,
+    xp: 15,
     available: (s, date) => !!workoutFor(s, date),
     build: (s, d, date) => ({ title: `Do today's ${workoutFor(s, date)?.name ?? ''} workout`, progress: trainedOn(d) ? 1 : 0, target: 1 }),
   },
-  { id: 'train_minutes', xp: 25, available: (s, date) => !!workoutFor(s, date), build: (_s, d) => ({ title: 'Train for 45 minutes', progress: trainMinutes(d), target: 45 }) },
+  { id: 'train_minutes', xp: 15, available: (s, date) => !!workoutFor(s, date), build: (_s, d) => ({ title: 'Train for 45 minutes', progress: trainMinutes(d), target: 45 }) },
   {
     id: 'steps',
-    xp: 25,
+    xp: 15,
     available: (s) => Object.values(s.days).some((d) => d.steps != null),
     build: (s, d) => ({ title: `Walk ${s.settings.stepGoal.toLocaleString('sv-SE')} steps`, progress: d.steps ?? 0, target: s.settings.stepGoal }),
   },
   {
     id: 'steps_hard',
-    xp: 35,
+    xp: 20,
     available: (s) => Object.values(s.days).some((d) => d.steps != null),
     build: (_s, d) => ({ title: 'Walk 12 000 steps', progress: d.steps ?? 0, target: 12_000 }),
   },
   {
     id: 'tasks',
-    xp: 20,
+    xp: 10,
     available: (s) => s.tasks.some((t) => !t.done),
     build: (s, _d, date) => ({
       title: 'Finish 3 tasks',
@@ -86,11 +86,11 @@ const QUESTS: QuestDef[] = [
       target: 3,
     }),
   },
-  { id: 'bonus_time', xp: 20, available: () => true, build: (_s, d) => ({ title: 'Earn 30 bonus gaming minutes', progress: d.bonusGameMin, target: 30 }) },
-  { id: 'mood', xp: 15, available: () => true, build: (_s, d) => ({ title: 'Check in your mood twice', progress: moodsOf(d).length, target: 2 }) },
+  { id: 'bonus_time', xp: 10, available: () => true, build: (_s, d) => ({ title: 'Earn 30 bonus gaming minutes', progress: d.bonusGameMin, target: 30 }) },
+  { id: 'mood', xp: 8, available: () => true, build: (_s, d) => ({ title: 'Check in your mood twice', progress: moodsOf(d).length, target: 2 }) },
   {
     id: 'habits',
-    xp: 25,
+    xp: 15,
     available: (s, date) => habitsFor(s, date).length > 0,
     build: (s, _d, date) => {
       const due = habitsFor(s, date);
@@ -100,7 +100,7 @@ const QUESTS: QuestDef[] = [
   },
   {
     id: 'progress_photo',
-    xp: 20,
+    xp: 10,
     available: (s, date) => {
       const last = s.progressPhotos[s.progressPhotos.length - 1];
       return !last || date.getTime() - last.at > 6 * 86_400_000;
@@ -113,27 +113,27 @@ const QUESTS: QuestDef[] = [
   },
 
   // ---- seasonal (seasons.ts) ----
-  { id: 'hw_potion', xp: 30, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Brew the potion: 4 glasses of water before 15:00', progress: before(d, 15), target: 4 }) },
+  { id: 'hw_potion', xp: 15, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Brew the potion: 4 glasses of water before 15:00', progress: before(d, 15), target: 4 }) },
   {
     id: 'hw_crypt',
-    xp: 30,
+    xp: 15,
     season: 'halloween',
     available: () => true,
     build: (_s, d) => ({ title: '🎃 Escape the crypt: train, or walk 8 000 steps', progress: trainedOn(d) || (d.steps ?? 0) >= 8000 ? 1 : 0, target: 1 }),
   },
   {
     id: 'hw_exorcise',
-    xp: 30,
+    xp: 15,
     season: 'halloween',
     available: (s) => s.tasks.some((t) => !t.done),
     build: (s, _d, date) => ({ title: '🎃 Exorcise 2 tasks from your list', progress: tasksDoneOn(s, date), target: 2 }),
   },
-  { id: 'hw_seance', xp: 25, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Hold a séance: check in your mood', progress: moodsOf(d).length, target: 1 }) },
-  { id: 'lucia_light', xp: 40, season: 'lucia', available: () => true, build: (_s, d) => ({ title: '🕯️ Bring the light: log something before 08:00', progress: loggedBefore8(d) ? 1 : 0, target: 1 }) },
-  { id: 'solstice_walk', xp: 40, season: 'solstice', available: hasSteps, build: (_s, d) => ({ title: '🌑 Darkest day: walk 5 000 steps anyway', progress: d.steps ?? 0, target: 5000 }) },
+  { id: 'hw_seance', xp: 12, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Hold a séance: check in your mood', progress: moodsOf(d).length, target: 1 }) },
+  { id: 'lucia_light', xp: 20, season: 'lucia', available: () => true, build: (_s, d) => ({ title: '🕯️ Bring the light: log something before 08:00', progress: loggedBefore8(d) ? 1 : 0, target: 1 }) },
+  { id: 'solstice_walk', xp: 20, season: 'solstice', available: hasSteps, build: (_s, d) => ({ title: '🌑 Darkest day: walk 5 000 steps anyway', progress: d.steps ?? 0, target: 5000 }) },
   {
     id: 'solstice_water',
-    xp: 40,
+    xp: 20,
     season: 'solstice',
     available: (s) => !hasSteps(s),
     build: (s, d) => ({ title: '🌑 Darkest day: hit your water goal anyway', progress: waterMl(d), target: s.settings.waterGoalMl }),
@@ -189,7 +189,34 @@ export const weekKey = (date: Date | number = new Date()) => dayKey(startOfWeek(
 /** Minutes of social apps per day before each extra minute heals the boss 1 HP. */
 export const DOOM_FREE_MIN = 120;
 
-/** Each boss's weakness: on days that meet it, the XP earned that day hits it twice. Nothing food-related. */
+/** Extra damage on days that hit the boss's weakness, as a share of that day's XP. */
+export const WEAKNESS_BONUS = 0.5;
+
+/** The boss has this many times your average week of XP, so an ordinary week needs its weakness (or a bomb) to win. */
+export const BOSS_PACE = 1.1;
+
+/** XP per action was halved on this day; days before it count half when sizing the boss. */
+const XP_HALVED_ON = '2026-10-14';
+
+/** Your average XP per day over the 4 weeks before `monday`, from your first day with XP. Null with under 3 days to go on. */
+export function xpPace(s: State, monday: Date): number | null {
+  const first = Object.keys(s.days)
+    .filter((k) => (s.days[k].xpEarned ?? 0) > 0)
+    .sort()[0];
+  if (!first) return null;
+  let total = 0;
+  let days = 0;
+  for (let i = 28; i >= 1; i--) {
+    const key = dayKey(addDays(monday, -i));
+    if (key < first) continue;
+    const xp = dayOf(s, key).xpEarned ?? 0;
+    total += key < XP_HALVED_ON ? xp / 2 : xp;
+    days++;
+  }
+  return days >= 3 ? total / days : null;
+}
+
+/** Each boss's weakness: on days that meet it, the XP earned that day hits it 50 % harder. Nothing food-related. */
 export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hit: (s: State, d: DayLog, key: string) => boolean }> = {
   procrastinator: { label: 'finishing tasks', hit: (s, _d, key) => s.tasks.some((t) => t.done && t.doneAt && dayKey(t.doneAt) === key) },
   couch_goblin: { label: 'moving: step goal or training', hit: (_s, d) => !!d.stepGoalHit || trainedOn(d) },
@@ -229,9 +256,12 @@ export function bossFor(s: State, date: Date | number = new Date()) {
     healed += Math.max(0, (d.screen?.doomMin ?? 0) - DOOM_FREE_MIN);
     const xp = d.xpEarned ?? 0;
     damage += xp;
-    if (xp > 0 && weakness.hit(s, d, day)) bonus += xp;
+    if (xp > 0 && weakness.hit(s, d, day)) bonus += Math.round(xp * WEAKNESS_BONUS);
   }
-  const maxHp = 500 + 50 * levelForXp(s.xp) + healed;
+  // Sized to beat your usual week; a brand-new player gets a starter boss instead.
+  const pace = xpPace(s, monday);
+  const startHp = pace == null ? 500 + 50 * levelForXp(s.xp) : Math.max(500, Math.round((pace * 7 * BOSS_PACE) / 50) * 50);
+  const maxHp = startHp + healed;
   const key = dayKey(monday);
   damage += bonus + (s.bossBombs?.[key] ?? 0);
   return {

@@ -20,7 +20,7 @@ import {
 } from '../src/lib/selectors';
 import { SECRET_ACHIEVEMENTS } from '../src/lib/xp';
 import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log';
-import { ACHIEVEMENTS, levelForXp, levelProgress } from '../src/lib/xp';
+import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '../src/lib/xp';
 import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/lib/league';
 import { coinsFor, rollChest } from '../src/lib/economy';
 import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
@@ -29,7 +29,7 @@ import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
 import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, waterMl, withPastHealth } from '../src/lib/selectors';
 import { searchFoods } from '../src/lib/food-db';
-import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS } from '../src/lib/quests';
+import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS, xpPace } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
 import { weekReport, gradeOf, dayScoreFor } from '../src/lib/report';
 import { RESPECT, respectFor } from '../src/lib/respect';
@@ -221,6 +221,36 @@ b.days[dayKey()] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, 
 assert.equal(bossFor(b).damage, 200);
 assert.equal(bossFor(b).hp, fresh.maxHp - 200);
 
+// boss HP follows your pace: 1.1 × your average week over the 4 weeks before its Monday, from your first day with XP
+{
+  const empty = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  const monday = new Date(2027, 0, 11); // a Monday, well after XP was halved
+  const before = (n: number) => dayKey(addDays(monday, -n));
+  const p = defaultState();
+  // under 3 days to go on: the starter boss
+  p.days[before(1)] = { ...empty, xpEarned: 200 };
+  p.days[before(2)] = { ...empty, xpEarned: 200 };
+  assert.equal(xpPace(p, monday), null);
+  assert.equal(bossFor(p, monday).maxHp, 500 + 50 * levelForXp(p.xp));
+  // 10 days, two of them without XP: 1600 / 10 = 160 a day → 160 × 7 × 1.1 = 1232 → 1250
+  for (let i = 1; i <= 10; i++) p.days[before(i)] = { ...empty, xpEarned: i === 4 || i === 5 ? 0 : 200 };
+  assert.equal(xpPace(p, monday), 160);
+  assert.equal(bossFor(p, monday).maxHp, 1250);
+  // the week itself doesn't move its own HP
+  p.days[dayKey(monday)] = { ...empty, xpEarned: 900 };
+  assert.equal(bossFor(p, monday).maxHp, 1250);
+  // a first day long ago: all 28 days count, empty ones too, and never below 500
+  p.days[before(40)] = { ...empty, xpEarned: 5000 };
+  assert.equal(xpPace(p, monday), 1600 / 28);
+  assert.equal(bossFor(p, monday).maxHp, 500);
+  // days before XP was halved (2026-10-14) count half
+  const h = defaultState();
+  const mon = new Date(2026, 9, 19);
+  for (let i = 1; i <= 7; i++) h.days[dayKey(addDays(mon, -i))] = { ...empty, xpEarned: i >= 6 ? 400 : 200 };
+  assert.equal(xpPace(h, mon), 200);
+  assert.equal(bossFor(h, mon).maxHp, 1550); // 200 × 7 × 1.1 = 1540 → 1550
+}
+
 // habits: every-day habit, check-offs counted as a total
 const hb = defaultState();
 hb.habits = [{ id: 'h1', name: 'Read', emoji: 'x', days: [], remindHour: null, createdAt: Date.now() - 10 * 86_400_000 }];
@@ -288,16 +318,23 @@ assert.equal(totals[0].game, 'Elden Ring');
 assert.equal(Math.round(totals[0].ms / 60_000), 60);
 assert.ok(totals.some((x) => x.game === 'Unnamed'));
 
-// gaming penalty (also used to re-grade edited sessions): first minute free, then 2 XP per started 5 min
+// gaming penalty (also used to re-grade edited sessions): first minute free, then 1 XP per started 5 min
 assert.equal(gamePenalty(0), 0);
 assert.equal(gamePenalty(-10 * 60_000), 0);
 assert.equal(gamePenalty(60_000), 0);
-assert.equal(gamePenalty(61_000), 2);
-assert.equal(gamePenalty(5 * 60_000), 2);
-assert.equal(gamePenalty(20 * 60_000), 8);
-assert.equal(gamePenalty(21 * 60_000), 10);
+assert.equal(gamePenalty(61_000), 1);
+assert.equal(gamePenalty(5 * 60_000), 1);
+assert.equal(gamePenalty(20 * 60_000), 4);
+assert.equal(gamePenalty(21 * 60_000), 5);
 // shortening a 2h session to 1h on a 60 min budget refunds everything it cost
-assert.equal(gamePenalty(0) - gamePenalty(60 * 60_000), -24);
+assert.equal(gamePenalty(0) - gamePenalty(60 * 60_000), -12);
+
+// timed training and Web Focus XP
+assert.equal(activityXp(60), 6);
+assert.equal(activityXp(300), 10);
+assert.equal(activityXp(3), 0);
+assert.equal(focusXp(25), 5);
+assert.equal(focusXp(90), 18);
 
 // sleep: the watch fills and updates last night, but never overwrites hours typed in by hand
 const night = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
@@ -400,9 +437,9 @@ const wFull = monthWrapped(ins, wnow.getFullYear(), wnow.getMonth() - (wnow.getD
 assert.ok(wFull.slides.length >= 2);
 assert.ok(['A', 'B', 'C', 'D', 'F'].includes(wFull.grade));
 
-// economy
-assert.equal(coinsFor(10), 5);
-assert.equal(coinsFor(3), 2);
+// economy: one coin per XP
+assert.equal(coinsFor(10), 10);
+assert.equal(coinsFor(3), 3);
 assert.equal(coinsFor(-10), 0);
 const kinds = new Set(Array.from({ length: 400 }, () => rollChest().kind));
 for (const k of ['coins', 'gaming', 'double_xp', 'boss_bomb', 'legendary']) assert.ok(kinds.has(k as never), k);
@@ -554,7 +591,7 @@ console.log('all logic tests passed');
   }
 }
 
-// boss weaknesses: XP earned on days that hit the weakness counts twice; every boss has its weakness and taunts
+// boss weaknesses: XP earned on days that hit the weakness counts 50 % extra; every boss has its weakness and taunts
 {
   const b = defaultState();
   const k = dayKey();
@@ -574,9 +611,9 @@ console.log('all logic tests passed');
   const early = { water: [{ id: 'e', ml: 250, at: atTime(new Date(), 0, 7, 30).getTime() }], food: [], sets: [], games: [], bonusGameMin: 0 };
   assert.ok(WEAKNESS.snooze.hit(b, early, k));
   assert.ok(!WEAKNESS.snooze.hit(b, { ...early, water: [{ id: 'l', ml: 250, at: atTime(new Date(), 0, 9).getTime() }] }, k));
-  // when this week's boss is weak to the day, the bonus equals the day's XP
+  // when this week's boss is weak to the day, the bonus is half the day's XP
   const now = bossFor(b);
-  assert.equal(now.bonus, WEAKNESS[now.id].hit(b, b.days[k], k) ? 100 : 0);
+  assert.equal(now.bonus, WEAKNESS[now.id].hit(b, b.days[k], k) ? 50 : 0);
 }
 
 // seasons: dates, one seasonal quest a day in season, Halloween boss skins, seasonal secrets, first snow per winter

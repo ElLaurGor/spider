@@ -96,7 +96,7 @@ export const workoutFor = (s: State, date: Date | number = new Date()): WorkoutD
 export const gamingBudgetMin = (s: State, key = dayKey()) => s.settings.gamingBudgetMin + dayOf(s, key).bonusGameMin;
 
 /** XP lost for gaming `overMs` past the budget: 2 per started 5 minutes, the first minute is free. */
-export const gamePenalty = (overMs: number) => (overMs > 60_000 ? Math.ceil(overMs / (5 * 60_000)) * 2 : 0);
+export const gamePenalty = (overMs: number) => (overMs > 60_000 ? Math.ceil(overMs / (5 * 60_000)) : 0);
 
 /** Gaming time used on a day, including a running session that started that day. */
 export function gamingUsedMs(s: State, key = dayKey(), now = Date.now()) {

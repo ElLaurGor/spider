@@ -77,7 +77,7 @@ import type {
 } from './types';
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, withCounty, type Weather } from './weather';
 import { ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, type Air, type Alert } from './outside';
-import { ACHIEVEMENTS, BONUS_MIN, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
+import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
 
 const STORAGE_KEY = 'spider:state:v1';
 
@@ -867,7 +867,7 @@ function useStoreValue() {
           }));
           next = startWorkout(next, msgs);
           msgs.push({ text: L(next, 'activityLogged', { activity: activityInfo(kind).label, minutes }), tone: 'good' });
-          return reward(next, msgs, Math.min(20, Math.round(minutes / 5)));
+          return reward(next, msgs, activityXp(minutes));
         });
       },
 
@@ -876,7 +876,7 @@ function useStoreValue() {
           const old = activitiesOf(dayOf(s)).find((a) => a.id === id);
           if (!old) return s;
           const next = patchDay(s, dayKey(), (d) => ({ ...d, activities: activitiesOf(d).map((a) => (a.id === id ? { ...a, ...patch } : a)) }));
-          const xpDiff = Math.min(20, Math.round((patch.minutes ?? old.minutes) / 5)) - Math.min(20, Math.round(old.minutes / 5));
+          const xpDiff = activityXp(patch.minutes ?? old.minutes) - activityXp(old.minutes);
           return xpDiff ? reward(next, msgs, xpDiff) : next;
         });
       },
@@ -886,7 +886,7 @@ function useStoreValue() {
           const old = activitiesOf(dayOf(s)).find((a) => a.id === id);
           if (!old) return s;
           const next = patchDay(s, dayKey(), (d) => ({ ...d, activities: activitiesOf(d).filter((a) => a.id !== id) }));
-          return reward(next, msgs, -Math.min(20, Math.round(old.minutes / 5)));
+          return reward(next, msgs, -activityXp(old.minutes));
         });
       },
 
@@ -1259,7 +1259,7 @@ function useStoreValue() {
           }
           const bonus = Math.floor(f.minutes / 5);
           msgs.push({ text: `🕸️ ${L(next, 'focusDone', { minutes: f.minutes })} +${bonus} min gaming`, tone: 'epic' });
-          return reward(next, msgs, Math.round(f.minutes / 5) * 2, bonus);
+          return reward(next, msgs, focusXp(f.minutes), bonus);
         });
         void cancelFocusDone();
       },

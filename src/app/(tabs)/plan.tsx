@@ -8,6 +8,7 @@ import { C } from '@/constants/theme';
 import { addDays, fmtTime, WEEKDAYS } from '@/lib/dates';
 import { eventsOn, freeSlots, workoutFor } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import { BONUS_MIN, XP } from '@/lib/xp';
 
 export default function Plan() {
   const { state, actions, quip, cal } = useStore();
@@ -149,7 +150,7 @@ export default function Plan() {
             <TaskRow key={t.id} title={t.title} done onToggle={() => actions.toggleTask(t.id)} onDelete={() => actions.deleteTask(t.id)} />
           ))}
         <T dim small>
-          Each finished task: +10 XP and +10 min gaming time.
+          Each finished task: +{XP.task} XP and +{BONUS_MIN.task} min gaming time.
         </T>
       </Card>
     </Screen>

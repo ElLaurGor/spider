@@ -6,6 +6,7 @@ import { ChestButton } from '@/components/hq-extras';
 import { Bar, Card, H, Icon, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { bossFor, questsFor } from '@/lib/quests';
+import { BONUS_MIN, XP } from '@/lib/xp';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 
@@ -53,7 +54,7 @@ export function QuestsCard() {
         );
       })}
       <T dim small>
-        All done = +30 XP, +15 min gaming and a loot chest. New quests every day.
+        All done = +{XP.questsAll} XP, +{BONUS_MIN.questsAll} min gaming and a loot chest. New quests every day.
       </T>
       <ChestButton />
 
@@ -69,12 +70,12 @@ export function QuestsCard() {
           </View>
         </Row>
         <T dim small>
-          {boss.defeated ? 'Defeated! A new boss shows up on Monday.' : `${taunt} Every XP you earn this week is damage.`}
+          {boss.defeated ? 'Defeated! A new boss shows up on Monday.' : `${taunt} Every XP you earn this week is damage. Its HP is sized to beat your usual week.`}
           {!boss.defeated && boss.healed > 0 ? ` 💀 Doomscrolling healed it +${boss.healed} HP.` : ''}
         </T>
         {!boss.defeated ? (
           <T small style={{ color: C.yellow }}>
-            🎯 Weakness: {boss.weakness}. Those days&apos; XP hits twice.
+            🎯 Weakness: {boss.weakness}. Those days&apos; XP hits 50% harder.
             {boss.bonus > 0 ? ` +${num(boss.bonus)} bonus damage so far.` : ''}
           </T>
         ) : null}

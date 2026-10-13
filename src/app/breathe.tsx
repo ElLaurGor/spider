@@ -7,6 +7,7 @@ import { C } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import { XP } from '@/lib/xp';
 
 // Box breathing: 4 s in, 4 s hold, 4 s out, 4 s hold.
 const PHASES = ['Breathe in', 'Hold', 'Breathe out', 'Hold'] as const;
@@ -131,7 +132,7 @@ export default function BreatheScreen() {
           />
         </Row>
         <T dim small>
-          Finish them all for +10 XP. Insights will tell you if it improves your sleep.
+          Finish them all for +{XP.windDown} XP. Insights will tell you if it improves your sleep.
         </T>
       </Card>
     </ScrollView>

@@ -1,8 +1,8 @@
 // Coins, the daily loot chest and the shop.
 import type { ChestPrize } from './types';
 
-/** Coins earned for a positive XP gain. */
-export const coinsFor = (xp: number) => (xp > 0 ? Math.ceil(xp / 2) : 0);
+/** Coins earned for a positive XP gain: one per XP (XP was halved, so coin income stayed where it was). */
+export const coinsFor = (xp: number) => (xp > 0 ? xp : 0);
 
 export function rollChest(r = Math.random()): ChestPrize {
   if (r < 0.3) {
