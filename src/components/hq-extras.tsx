@@ -5,7 +5,9 @@ import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native
 import { Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
+import { PITY_AFTER } from '@/lib/economy';
 import { standings, TIERS } from '@/lib/league';
+import { goldChest, GOLD_SCORE } from '@/lib/loot';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 
@@ -23,18 +25,28 @@ export function ChestButton() {
   }, [revealing, scale]);
 
   if (!today.chestReady) return null;
+  const gold = !today.chest && goldChest(state);
+  const pityLeft = PITY_AFTER - (state.chestsSinceLegendary ?? 0);
   return (
     <>
       {!today.chest ? (
-        <Btn
-          label="Open loot chest"
-          icon="redeem"
-          kind="blue"
-          onPress={() => {
-            actions.openChest();
-            setRevealing(true);
-          }}
-        />
+        <>
+          <Btn
+            label={gold ? '✨ Open GOLD chest' : 'Open loot chest'}
+            icon="redeem"
+            kind={gold ? 'primary' : 'blue'}
+            onPress={() => {
+              actions.openChest();
+              setRevealing(true);
+            }}
+          />
+          <T dim small>
+            {gold
+              ? 'A great day earns a gold chest: bigger coins, a bigger bomb, better odds of a legendary.'
+              : `No rush: hit the boss's weakness or a day score of ${GOLD_SCORE} today and this turns into a gold chest.`}
+            {pityLeft <= 5 ? ` A legendary is guaranteed within ${Math.max(1, pityLeft + 1)} chests.` : ''}
+          </T>
+        </>
       ) : (
         <T dim small>
           Today&apos;s chest: {today.chest.text}
@@ -43,7 +55,7 @@ export function ChestButton() {
       <Modal visible={revealing && !!today.chest} transparent animationType="fade" onRequestClose={() => setRevealing(false)}>
         <Pressable style={styles.backdrop} onPress={() => setRevealing(false)}>
           <Animated.View style={[styles.reveal, { transform: [{ scale }] }]}>
-            <Text style={{ fontSize: 80 }}>{today.chest?.kind === 'legendary' ? '🌟' : '🎁'}</Text>
+            <Text style={{ fontSize: 80 }}>{today.chest?.kind === 'legendary' ? '🌟' : today.chest?.gold ? '🏆' : '🎁'}</Text>
             <Text style={styles.prize}>{today.chest?.text}</Text>
             <T dim small>
               Tap to close

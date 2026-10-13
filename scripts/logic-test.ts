@@ -53,6 +53,14 @@ import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
+// cluster B
+import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
+import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
+import { bankRate, focusBonusMin, healShare, perkBlocker, perkPoints, workoutBonusMin } from '../src/lib/perks';
+import { restedAfter, restedGain, restedSplit, RESTED_CAP } from '../src/lib/rested';
+import { buyable, COSMETICS, legendaryDrop, shownTitle, titlesEarned, worn, withOwned, withWorn } from '../src/lib/cosmetics';
+import { goldChest } from '../src/lib/loot';
+import { xpForLevel } from '../src/lib/xp';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -1128,4 +1136,128 @@ console.log('all logic tests passed');
   assert.equal(bestiary(bs, monday).filter((r) => r.fights > 0).length, 3, 'three weeks, three bosses');
   assert.equal(lastKillDay(bs, first.id, mk(0)), WEEKDAYS_LONG[new Date(`${mk(-10)}T12:00`).getDay()]);
   assert.equal(lastKillDay(bs, first.id, mk(-14)), null);
+}
+
+// ---- cluster B ----
+{
+  const emptyB = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+
+  // loot chests: the original table is unchanged, gold chests skip the gaming minutes, pity forces a legendary
+  assert.deepEqual(rollChestB(0.1, {}, 0), { kind: 'coins', amount: 50, text: '🪙 50 coins' });
+  assert.equal(rollChestB(0.4).kind, 'gaming');
+  assert.equal(rollChestB(0.6).kind, 'double_xp');
+  assert.equal(rollChestB(0.8).kind, 'boss_bomb');
+  assert.equal(rollChestB(0.93).kind, 'legendary');
+  assert.equal(rollChestB(0, { pity: true }).kind, 'legendary');
+  assert.equal(rollChestB(0.89).kind, 'boss_bomb');
+  assert.equal(rollChestB(0.89, { luck: 0.04 }).kind, 'legendary'); // Treasure Sense: 12 %
+  assert.equal(rollChestB(0.86, { gold: true }).kind, 'legendary'); // gold: 15 %
+  const goldCoins = rollChestB(0.1, { gold: true }, 0.999);
+  assert.equal(goldCoins.kind, 'coins');
+  assert.equal(goldCoins.amount, 250);
+  assert.ok(goldCoins.gold);
+  for (let i = 0; i < 100; i++) assert.notEqual(rollChestB(i / 100, { gold: true }).kind, 'gaming');
+  assert.equal(PITY_AFTER, 15);
+
+  // gaming bank: only unused bonus minutes, base budget spent first, capped
+  assert.deepEqual(bankFor(60, 180, 100), { minutes: 60, coins: 90 });
+  assert.deepEqual(bankFor(60, 180, 160), { minutes: 20, coins: 60 });
+  assert.deepEqual(bankFor(60, 180, 200), { minutes: 0, coins: 0 });
+  assert.deepEqual(bankFor(10, 130, 0, 4, 120), { minutes: 10, coins: 40 });
+
+  // shop prices: Bomb Maker only touches the bomb
+  assert.equal(shopPrice('bomb'), 600);
+  assert.equal(shopPrice('bomb', ['bomb_maker']), 450);
+  assert.equal(shopPrice('gaming30', ['bomb_maker']), 400);
+
+  // contract difficulty: target and payout move; day-counted goals must fit in the days left
+  const mon = new Date(2026, 9, 12, 12);
+  const wed = new Date(2026, 9, 14, 12);
+  assert.equal(daysLeftInWeek(mon), 7);
+  assert.equal(daysLeftInWeek(wed), 5);
+  assert.equal(daysLeftInWeek(new Date(2026, 9, 18, 12)), 1);
+  assert.equal(targetFor('train', 'easy'), 2);
+  assert.equal(targetFor('train', 'hard'), 5);
+  assert.equal(targetFor('tasks', 'easy'), 7);
+  assert.ok(difficultyOk('water', 'hard', mon));
+  assert.ok(!difficultyOk('water', 'hard', wed));
+  assert.ok(difficultyOk('water', 'normal', wed));
+  assert.ok(difficultyOk('tasks', 'hard', wed)); // a count, not days
+  assert.equal(payoutOf({ stake: 100 }), 200);
+  assert.equal(payoutOf({ stake: 100, difficulty: 'easy' }), 150);
+  assert.equal(payoutOf({ stake: 100, difficulty: 'hard' }), 300);
+  assert.equal(payoutOf({ stake: 100, difficulty: 'normal' }, 0.25), 250); // Coin Spinner
+
+  // rested pool: empty days 30, low-battery days 15, nothing before your first XP, capped
+  const r = defaultState();
+  const ago = (n: number) => dayKey(addDays(new Date(), -n));
+  r.days[ago(9)] = { ...emptyB(), xpEarned: 0 }; // before the first XP: doesn't count
+  r.days[ago(5)] = { ...emptyB(), xpEarned: 120 };
+  r.days[ago(2)] = { ...emptyB(), xpEarned: 50, energy: 2 };
+  r.days[ago(1)] = { ...emptyB(), xpEarned: 100 };
+  assert.equal(restedGain(r, ago(3), ago(1)), 30 + 15); // day 3 empty, day 2 low battery, day 1 fine
+  assert.equal(restedGain(r, ago(10), ago(6)), 0);
+  assert.equal(restedGain(defaultState(), ago(3), ago(1)), 0); // a brand-new player
+  assert.equal(restedAfter(50, 45), RESTED_CAP);
+  assert.deepEqual(restedSplit(60, 10), { extra: 5, left: 55 });
+  assert.deepEqual(restedSplit(3, 10), { extra: 3, left: 0 });
+  assert.deepEqual(restedSplit(10, 1), { extra: 1, left: 9 });
+  assert.deepEqual(restedSplit(10, -5), { extra: 0, left: 10 });
+  assert.deepEqual(restedSplit(0, 10), { extra: 0, left: 0 });
+
+  // abilities: a point per level above 1, tiers in order, effects
+  const pk = defaultState();
+  pk.xp = xpForLevel(4); // level 4: 3 points
+  assert.equal(perkPoints(pk), 3);
+  assert.equal(perkBlocker(pk, 'hydro_glands'), 'Needs Strong Silk first');
+  assert.equal(perkBlocker(pk, 'strong_silk'), null);
+  pk.perks = ['strong_silk'];
+  assert.equal(perkPoints(pk), 2);
+  assert.equal(perkBlocker(pk, 'hydro_glands'), null);
+  assert.equal(perkBlocker(pk, 'strong_silk'), 'Unlocked');
+  pk.perks = ['strong_silk', 'hydro_glands'];
+  assert.equal(perkBlocker(pk, 'second_wind'), 'Needs 3 points');
+  assert.equal(workoutBonusMin(pk), 40);
+  assert.equal(workoutBonusMin(defaultState()), 30);
+  assert.equal(focusBonusMin(defaultState(), 50), 10);
+  assert.equal(focusBonusMin({ ...defaultState(), perks: ['focus_silk'] }, 50), 15);
+  assert.equal(healShare({ perks: ['thick_silk'] }), 0.5);
+  assert.deepEqual(bankRate({ ...defaultState(), perks: ['time_lord'] }), { rate: 4, cap: 120 });
+  pk.xp = 0; // a penalty after spending: never negative
+  assert.equal(perkPoints(pk), 0);
+  // Thick Silk halves doomscroll healing on the boss
+  const heal = defaultState();
+  heal.days[dayKey()] = { ...emptyB(), screen: { totalMin: 300, doomMin: 160, gamesMin: 0, top: [] } };
+  assert.equal(bossFor(heal).healed, 40);
+  assert.equal(bossFor({ ...heal, perks: ['thick_silk'] }).healed, 20);
+
+  // wardrobe: shop always, seasonal only in season, legendary never for sale
+  const cos = (id: string) => COSMETICS.find((c) => c.id === id)!;
+  assert.ok(buyable(cos('top_hat')));
+  assert.ok(buyable(cos('pumpkin'), new Date(2026, 9, 31, 12)));
+  assert.ok(!buyable(cos('pumpkin'), new Date(2026, 9, 11, 12)));
+  assert.ok(!buyable(cos('aura_flame')));
+  const w = defaultState();
+  const firstLegendary = COSMETICS.find((c) => c.source === 'legendary')!;
+  assert.equal(legendaryDrop(w, 0)?.id, firstLegendary.id);
+  let all = w;
+  for (const c of COSMETICS.filter((x) => x.source === 'legendary')) all = withOwned(all, c.id);
+  assert.equal(legendaryDrop(all, 0), null);
+  assert.deepEqual(worn(withWorn(w, 'hat', 'crown')), {}); // not owned: not worn
+  assert.equal(worn(withWorn(withOwned(w, 'crown'), 'hat', 'crown')).hat?.emoji, '👑');
+  assert.equal(worn(withWorn(withWorn(withOwned(w, 'crown'), 'hat', 'crown'), 'hat', null)).hat, undefined);
+  const tl = defaultState();
+  tl.xp = xpForLevel(3);
+  assert.equal(titlesEarned(tl).length, 3);
+  tl.cosmetics = { owned: [], worn: {}, title: titlesEarned(tl)[0] };
+  assert.equal(shownTitle(tl), titlesEarned(tl)[0]);
+  tl.cosmetics = { owned: [], worn: {}, title: 'Not earned' };
+  assert.equal(shownTitle(tl), titlesEarned(tl)[2]);
+
+  // gold chest: a great day (score 85+); an empty day isn't one
+  const g = defaultState();
+  assert.ok(!goldChest(g));
+  g.settings.proteinGoal = 0;
+  g.days[dayKey()] = { ...emptyB(), water: [{ id: 'w', ml: g.settings.waterGoalMl, at: Date.now() }], sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: Date.now() }] };
+  assert.ok(goldChest(g));
 }

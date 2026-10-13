@@ -2,8 +2,9 @@ import { useState } from 'react';
 
 import { Bar, Btn, Card, Chip, H, Row, T } from '@/components/ui';
 import { C } from '@/constants/theme';
-import { canSign, CONTRACT_GOALS, contractProgress, goalOf, STAKES } from '@/lib/contracts';
+import { canSign, CONTRACT_GOALS, contractProgress, DIFFICULTIES, difficultyOk, goalOf, payoutOf, STAKES, targetFor, type Difficulty } from '@/lib/contracts';
 import { weekKeyOf } from '@/lib/league';
+import { contractBonus } from '@/lib/perks';
 import { useStore } from '@/lib/store';
 import type { ContractGoal } from '@/lib/types';
 
@@ -13,24 +14,27 @@ export function ContractCard() {
   const goals = CONTRACT_GOALS.filter((g) => g.available(state));
   const [goal, setGoal] = useState<ContractGoal>(goals[0]?.id ?? 'train');
   const [stake, setStake] = useState(STAKES[0]);
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const c = state.contract?.week === weekKeyOf() ? state.contract : null;
+  const bonus = contractBonus(state);
 
   if (c) {
     const def = goalOf(c.goal);
     const progress = contractProgress(state, c);
+    const level = DIFFICULTIES[c.difficulty ?? 'normal'].label;
     return (
       <Card accent={c.status === 'won' ? C.green : C.yellow}>
-        <H right={<T dim small mono>{c.stake} 🪙</T>}>📜 Weekly contract</H>
+        <H right={<T dim small mono>{c.stake} 🪙 · {level}</T>}>📜 Weekly contract</H>
         <T>{def.title(c.target)}</T>
         {c.status === 'won' ? (
           <T small style={{ color: C.green }}>
-            Fulfilled. +{c.stake * 2} 🪙 paid out.
+            Fulfilled. +{payoutOf(c, bonus)} 🪙 paid out.
           </T>
         ) : (
           <>
             <Bar pct={progress / c.target} color={C.yellow} />
             <T dim small mono>
-              {Math.min(progress, c.target)}/{c.target} · pays {c.stake * 2} 🪙 · ends Sunday
+              {Math.min(progress, c.target)}/{c.target} · pays {payoutOf(c, bonus)} 🪙 · ends Sunday
             </T>
           </>
         )}
@@ -40,6 +44,9 @@ export function ContractCard() {
 
   if (!canSign()) return null;
   const def = goalOf(goal);
+  const level = difficultyOk(goal, difficulty) ? difficulty : 'normal';
+  const target = targetFor(goal, level);
+  const payout = payoutOf({ stake, difficulty: level }, bonus);
   return (
     <Card accent={C.yellow}>
       <H right={<T dim small mono>{state.coins} 🪙</T>}>📜 Weekly contract</H>
@@ -56,10 +63,21 @@ export function ContractCard() {
           <Chip key={x} label={`${x} 🪙`} active={stake === x} color={C.yellow} onPress={() => setStake(x)} />
         ))}
       </Row>
+      <Row gap={6} style={{ flexWrap: 'wrap' }}>
+        {(Object.keys(DIFFICULTIES) as Difficulty[])
+          .filter((d) => difficultyOk(goal, d))
+          .map((d) => (
+            <Chip key={d} label={`${DIFFICULTIES[d].label} ×${DIFFICULTIES[d].mult}`} active={level === d} color={C.yellow} onPress={() => setDifficulty(d)} />
+          ))}
+      </Row>
+      <T dim small>
+        {DIFFICULTIES[level].label}: {def.title(target).toLowerCase()}, pays {payout} 🪙 if you make it.
+        {!difficultyOk(goal, 'hard') ? ' Hard is only open while there are enough days left this week.' : ''}
+      </T>
       <Btn
-        label={state.coins >= stake ? `Sign: ${def.title(def.target)} for ${stake} 🪙` : `Need ${stake - state.coins} more 🪙`}
+        label={state.coins >= stake ? `Sign: ${def.title(target)} for ${stake} 🪙` : `Need ${stake - state.coins} more 🪙`}
         icon="edit"
-        onPress={() => actions.signContract(goal, stake)}
+        onPress={() => actions.signContract(goal, stake, level)}
         disabled={state.coins < stake}
       />
     </Card>

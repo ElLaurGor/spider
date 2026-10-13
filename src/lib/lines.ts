@@ -950,6 +950,30 @@ export const LINES = {
     mild: ['Welcome back. Everything counts again, gently.'],
     savage: ['Back in action. The boss missed you. I did not. (I did.)'],
   },
+  // ---- cluster B: economy ----
+  // Rested bonus after missed or low-battery days: kind either way, a break might have been a sick day.
+  restedReady: {
+    mild: ['Welcome back, {name}. You have {xp} rested XP waiting: everything you earn pays 50 % extra until it runs out.'],
+    savage: [
+      'You took a break. Even I recharge. {xp} rested XP saved for you: +50 % on what you earn until it runs out.',
+      'Rested and back. I kept {xp} bonus XP warm for you. Earn things and it pays out at +50 %.',
+    ],
+  },
+  gamingBanked: {
+    mild: ['Banked {minutes} unused bonus gaming minutes: +{coins} 🪙.'],
+    savage: [
+      '{minutes} bonus gaming minutes left unplayed. Self-control, who knew. +{coins} 🪙 banked.',
+      'You had {minutes} gaming minutes and walked away. +{coins} 🪙. I am almost proud.',
+    ],
+  },
+  perkTaken: {
+    mild: ['New ability unlocked: {title}.'],
+    savage: ["{title} unlocked. Use it responsibly. You won't, but still.", 'Ability acquired: {title}. Your spider grows stronger. You, debatable.'],
+  },
+  cosmeticBought: {
+    mild: ['Your spider is now wearing: {title}.'],
+    savage: ['{title} acquired. Your spider now dresses better than you.', 'Your spider wears {title} now. Fashion is a weapon.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

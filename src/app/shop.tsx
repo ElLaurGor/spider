@@ -1,9 +1,12 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, Card, Chip, Field, H, Icon, Row, Stepper, T, useNow } from '@/components/ui';
+import { WardrobeCard } from '@/components/wardrobe-card';
 import { C, MONO } from '@/constants/theme';
-import { REWARD_IDEAS, SHOP_ITEMS } from '@/lib/economy';
+import { REWARD_IDEAS, shopPrice, SHOP_ITEMS } from '@/lib/economy';
+import { bankRate, perkPoints } from '@/lib/perks';
 import { useStore } from '@/lib/store';
 
 const EMOJIS = ['🍕', '🛋️', '🎮', '🧋', '🍿', '🥡', '😴', '🛍️', '🧹', '🎬', '🍰', '🎟️'];
@@ -16,6 +19,8 @@ export default function ShopScreen() {
   const [cost, setCost] = useState(500);
   const now = useNow(30_000);
   const doubleLeft = state.doubleXpUntil && state.doubleXpUntil > now ? Math.ceil((state.doubleXpUntil - now) / 60_000) : 0;
+  const bank = bankRate(state);
+  const points = perkPoints(state);
 
   const confirmBuy = (label: string, price: number, buy: () => void) =>
     Alert.alert(`Buy ${label}?`, `${price} 🪙 · you have ${state.coins} 🪙`, [
@@ -34,22 +39,34 @@ export default function ShopScreen() {
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
       <Card accent={C.yellow} style={{ alignItems: 'center' }}>
         <Text style={styles.coins}>🪙 {state.coins.toLocaleString('sv-SE')}</Text>
-        <T dim small>
-          Every XP you earn gives ½ coin. Finishing all daily quests opens a loot chest.
+        <T dim small style={{ textAlign: 'center' }}>
+          Every XP you earn gives 1 coin. Finishing all daily quests opens a loot chest. Bonus gaming minutes you don&apos;t use are banked
+          at midnight: {bank.rate} 🪙 each, up to {bank.cap} a day.
         </T>
         {doubleLeft ? <T style={{ color: C.yellow }}>⚡ Double XP active · {doubleLeft} min left</T> : null}
       </Card>
 
       <Card>
         <H>Power-ups</H>
-        {SHOP_ITEMS.map((i) => (
-          <Row key={i.id}>
-            <Text style={{ fontSize: 22 }}>{i.emoji}</Text>
-            <T style={{ flex: 1 }}>{i.title}</T>
-            <Btn label={`${i.cost} 🪙`} small kind={state.coins >= i.cost ? 'primary' : 'ghost'} onPress={() => confirmBuy(i.title, i.cost, () => actions.buyItem(i.id))} />
-          </Row>
-        ))}
+        {SHOP_ITEMS.map((i) => {
+          const cost = shopPrice(i.id, state.perks);
+          return (
+            <Row key={i.id}>
+              <Text style={{ fontSize: 22 }}>{i.emoji}</Text>
+              <T style={{ flex: 1 }}>{i.title}</T>
+              <Btn label={`${cost} 🪙`} small kind={state.coins >= cost ? 'primary' : 'ghost'} onPress={() => confirmBuy(i.title, cost, () => actions.buyItem(i.id))} />
+            </Row>
+          );
+        })}
       </Card>
+
+      <Btn
+        label={points ? `✨ Abilities · ${points} point${points > 1 ? 's' : ''} to spend` : '✨ Abilities'}
+        kind={points ? 'primary' : 'ghost'}
+        onPress={() => router.push('/perks')}
+      />
+
+      <WardrobeCard />
 
       <Card>
         <H

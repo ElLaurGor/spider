@@ -19,6 +19,7 @@ import { pausedOn } from './pause';
 import { seasonOn, type SeasonId } from './seasons';
 import type { DayLog, State } from './types';
 import { WEAK_SPOT_QUESTS, weakSpot } from './weak-spot';
+import { healShare } from './perks';
 import { levelForXp } from './xp';
 
 export type Quest = {
@@ -344,6 +345,7 @@ export function bossFor(s: State, date: Date | number = new Date()) {
   // Sized to beat your usual week; a brand-new player gets a starter boss instead. Paused days shrink it.
   let healed = 0;
   for (const day of days) if (!pausedOn(s, day)) healed += Math.max(0, (dayOf(s, day).screen?.doomMin ?? 0) - DOOM_FREE_MIN);
+  healed = Math.round(healed * healShare(s)); // the Thick Silk ability halves it (perks.ts)
   const pace = xpPace(s, monday);
   const full = pace == null ? 500 + 50 * levelForXp(s.xp) : Math.max(500, Math.round((pace * 7 * BOSS_PACE) / 50) * 50);
   const sized = Math.round((full * (final ? FINAL_HP : 1) * Math.max(1, 7 - paused)) / 7 / 50) * 50;

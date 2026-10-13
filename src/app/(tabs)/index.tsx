@@ -7,6 +7,7 @@ import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { PauseBanner } from '@/components/pause-card';
+import { ProgressChips } from '@/components/progress-chips';
 import { QuestsCard } from '@/components/quests-card';
 import { WildCard } from '@/components/hq-wild';
 import { SleepCheckIn } from '@/components/sleep-checkin';
@@ -18,6 +19,7 @@ import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { ACRONYM, type LineKey } from '@/lib/lines';
 import { cycleInfo, sleepInfo } from '@/lib/body';
+import { shownTitle } from '@/lib/cosmetics';
 import { nextStage, stageFor } from '@/lib/evolution';
 import { insightOfTheDay } from '@/lib/insights';
 import { moodInfo } from '@/lib/mood';
@@ -142,7 +144,7 @@ export default function HQ() {
           <View style={{ flex: 1 }}>
             <Text style={styles.lvl}>LVL {lvl.level}</Text>
             <T dim small>
-              {lvl.title}
+              {shownTitle(state)}
             </T>
             <T small style={{ color: C.cyan }}>
               🧬 {stage.name}
@@ -177,6 +179,7 @@ export default function HQ() {
             : 'Respect: still making up its mind. Give it a few days.'}
         </T>
       </Card>
+      <ProgressChips />
 
       <Row gap={8}>
         <Btn label="Focus" icon="center_focus_strong" kind="ghost" small onPress={() => router.push('/focus')} style={{ flex: 1 }} />
