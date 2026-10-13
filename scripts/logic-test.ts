@@ -39,6 +39,7 @@ import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/w
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
 import { clockLabel, nightClock, nightOf, rhythmOf, withNights } from '../src/lib/sleep';
 import { readinessFor } from '../src/lib/readiness';
+import { heartIn, workoutWindows } from '../src/lib/workout-heart';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -839,4 +840,36 @@ console.log('all logic tests passed');
   const y = readinessFor(rd, noToday, tue)!;
   assert.ok(y.reasons.some((x) => x.includes('Resting heart rate 63')));
   assert.equal(y.tier, 'steady');
+}
+
+// heart in training: sets grouped into sessions, activities counted back from when they were logged, zones by max HR
+{
+  const t0 = new Date(2027, 0, 12, 17).getTime();
+  const m = (n: number) => t0 + n * 60_000;
+  const set = (id: string, at: number) => ({ id, exercise: 'Squat', weight: 60, reps: 5, at });
+  const day = {
+    water: [],
+    food: [],
+    sets: [set('a', m(0)), set('b', m(10)), set('c', m(25)), set('late', m(120))],
+    games: [],
+    bonusGameMin: 0,
+    activities: [{ id: 'k', kind: 'cardio' as const, minutes: 20, at: m(45) }], // 17:25–17:45: overlaps the sets
+  };
+  const ws = workoutWindows(day);
+  assert.equal(ws.length, 2);
+  assert.deepEqual([ws[0].start, ws[0].end, ws[0].label], [m(-5), m(45), 'Gym']);
+  assert.deepEqual([ws[1].start, ws[1].end], [m(115), m(125)]);
+  assert.equal(workoutWindows({ ...day, sets: [] })[0].label, 'Kondition');
+  // one sample a minute: 10 min at 100 bpm (Z1 at max 190 → 52 %), 10 min at 160 (84 %, Z4), a 21-min gap, 90 (no zone)
+  const samples = [
+    ...Array.from({ length: 10 }, (_, i) => ({ at: m(i), bpm: 100 })),
+    ...Array.from({ length: 10 }, (_, i) => ({ at: m(10 + i), bpm: 160 })),
+    { at: m(40), bpm: 90 },
+    { at: m(60), bpm: 150 }, // outside the window
+  ];
+  const h = heartIn(samples, ws[0], 190)!;
+  assert.equal(h.max, 160);
+  assert.equal(h.avg, Math.round((10 * 100 + 10 * 160 + 90) / 21));
+  assert.deepEqual(h.zoneMin, [10, 0, 0, 11, 0]); // the gap after the last 160 counts 2 min, not 21
+  assert.equal(heartIn(samples, ws[1], 190), null); // no data in the later window
 }
