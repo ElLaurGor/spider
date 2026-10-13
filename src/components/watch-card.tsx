@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -71,13 +72,21 @@ export function WatchCard() {
       <Bar pct={steps / goal} color={C.green} height={10} />
 
       <Row gap={10}>
-        <Metric icon="favorite" color={C.red} label="Heart now" value={d?.heartLatest ? `${d.heartLatest.bpm}` : '–'} sub={d?.heartLatest ? fmtTime(d.heartLatest.at) : 'no data'} />
+        <Metric
+          icon="favorite"
+          color={C.red}
+          label="Heart now"
+          value={d?.heartLatest ? `${d.heartLatest.bpm}` : '–'}
+          sub={d?.heartLatest ? fmtTime(d.heartLatest.at) : 'no data'}
+          onPress={openHeart}
+        />
         <Metric
           icon="monitor_heart"
           color={C.red}
           label="Today"
           value={d?.heartAvg ? `${d.heartAvg}` : '–'}
           sub={d?.heartMin ? `${d.heartMin}–${d.heartMax} bpm` : d?.restingHr ? `rest ${d.restingHr}` : 'avg bpm'}
+          onPress={openHeart}
         />
         <Metric icon="bedtime" color={C.purple} label="Sleep" value={sleepText || '–'} sub="last night" />
       </Row>
@@ -108,16 +117,32 @@ export function WatchCard() {
   );
 }
 
-function Metric({ icon, color, label, value, sub }: { icon: 'favorite' | 'monitor_heart' | 'bedtime'; color: string; label: string; value: string; sub: string }) {
+const openHeart = () => router.push('/heart');
+
+function Metric({
+  icon,
+  color,
+  label,
+  value,
+  sub,
+  onPress,
+}: {
+  icon: 'favorite' | 'monitor_heart' | 'bedtime';
+  color: string;
+  label: string;
+  value: string;
+  sub: string;
+  onPress?: () => void;
+}) {
   return (
-    <View style={styles.metric}>
+    <Pressable style={styles.metric} onPress={onPress} disabled={!onPress}>
       <Row gap={4}>
         <Icon name={icon} size={14} color={color} />
         <Text style={styles.metricLabel}>{label}</Text>
       </Row>
       <Text style={styles.metricVal}>{value}</Text>
       <Text style={styles.metricSub}>{sub}</Text>
-    </View>
+    </Pressable>
   );
 }
 

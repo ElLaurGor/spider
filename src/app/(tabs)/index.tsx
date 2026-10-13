@@ -266,7 +266,7 @@ export default function HQ() {
                 </T>
               )}
             </Tile>
-            <Tile icon="favorite" color={C.red} label="Heart · Sleep" onPress={() => router.navigate('/gym')}>
+            <Tile icon="favorite" color={C.red} label="Heart · Sleep" onPress={() => router.push('/heart')}>
               <Text style={styles.tileVal}>
                 {health.data?.heartLatest ? health.data.heartLatest.bpm : '–'}
                 <Text style={styles.tileUnit}> bpm</Text>

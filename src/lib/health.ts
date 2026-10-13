@@ -78,6 +78,40 @@ async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
   }
 }
 
+export type HeartSample = { at: number; bpm: number };
+
+/** Every heart rate sample of one day (oldest first) and that day's resting rate. Empty outside the installed app. */
+export async function readHeartDay(key: string, now = new Date()): Promise<{ samples: HeartSample[]; resting: number | null }> {
+  const lib = hc;
+  if (!lib || !(await ready(lib))) return { samples: [], resting: null };
+  const start = new Date(`${key}T00:00`);
+  const end = key === dayKey(now) ? now : addDays(start, 1);
+  if (end <= start) return { samples: [], resting: null };
+  const filter = range(start, end);
+
+  const samples: HeartSample[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const token = pageToken;
+    const r = await safe(() =>
+      lib.readRecords('HeartRate', { timeRangeFilter: filter, ascendingOrder: true, pageSize: 1000, ...(token ? { pageToken: token } : {}) }),
+    );
+    if (!r) break;
+    for (const rec of r.records) {
+      for (const x of rec.samples) {
+        const at = new Date(x.time).getTime();
+        if (at >= start.getTime() && at < end.getTime() && x.beatsPerMinute > 0) samples.push({ at, bpm: Math.round(x.beatsPerMinute) });
+      }
+    }
+    pageToken = r.pageToken || undefined;
+    if (!pageToken) break;
+  }
+  samples.sort((a, b) => a.at - b.at);
+
+  const resting = await safe(() => lib.aggregateRecord({ recordType: 'RestingHeartRate', timeRangeFilter: filter }));
+  return { samples, resting: resting && resting.BPM_AVG > 0 ? Math.round(resting.BPM_AVG) : null };
+}
+
 export async function readHealth(now = new Date()): Promise<HealthData | null> {
   const lib = hc;
   if (!lib || !(await ready(lib))) return null;
