@@ -22,7 +22,8 @@ import { SECRET_ACHIEVEMENTS } from '../src/lib/xp';
 import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log';
 import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '../src/lib/xp';
 import { HQ_SECTIONS, hqOrder, hqVisible, moveSection, toggleSection } from '../src/lib/hq-layout';
-import { IMMORTAL_DAYS, immortalTask, taskAgeDays } from '../src/lib/memory';
+import { fmtTime } from '../src/lib/dates';
+import { IMMORTAL_DAYS, immortalTask, taskAgeDays, yesterdayHighlight } from '../src/lib/memory';
 import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/lib/league';
 import { coinsFor, rollChest } from '../src/lib/economy';
 import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
@@ -60,7 +61,7 @@ for (let i = 0; i < 100; i++) {
   assert.ok(!t.includes('{'), t);
 }
 // every placeholder used in a pool is one we actually pass somewhere
-const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins', /* cluster E */ 'task', 'days']);
+const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins', /* cluster E */ 'task', 'days', 'water', 'score']);
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -773,4 +774,31 @@ console.log('all logic tests passed');
   assert.ok(hunter.test(it)); // 'Done ages ago' was open 10 days
   assert.ok(!hunter.test({ ...it, tasks: [it.tasks[0], it.tasks[1]] }));
   assert.equal(IMMORTAL_DAYS, 7); // the secret's test hard-codes 7 days
+
+  // yesterday callbacks (now: Wednesday 13 Jan 2027, so yesterday was a Tuesday = Pull day in the default plan)
+  const wed = new Date(2027, 0, 13, 9);
+  const tue = '2027-01-12';
+  const blank = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+  const yc = defaultState();
+  assert.equal(yesterdayHighlight(yc, wed), null); // nothing logged yesterday
+  yc.days[tue] = blank();
+  assert.deepEqual(yesterdayHighlight(yc, wed), { key: 'callbackSkip', vars: { workout: 'Pull' } });
+  // a heavier set than any earlier session is a record
+  yc.days['2027-01-05'] = { ...blank(), sets: [{ id: 'a', exercise: 'Barbell row', weight: 50, reps: 8, at: 0 }] };
+  yc.days[tue] = { ...blank(), sets: [{ id: 'b', exercise: 'barbell row ', weight: 55, reps: 6, at: 0 }] };
+  assert.deepEqual(yesterdayHighlight(yc, wed), { key: 'callbackPR', vars: { exercise: 'barbell row', weight: 55 } });
+  // gaming past bedtime (23:00) beats the plain training remark
+  yc.days[tue] = { ...blank(), sets: [{ id: 'b', exercise: 'Barbell row', weight: 45, reps: 6, at: 0 }] };
+  yc.days[tue].games = [{ start: new Date(2027, 0, 12, 22).getTime(), end: new Date(2027, 0, 13, 1, 12).getTime() }];
+  assert.deepEqual(yesterdayHighlight(yc, wed), { key: 'callbackLateGame', vars: { time: fmtTime(new Date(2027, 0, 13, 1, 12)) } });
+  // a low mood yesterday: only kind words
+  yc.days[tue].moods = [{ id: 'm', level: 2, emotions: [], at: 0 }];
+  assert.equal(yesterdayHighlight(yc, wed)?.key, 'callbackGentle');
+  // a rest day with very little water
+  const thu = new Date(2027, 0, 14, 8);
+  yc.days['2027-01-13'] = { ...blank(), water: [{ id: 'w', ml: 500, at: 0 }] };
+  assert.deepEqual(yesterdayHighlight(yc, thu), { key: 'callbackDry', vars: { water: '0.5' } });
+  for (const k of ['callbackGentle', 'callbackPR', 'callbackQuests', 'callbackLateGame', 'callbackSkip', 'callbackWin', 'callbackDry', 'callbackSlow'] as const) {
+    assert.ok(LINES[k].mild.length > 0 && LINES[k].savage.length > 0, k);
+  }
 }

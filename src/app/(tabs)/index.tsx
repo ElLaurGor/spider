@@ -18,7 +18,7 @@ import { ACRONYM, type LineKey } from '@/lib/lines';
 import { cycleInfo, sleepInfo } from '@/lib/body';
 import { nextStage, stageFor } from '@/lib/evolution';
 import { insightOfTheDay } from '@/lib/insights';
-import { immortalTask } from '@/lib/memory';
+import { immortalTask, yesterdayHighlight } from '@/lib/memory';
 import { moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
 import { respectFor } from '@/lib/respect';
@@ -58,7 +58,11 @@ function greetingKey(): LineKey {
 
 export default function HQ() {
   const { state, actions, quip, cal, health } = useStore();
-  const [bubble, setBubble] = useState(() => quip(greetingKey()));
+  const [bubble, setBubble] = useState(() => {
+    // Mornings, half the time: a remark about how yesterday actually went.
+    const callback = timeOfDay() === 'morning' && Math.random() < 0.5 ? yesterdayHighlight(state) : null;
+    return callback ? quip(callback.key, callback.vars) : quip(greetingKey());
+  });
   const now = useNow(30_000);
 
   const s = state.settings;

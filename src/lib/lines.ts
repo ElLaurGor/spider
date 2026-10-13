@@ -867,6 +867,48 @@ export const LINES = {
       'The {days}-day-old "{task}" is no more. Rest in pieces.',
     ],
   },
+  // Morning callbacks to yesterday (memory.ts yesterdayHighlight). The gentle one is kind in both pools.
+  callbackGentle: {
+    mild: ["Yesterday's done, {name}. Today's a fresh page. Go gently.", 'New day, {name}. No reviews of yesterday this morning. Just a quiet start.'],
+    savage: ["Yesterday's done, {name}. Today's a fresh page. Go gently.", "Morning, {name}. I'm skipping the roast today. Small steps count."],
+  },
+  callbackPR: {
+    mild: ['Yesterday: a new record on {exercise}, {weight} kg. Nicely done, {name}!'],
+    savage: [
+      'Yesterday: {exercise} at {weight} kg. A new record. Who are you and what have you done with {name}?',
+      '{weight} kg on {exercise} yesterday. A record. I had to double-check my sensors.',
+    ],
+  },
+  callbackQuests: {
+    mild: ['Every quest done yesterday. Great work, {name}!'],
+    savage: [
+      "Every quest done yesterday. I'm recalibrating my expectations. Upwards. Reluctantly.",
+      "All quests cleared yesterday. Suspicious. Do it again so I know it wasn't a glitch.",
+    ],
+  },
+  callbackLateGame: {
+    mild: ['You were gaming until {time} last night. Maybe an earlier stop tonight?'],
+    savage: ['Last night you gamed until {time}. I noted it. In permanent ink.', 'Gaming until {time}? Your sleep schedule filed a missing person report.'],
+  },
+  callbackSkip: {
+    mild: ['Yesterday was {workout} day and it slipped by. Today is a new chance.'],
+    savage: ['Yesterday was {workout} day. The gym waited. It is very patient. I am not.', "{workout} day came and went yesterday. The weights didn't notice. I did."],
+  },
+  callbackWin: {
+    mild: ['Yesterday went well: {water} L of water and everything on track. Nice, {name}!'],
+    savage: [
+      'Yesterday: {water} L of water and everything on track. Who are you and what have you done with {name}?',
+      'Yesterday was annoyingly good. {water} L of water. I had nothing to roast. I hated it.',
+    ],
+  },
+  callbackDry: {
+    mild: ['Only {water} L of water yesterday. A glass now gets today started right.'],
+    savage: ['Yesterday: {water} L of water. Houseplants have filed a complaint on your behalf.', '{water} L yesterday. Camels are concerned. Drink something.'],
+  },
+  callbackSlow: {
+    mild: ['Yesterday was a slow one. Today the bar is low. You can clear it.'],
+    savage: ['Yesterday scored {score}. Today has a very low bar to clear. Clear it.', 'Yesterday: {score} out of 100. Today, beat it. The bar is on the floor.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;
