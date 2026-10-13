@@ -7,6 +7,7 @@ import { ActivityCard } from '@/components/activity-card';
 import { ProgressPhotos } from '@/components/progress-photos';
 import { Big, Btn, Card, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { WatchCard } from '@/components/watch-card';
+import { HiddenEgg } from '@/components/swedish-year';
 import { C } from '@/constants/theme';
 import { fmtClock, WEEK_ORDER, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { changeOver, fmtChange, latest } from '@/lib/body-log';
@@ -78,6 +79,7 @@ export default function Gym() {
       <BodyCard />
 
       <PlanEditor />
+      <HiddenEgg id="gym" align="center" />
     </Screen>
   );
 }

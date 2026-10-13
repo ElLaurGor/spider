@@ -1,6 +1,7 @@
 import type { AndroidSymbol } from 'expo-symbols';
 
 import { seasonOn } from './seasons';
+import { allEggsSomeYear } from './traditions';
 import { coffeeOf, gamingUsedMs, moodDays, moodsOf, totalCoffees, trainedOn, waterMl } from './selectors';
 import type { State } from './types';
 
@@ -169,4 +170,6 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
     icon: 'candle',
     test: (s) => allDays(s).some(([k, d]) => !!d.questsAllDone && seasonOn(new Date(`${k}T12:00`))?.id === 'lucia'),
   },
+  // cluster F
+  { id: 's_egg_hunter', title: 'Egg Hunter', desc: 'Found all five Easter eggs in one year', hint: 'Something is hiding in every tab. Only at Easter.', icon: 'egg', test: allEggsSomeYear },
 ];

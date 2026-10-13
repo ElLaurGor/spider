@@ -22,6 +22,8 @@ export type NotifyPrefs = {
   air: boolean;
   smhi: boolean;
   vma: boolean;
+  // cluster F
+  statusLine: boolean; // a silent, ongoing summary in the notification shade
 };
 
 export type Settings = {
@@ -52,6 +54,8 @@ export type Settings = {
   notify: NotifyPrefs;
   respectMeetings: boolean;
   calendarIds: string[] | null; // null = every calendar on the phone
+  // cluster F
+  redDaysOff: boolean; // red days (swedish-days.ts) are rest days: no planned workout, no gym reminders
 };
 
 // `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.
@@ -120,7 +124,13 @@ export type DayLog = {
   waterGoalHit?: boolean;
   proteinGoalHit?: boolean;
   workoutCounted?: boolean;
+  // cluster F
+  night?: NightPhone; // phone use in bed the night before (usage stats), for the morning check-in
+  burned?: number; // old tasks burned on the Valborg bonfire
 };
+
+/** Phone use after bedtime, the night before a day. `lastAt` null = none worth mentioning. */
+export type NightPhone = { lateMin: number; lastAt: number | null; top: string | null };
 
 export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
 export type Contract = {
@@ -204,6 +214,9 @@ export type State = {
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
   contract?: Contract | null; // this or last week's weekly contract (lib/contracts.ts)
   seasonWins?: string[]; // "halloween-2026": a boss beaten while that season was on (seasons.ts)
+  // cluster F
+  eggsFound?: Record<string, Record<string, number>>; // Easter hunt: year -> egg id -> found at
+  backupFolderUri?: string | null; // folder picked for automatic weekly backups (a persisted SAF uri)
 };
 
 export type CalEvent = {

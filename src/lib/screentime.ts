@@ -33,6 +33,12 @@ export async function usageBetween(start: number, end: number): Promise<AppUsage
   return list.filter((a) => a.foregroundMs >= 60_000).sort((a, b) => b.foregroundMs - a.foregroundMs);
 }
 
+/** Which app was in the foreground when, between two times. Empty without usage access. */
+export async function spansBetween(start: number, end: number): Promise<ForegroundSpan[]> {
+  if (!native || !hasUsageAccess()) return [];
+  return native.getForegroundSpans(start, end);
+}
+
 /**
  * Strict Web Focus: the other app the user spent the most time in (30+ seconds)
  * during the focus window, or null if clean or if usage access isn't available.

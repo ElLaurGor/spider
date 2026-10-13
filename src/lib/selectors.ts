@@ -1,5 +1,6 @@
 import { addDays, atTime, dayKey, startOfDay, startOfWeek } from './dates';
 import { emptyDay } from './defaults';
+import { holidayOn } from './swedish-days';
 import type { CalEvent, DayLog, SetEntry, State, Weekday, WorkoutDay } from './types';
 
 export const dayOf = (s: State, key = dayKey()): DayLog => s.days[key] ?? emptyDay();
@@ -91,7 +92,10 @@ export const moodDays = (s: State) => Object.values(s.days).filter((d) => moodsO
 export const totalCoffees = (s: State) => Object.values(s.days).reduce((a, d) => a + coffeeOf(d).length, 0);
 
 export const workoutFor = (s: State, date: Date | number = new Date()): WorkoutDay | null =>
-  s.plan[new Date(date).getDay() as Weekday];
+  s.settings.redDaysOff && redDay(date) ? null : s.plan[new Date(date).getDay() as Weekday];
+
+/** An official red day (swedish-days.ts); de facto days off like midsommarafton don't count. */
+const redDay = (date: Date | number) => holidayOn(date)?.red ?? false;
 
 export const gamingBudgetMin = (s: State, key = dayKey()) => s.settings.gamingBudgetMin + dayOf(s, key).bonusGameMin;
 

@@ -848,6 +848,59 @@ export const LINES = {
     mild: ['Outstanding! Everything on track.'],
     savage: ['Verdict: suspiciously productive. Are you okay?', 'Verdict: elite. Who replaced you?'],
   },
+  // ---- cluster F: assistant & calendar ----
+  seasonEaster: {
+    mild: ['Happy Easter, {name}! 🐣 Five eggs are hidden around the app.', 'Easter hunt is on. Keep an eye out for eggs.'],
+    savage: [
+      "Five eggs are hidden in this app, {name}. You'll find them faster than your gym bag.",
+      'Easter hunt. The eggs are easier to find than your motivation.',
+      'Somewhere in this app there are eggs. Unlike your tasks, they want to be found.',
+    ],
+  },
+  seasonValborg: {
+    mild: ['Happy Valborg, {name}! 🔥 Time to burn some old tasks.', 'Bonfire night. Old tasks can go on the fire today.'],
+    savage: [
+      "Valborg, {name}. Tonight we burn the tasks you were never going to do anyway.",
+      'Bonfire night. Your to-do list has fuel for a week.',
+      'Spring is here. Your oldest tasks are not invited.',
+    ],
+  },
+  seasonMidsommar: {
+    mild: ['Glad midsommar, {name}! 🌼 The lightest days of the year.', 'Midsommar! Get outside while the sun refuses to set.'],
+    savage: [
+      'Midsommar, {name}. The sun stays up all night. So do you, but for worse reasons.',
+      "It's the lightest day of the year. Your excuse for staying inside just evaporated.",
+      'Glad midsommar. Dance around the pole, not around your step goal.',
+    ],
+  },
+  seasonNyar: {
+    mild: ['Gott nytt år, {name}! 🎆 This week the boss is the Old Year.', 'Nyår! Close out the old year with a win.'],
+    savage: [
+      'The Old Year is the boss this week, {name}. It has your habits. Take them back.',
+      "New year, same you. Let's at least make the boss fight count.",
+      'Nyår. Resolutions are free. Following them costs effort. Shocking, I know.',
+    ],
+  },
+  eggFound: {
+    mild: ['🥚 You found an egg! +{coins} coins. {left} left.', '🥚 Egg found: +{coins} coins. {left} still hidden.'],
+    savage: ['🥚 An egg! +{coins} coins. {left} left. Finally, a search you finish.', '🥚 Found one. +{coins} coins. {left} to go, detective.'],
+  },
+  eggAllFound: {
+    mild: ['🐣 All five eggs found! Happy Easter, {name}.'],
+    savage: ['🐣 All five eggs. Thorough. If only you searched your task list like this.'],
+  },
+  valborgBurn: {
+    mild: ['🔥 {n} old tasks on the bonfire. +{xp} XP. Fresh start!'],
+    savage: ['🔥 {n} old tasks burned. +{xp} XP. They had a good run. A very long, very idle run.', '🔥 Into the fire: {n} tasks. +{xp} XP. Nobody will miss them.'],
+  },
+  phoneInBed: {
+    mild: ['📱 Phone in bed until {time}, mostly {app} ({minutes} min). Maybe put it down a bit earlier tonight.'],
+    savage: [
+      '📱 Phone in bed until {time}. {minutes} minutes, mostly {app}. Your pillow is a charging pad now?',
+      '📱 {app} kept you up until {time}. {minutes} minutes of scrolling in the dark. Riveting.',
+      '📱 Lights out was a suggestion, apparently. {app} until {time}.',
+    ],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

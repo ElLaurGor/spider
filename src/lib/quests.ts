@@ -16,6 +16,7 @@ import {
   workoutFor,
 } from './selectors';
 import { seasonOn, type SeasonId } from './seasons';
+import { eggsFoundOn, eggsLeft, oldTasksDoneOn, staleTasks } from './traditions';
 import type { DayLog, State } from './types';
 import { levelForXp } from './xp';
 
@@ -138,6 +139,48 @@ const QUESTS: QuestDef[] = [
     available: (s) => !hasSteps(s),
     build: (s, d) => ({ title: '🌑 Darkest day: hit your water goal anyway', progress: waterMl(d), target: s.settings.waterGoalMl }),
   },
+  // cluster F: the Swedish year (seasons.ts, traditions.ts). Nothing food-themed.
+  {
+    id: 'easter_egg',
+    xp: 15,
+    season: 'easter',
+    available: (s, date) => eggsLeft(s, date) > 0,
+    build: (s, _d, date) => ({ title: '🐣 Find an egg hidden somewhere in the app', progress: eggsFoundOn(s, date), target: 1 }),
+  },
+  { id: 'easter_spring', xp: 15, season: 'easter', available: () => true, build: (_s, d) => ({ title: '🐣 Spring clean: 3 glasses of water before 12:00', progress: before(d, 12), target: 3 }) },
+  {
+    id: 'valborg_fire',
+    xp: 15,
+    season: 'valborg',
+    available: (s, date) => staleTasks(s, date.getTime()).length > 0,
+    build: (s, d, date) => {
+      const done = (d.burned ?? 0) + oldTasksDoneOn(s, date);
+      return { title: '🔥 Feed the bonfire: burn or finish old tasks', progress: done, target: Math.max(1, Math.min(3, done + staleTasks(s, date.getTime()).length)) };
+    },
+  },
+  {
+    id: 'valborg_walk',
+    xp: 15,
+    season: 'valborg',
+    available: () => true,
+    build: (_s, d) => ({ title: '🔥 Walk to the bonfire: train, or walk 6 000 steps', progress: trainedOn(d) || (d.steps ?? 0) >= 6000 ? 1 : 0, target: 1 }),
+  },
+  { id: 'midsommar_out', xp: 20, season: 'midsommar', available: hasSteps, build: (_s, d) => ({ title: '🌼 Lightest days: walk 8 000 steps outside', progress: d.steps ?? 0, target: 8000 }) },
+  {
+    id: 'midsommar_water',
+    xp: 20,
+    season: 'midsommar',
+    available: (s) => !hasSteps(s),
+    build: (s, d) => ({ title: '🌼 Midsommar sun: hit your water goal', progress: waterMl(d), target: s.settings.waterGoalMl }),
+  },
+  {
+    id: 'nyar_close',
+    xp: 20,
+    season: 'nyar',
+    available: (s) => s.tasks.some((t) => !t.done),
+    build: (s, _d, date) => ({ title: '🎆 Close the year: finish 3 tasks', progress: tasksDoneOn(s, date), target: 3 }),
+  },
+  { id: 'nyar_fresh', xp: 20, season: 'nyar', available: () => true, build: (_s, d) => ({ title: '🎆 Fresh start: 3 glasses of water before 12:00', progress: before(d, 12), target: 3 }) },
 ];
 
 const hash = (str: string) => {
@@ -245,7 +288,9 @@ export function bossFor(s: State, date: Date | number = new Date()) {
   const monday = startOfWeek(date);
   const weekIndex = Math.floor(monday.getTime() / (7 * 86_400_000));
   const base = BOSSES[weekIndex % BOSSES.length];
-  const boss = seasonOn(date)?.id === 'halloween' ? { ...base, ...HALLOWEEN[base.id] } : base;
+  const season = seasonOn(date)?.id;
+  // Halloween dresses every boss up; at nyår (cluster F) the boss is the Old Year itself.
+  const boss = season === 'halloween' ? { ...base, ...HALLOWEEN[base.id] } : season === 'nyar' ? { ...base, name: 'The Old Year', emoji: '🕰️' } : base;
   const weakness = WEAKNESS[base.id];
   let healed = 0;
   let damage = 0;

@@ -64,8 +64,19 @@ export default function SettingsScreen() {
     }
   };
 
+  const autoBackupOn = async () => {
+    setBusy(true);
+    try {
+      await actions.setAutoBackupFolder();
+    } catch (e) {
+      say(`Backup failed: ${(e as Error).message}`, 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const doRestore = () =>
-    Alert.alert('Restore a backup?', 'Everything on this phone gets replaced by the backup. Next, pick the "SPIDER-backup-…" folder.', [
+    Alert.alert('Restore a backup?', 'Everything on this phone gets replaced by the backup. Next, pick the "SPIDER-backup-…" or "SPIDER-auto-backup" folder.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Pick backup folder',
@@ -221,6 +232,7 @@ export default function SettingsScreen() {
         <SettingRow label="Rest timer">
           <Stepper value={s.restSeconds} step={15} min={0} max={600} format={(v) => (v ? `${v} s` : 'off')} onChange={(v) => set({ restSeconds: v })} />
         </SettingRow>
+        <Toggle label="Red days are rest days" hint="no planned workout or gym reminders on Swedish public holidays" value={s.redDaysOff} onChange={(v) => set({ redDaysOff: v })} />
       </Card>
 
       <Card>
@@ -239,6 +251,12 @@ export default function SettingsScreen() {
         <Toggle label="Wind-down reminder" hint="an hour before bedtime" value={s.notify.windDown} onChange={(v) => setNotify('windDown', v)} />
         <Toggle label="League reminder" hint="Sundays 17:00" value={s.notify.league} onChange={(v) => setNotify('league', v)} />
         <Toggle label="Period heads-up" hint="2 days before it's predicted" value={s.notify.cycle} onChange={(v) => setNotify('cycle', v)} />
+        <Toggle
+          label="Status line"
+          hint="a silent summary in the notification shade, with +1 glass and Focus buttons"
+          value={s.notify.statusLine}
+          onChange={(v) => setNotify('statusLine', v)}
+        />
         <Toggle label="Stay quiet during meetings" value={s.respectMeetings} onChange={(v) => set({ respectMeetings: v })} />
         <Btn label="Send me a test roast" icon="notifications" kind="ghost" onPress={testRoast} />
       </Card>
@@ -301,6 +319,16 @@ export default function SettingsScreen() {
           <Btn label="Back up now" icon="save" onPress={doBackup} disabled={busy} style={{ flex: 1 }} />
           <Btn label="Restore" kind="ghost" onPress={doRestore} disabled={busy} style={{ flex: 1 }} />
         </Row>
+        <Toggle
+          label="Weekly backup"
+          hint={
+            state.backupFolderUri
+              ? 'Every Sunday when you open the app, into "SPIDER-auto-backup" in the folder you picked. Keeps the last 4.'
+              : 'Pick a folder once and S.P.I.D.E.R. backs up there every Sunday.'
+          }
+          value={!!state.backupFolderUri}
+          onChange={(v) => (v ? void autoBackupOn() : actions.stopAutoBackup())}
+        />
       </Card>
 
       {cal.status === 'granted' && cal.calendars.length > 0 ? (

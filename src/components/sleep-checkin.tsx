@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { EntryEditor } from '@/components/entry-editor';
 import { Card, H, Icon, Row, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { SLEEP_RATINGS } from '@/lib/body';
-import { dayKey, fmtDuration, MIN, WEEKDAYS_LONG } from '@/lib/dates';
+import { dayKey, fmtDuration, fmtTime, MIN, WEEKDAYS_LONG } from '@/lib/dates';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { Rating } from '@/lib/types';
@@ -20,9 +20,15 @@ const ENERGY: { rating: Rating; emoji: string; label: string }[] = [
 
 /** Morning card on HQ: hours slept, how last night felt, and today's energy. Hidden once all are done or after 14:00. */
 export function SleepCheckIn() {
-  const { state, actions } = useStore();
+  const { state, actions, quip } = useStore();
   const [editing, setEditing] = useState(false);
   const today = dayOf(state);
+  // Phone in bed last night (cluster F, night.ts); picked once so it doesn't change on every render.
+  const night = today.night;
+  const nightText = useMemo(
+    () => (night?.lastAt && night.top ? quip('phoneInBed', { time: fmtTime(night.lastAt), app: night.top, minutes: night.lateMin }) : null),
+    [quip, night],
+  );
   if ((today.sleepRating != null && today.energy != null && today.sleepMin != null) || new Date().getHours() >= 14) return null;
   const slept = today.sleepMin;
 
@@ -48,6 +54,11 @@ export function SleepCheckIn() {
           {slept == null ? 'Log hours' : today.sleepManual ? 'Edit' : '⌚ Edit'}
         </T>
       </Pressable>
+      {nightText ? (
+        <T dim small>
+          {nightText}
+        </T>
+      ) : null}
       {today.energy == null ? (
         <>
           <H>Energy today?</H>

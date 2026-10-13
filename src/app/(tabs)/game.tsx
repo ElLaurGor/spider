@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { EntryEditor } from '@/components/entry-editor';
 import { ScreenTimeCard } from '@/components/screen-time-card';
 import { Bar, Big, Btn, Card, Chip, Field, H, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
+import { HiddenEgg } from '@/components/swedish-year';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtClock, fmtDuration, fmtTime, MIN, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { dayOf, gameTotals, gamingBudgetMin, gamingUsedMs, recentGames } from '@/lib/selectors';
@@ -135,6 +136,7 @@ export default function Game() {
         ) : null}
       </Card>
 
+      <HiddenEgg id="game" align="flex-start" />
       <ScreenTimeCard />
 
       {topGames.length > 0 ? (

@@ -247,6 +247,17 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
       strength: (phoneSleep.no - phoneSleep.yes) / 0.6,
     });
   }
+  // Phone in bed (cluster F, night.ts) vs the sleep that night: both sit on the morning after.
+  const bedPhone = compare(days, (d) => (d.log.night?.lateMin ?? 0) >= 30, (d) => (d.log.night ? (d.log.sleepMin ?? null) : null));
+  if (bedPhone && bedPhone.no - bedPhone.yes >= 20) {
+    add({
+      id: 'bed_phone_sleep',
+      emoji: '🛌',
+      text: `Nights with 30+ minutes of phone in bed, you sleep ${fmtDuration((bedPhone.no - bedPhone.yes) * 60_000)} less.`,
+      detail: `${fmtDuration(bedPhone.yes * 60_000)} vs ${fmtDuration(bedPhone.no * 60_000)} · ${bedPhone.n} nights`,
+      strength: (bedPhone.no - bedPhone.yes) / 40,
+    });
+  }
 
   // Custom trackers vs high-pollen days (allergy symptoms, headaches…).
   const allergens = s.settings.allergies.length ? s.settings.allergies : (['alder', 'birch', 'grass', 'mugwort', 'ragweed'] as const);

@@ -1,8 +1,12 @@
 // Backups go into a folder the user picks (Android's folder picker), as
 // "SPIDER-backup-<date>/data.json" plus a "photos" folder. Restoring = picking
 // that folder again.
+// Automatic weekly backups (cluster F) go into one "SPIDER-auto-backup" folder in a folder picked
+// once: "data-<date>.json" files (the newest few kept) and a shared "photos" folder that only
+// gets new photos. Restoring = picking that "SPIDER-auto-backup" folder; the newest file wins.
 import { Directory, File, Paths } from 'expo-file-system';
 
+import { AUTO_BACKUPS_KEPT } from './backup-due';
 import { hydrate } from './defaults';
 import type { State } from './types';
 
@@ -26,10 +30,12 @@ async function pickFolder() {
   }
 }
 
+const stampNow = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+
 export async function createBackup(state: State): Promise<{ folder: string; photos: number } | null> {
   const parent = await pickFolder();
   if (!parent) return null;
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const stamp = stampNow();
   const folder = parent.createDirectory(`SPIDER-backup-${stamp}`);
   const photoDir = folder.createDirectory('photos');
 
@@ -46,13 +52,59 @@ export async function createBackup(state: State): Promise<{ folder: string; phot
   return { folder: folder.name, photos: Object.keys(names).length };
 }
 
+const AUTO_DIR = 'SPIDER-auto-backup';
+const AUTO_FILE = /^data-.+\.json$/;
+
+/** Asks for the folder automatic backups go into. Android keeps the permission across restarts. */
+export async function pickAutoBackupFolder(): Promise<{ uri: string; name: string } | null> {
+  const dir = await pickFolder();
+  return dir ? { uri: dir.uri, name: dir.name } : null;
+}
+
+const childDir = (parent: Directory, name: string) =>
+  parent.list().find((e): e is Directory => e instanceof Directory && e.name === name) ?? parent.createDirectory(name);
+
+/** Writes this week's automatic backup into the saved folder. Throws if the folder or its permission is gone. */
+export async function autoBackup(state: State, folderUri: string): Promise<{ photos: number }> {
+  const parent = new Directory(folderUri);
+  if (!parent.exists) throw new Error('Backup folder is gone');
+  const dir = childDir(parent, AUTO_DIR);
+  const photoDir = childDir(dir, 'photos');
+  const have = new Set(photoDir.list().map((e) => e.name));
+
+  const names: Record<string, string> = {};
+  let added = 0;
+  for (const uri of photoUris(state)) {
+    const src = new File(uri);
+    if (!src.exists) continue;
+    if (!have.has(src.name)) {
+      photoDir.createFile(src.name, mimeFor(src.name)).write(await src.bytes());
+      have.add(src.name);
+      added++;
+    }
+    names[uri] = src.name;
+  }
+
+  const data: BackupFile = { app: 'spider', version: 1, createdAt: Date.now(), photos: names, state };
+  dir.createFile(`data-${stampNow()}.json`, 'application/json').write(JSON.stringify(data));
+
+  const files = dir
+    .list()
+    .filter((e): e is File => e instanceof File && AUTO_FILE.test(e.name))
+    .sort((a, b) => (a.name < b.name ? -1 : 1));
+  for (const old of files.slice(0, Math.max(0, files.length - AUTO_BACKUPS_KEPT))) old.delete();
+  return { photos: added };
+}
+
 /** Reads a backup folder and copies its photos back into the app. Doesn't apply the state. */
 export async function readBackup(): Promise<{ state: State; createdAt: number; photos: number } | null> {
   const dir = await pickFolder();
   if (!dir) return null;
   const entries = dir.list();
-  const dataFile = entries.find((e): e is File => e instanceof File && e.name === 'data.json');
-  if (!dataFile) throw new Error('No data.json in that folder. Pick the "SPIDER-backup-…" folder itself.');
+  // A manual backup has data.json; the automatic folder has dated files, of which the newest wins.
+  const autoFiles = entries.filter((e): e is File => e instanceof File && AUTO_FILE.test(e.name)).sort((a, b) => (a.name < b.name ? 1 : -1));
+  const dataFile = entries.find((e): e is File => e instanceof File && e.name === 'data.json') ?? autoFiles[0];
+  if (!dataFile) throw new Error('No backup in that folder. Pick the "SPIDER-backup-…" or "SPIDER-auto-backup" folder itself.');
   const data = JSON.parse(await dataFile.text()) as Partial<BackupFile>;
   if (data.app !== 'spider' || !data.state) throw new Error("That isn't a S.P.I.D.E.R. backup.");
 

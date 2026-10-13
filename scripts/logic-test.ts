@@ -37,6 +37,12 @@ import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
 import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
 import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
+// cluster F
+import { allSaintsDay, easterSunday, holidayOn, holidaysOf, isDayOff, isKlamdag, isPayday, midsummerEve, paydayOf, upcomingDays } from '../src/lib/swedish-days';
+import { allEggsSomeYear, EGGS, eggsFoundOn, eggsLeft, oldTasksDoneOn, staleTasks } from '../src/lib/traditions';
+import { nightPhone, nightWindow } from '../src/lib/night';
+import { autoBackupDue } from '../src/lib/backup-due';
+import { workoutFor } from '../src/lib/selectors';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -504,9 +510,9 @@ assert.equal(Math.round(gamingUsedMs(sc) / 60_000), 40);
 sc.settings.phoneGamesCount = false;
 assert.equal(gamingUsedMs(sc), 0);
 
-// secret achievements: 22, unique, none unlocked on a fresh state, some trigger correctly
-assert.equal(SECRET_ACHIEVEMENTS.length, 22);
-assert.equal(new Set(SECRET_ACHIEVEMENTS.map((a) => a.id)).size, 22);
+// secret achievements: at least the original 22, unique, none unlocked on a fresh state, some trigger correctly
+assert.ok(SECRET_ACHIEVEMENTS.length >= 22);
+assert.equal(new Set(SECRET_ACHIEVEMENTS.map((a) => a.id)).size, SECRET_ACHIEVEMENTS.length);
 assert.equal(SECRET_ACHIEVEMENTS.filter((a) => a.test(defaultState())).length, 0);
 const sec = defaultState();
 const at3 = atTime(new Date(), -1, 3).getTime();
@@ -737,4 +743,114 @@ console.log('all logic tests passed');
   // The Binge Necromancer: today isn't within budget until it's over
   assert.ok(!WEAKNESS.binge.hit(base, lateDay, k));
   assert.ok(WEAKNESS.binge.hit(base, lateDay, dayKey(addDays(new Date(), -1))));
+}
+
+// ---- cluster F ----
+{
+  // Swedish calendar: Easter, midsommarafton, alla helgons dag, red days, klämdagar, payday
+  assert.equal(dayKey(easterSunday(2026)), '2026-04-05');
+  assert.equal(dayKey(easterSunday(2027)), '2027-03-28');
+  assert.equal(dayKey(easterSunday(2028)), '2028-04-16');
+  assert.equal(dayKey(midsummerEve(2026)), '2026-06-19');
+  assert.equal(dayKey(midsummerEve(2027)), '2027-06-25');
+  assert.equal(dayKey(allSaintsDay(2026)), '2026-10-31');
+  assert.equal(dayKey(allSaintsDay(2027)), '2027-11-06');
+  assert.equal(holidaysOf(2026).length, 17);
+  assert.equal(holidaysOf(2026).filter((h) => h.red).length, 13);
+  assert.equal(holidayOn(new Date(2026, 4, 14))?.name, 'Kristi himmelsfärds dag');
+  assert.equal(holidayOn(new Date(2026, 5, 19))?.red, false); // midsommarafton: off, but not red
+  assert.equal(holidayOn(new Date(2026, 9, 13)), null);
+  assert.ok(isDayOff(new Date(2026, 11, 24)) && isDayOff(new Date(2026, 9, 17)) && !isDayOff(new Date(2026, 9, 13)));
+  assert.ok(isKlamdag(new Date(2026, 4, 15))); // the Friday after Kristi himmelsfärd
+  assert.ok(!isKlamdag(new Date(2026, 4, 14)) && !isKlamdag(new Date(2026, 4, 13)));
+  assert.equal(dayKey(paydayOf(2026, 10)), '2026-10-23'); // the 25th is a Sunday
+  assert.equal(dayKey(paydayOf(2026, 12)), '2026-12-23'); // 25th Juldagen, 24th Julafton
+  assert.equal(dayKey(paydayOf(2026, 11)), '2026-11-25');
+  assert.ok(isPayday(new Date(2026, 9, 23, 9)) && !isPayday(new Date(2026, 9, 25)));
+  const up = upcomingDays(new Date(2026, 4, 8, 12));
+  assert.deepEqual(up.map((n) => n.kind), ['holiday', 'klamdag']);
+  assert.ok(up[0].text.startsWith('Kristi himmelsfärds dag'));
+  assert.deepEqual(upcomingDays(new Date(2026, 9, 13, 12)), []);
+  assert.equal(upcomingDays(new Date(2026, 9, 23, 12))[0]?.kind, 'payday');
+
+  // the Swedish year's seasons, each with a seasonal quest even on a fresh state
+  assert.equal(seasonOn(new Date(2027, 2, 21))?.id, 'easter'); // Palm Sunday
+  assert.equal(seasonOn(new Date(2027, 2, 29))?.id, 'easter'); // Annandag påsk
+  assert.equal(dayKey(seasonOn(new Date(2027, 2, 21))!.lastDay), '2027-03-29');
+  assert.equal(seasonOn(new Date(2027, 2, 30)), null);
+  assert.equal(seasonOn(new Date(2027, 3, 30))?.id, 'valborg');
+  assert.equal(seasonOn(new Date(2027, 5, 26))?.id, 'midsommar');
+  assert.equal(seasonOn(new Date(2027, 5, 27)), null);
+  assert.equal(seasonOn(new Date(2026, 11, 31))?.id, 'nyar');
+  assert.equal(seasonOn(new Date(2027, 0, 1))?.id, 'nyar');
+  assert.equal(dayKey(seasonOn(new Date(2026, 11, 31))!.lastDay), '2027-01-01');
+  assert.equal(seasonOn(new Date(2027, 0, 2)), null);
+  for (const [id, day] of [['easter', new Date(2027, 2, 25, 12)], ['valborg', new Date(2027, 3, 30, 12)], ['midsommar', new Date(2027, 5, 25, 12)], ['nyar', new Date(2026, 11, 31, 12)]] as const) {
+    assert.ok(seasonOn(day)!.line in LINES, id);
+    const picks = pickQuests(defaultState(), day);
+    assert.equal(picks.length, 3, id);
+    assert.equal(picks.filter((q) => /^(easter_|valborg_|midsommar_|nyar_)/.test(q)).length, 1, `${id}: ${picks}`);
+  }
+  assert.equal(bossFor(defaultState(), new Date(2026, 11, 31, 12)).name, 'The Old Year');
+  assert.notEqual(bossFor(defaultState(), new Date(2026, 11, 28, 12)).name, 'The Old Year');
+
+  // Easter eggs: per year, 30 coins each in the store, all five unlock a secret
+  const eg = defaultState();
+  const easter = new Date(2027, 2, 25, 12);
+  assert.equal(eggsLeft(eg, easter), EGGS.length);
+  eg.eggsFound = { '2027': { hq: easter.getTime(), gym: easter.getTime() - 86_400_000 } };
+  assert.equal(eggsLeft(eg, easter), 3);
+  assert.equal(eggsFoundOn(eg, easter), 1);
+  assert.equal(eggsLeft(eg, new Date(2028, 3, 12)), EGGS.length); // a new year, a new hunt
+  assert.ok(!allEggsSomeYear(eg));
+  eg.eggsFound['2027'] = Object.fromEntries(EGGS.map((e) => [e, easter.getTime()]));
+  assert.ok(allEggsSomeYear(eg));
+  assert.ok(SECRET_ACHIEVEMENTS.find((a) => a.id === 's_egg_hunter')!.test(eg));
+
+  // Valborg: open tasks over 30 days old burn; finished old ones count too
+  const vb = defaultState();
+  const now = Date.now();
+  vb.tasks = [
+    { id: 'old', title: 'Old', done: false, createdAt: now - 40 * 86_400_000 },
+    { id: 'new', title: 'New', done: false, createdAt: now - 2 * 86_400_000 },
+    { id: 'olddone', title: 'Old done', done: true, createdAt: now - 60 * 86_400_000, doneAt: now },
+  ];
+  assert.deepEqual(staleTasks(vb, now).map((t) => t.id), ['old']);
+  assert.equal(oldTasksDoneOn(vb, now), 1);
+
+  // phone in bed: bedtime until 05:00, short nights aren't mentioned
+  const morning = new Date(2026, 9, 13, 8);
+  const win = nightWindow(morning, 23);
+  assert.equal(new Date(win.bed).getHours(), 23);
+  assert.equal(dayKey(win.bed), '2026-10-12');
+  assert.equal(new Date(win.end).getHours(), 5);
+  assert.equal(dayKey(nightWindow(morning, 1).bed), '2026-10-13'); // a bedtime after midnight is that morning's
+  const at = (h: number, m = 0) => atTime(morning, h >= 12 ? -1 : 0, h, m).getTime();
+  const spans = [
+    { label: 'Instagram', start: at(22, 30), end: at(23, 20) }, // 20 min after bedtime
+    { label: 'TikTok', start: at(0, 10), end: at(0, 47) }, // 37 min
+    { label: 'Clock', start: at(7), end: at(7, 5) }, // morning, outside the window
+  ];
+  const nightUse = nightPhone(spans, win.bed, win.end);
+  assert.equal(nightUse.lateMin, 57);
+  assert.equal(nightUse.top, 'TikTok');
+  assert.equal(dayKey(nightUse.lastAt!), '2026-10-13');
+  assert.equal(new Date(nightUse.lastAt!).getMinutes(), 47);
+  assert.deepEqual(nightPhone([{ label: 'X', start: at(23, 0), end: at(23, 5) }], win.bed, win.end), { lateMin: 5, lastAt: null, top: null });
+
+  // automatic backup: Sundays without one yet, or anything over a week old
+  const sunday = new Date(2026, 9, 18, 10);
+  assert.ok(autoBackupDue(null, sunday));
+  assert.ok(autoBackupDue(sunday.getTime() - 2 * 86_400_000, sunday));
+  assert.ok(!autoBackupDue(sunday.getTime() - 3_600_000, sunday)); // already today
+  assert.ok(!autoBackupDue(sunday.getTime() - 3 * 86_400_000, new Date(2026, 9, 19, 10))); // Monday
+  assert.ok(autoBackupDue(sunday.getTime() - 8 * 86_400_000, new Date(2026, 9, 19, 10)));
+
+  // red days as rest days (opt-in): Juldagen is a Friday with a plan; midsommarafton isn't red
+  const rd = defaultState();
+  const xmas = new Date(2026, 11, 25, 12);
+  assert.ok(workoutFor(rd, xmas));
+  rd.settings.redDaysOff = true;
+  assert.equal(workoutFor(rd, xmas), null);
+  assert.ok(workoutFor(rd, new Date(2027, 5, 25, 12)));
 }

@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 
 import { C } from '@/constants/theme';
 
-import { addDays, atTime, dayKey, fmtDuration, MIN } from './dates';
+import { addDays, atTime, dayKey, fmtDuration, fmtTime, MIN } from './dates';
 import { habitsDone, isScheduled } from './habits';
 import { line, type LineKey } from './lines';
 import * as Notifications from './local-notifications';
@@ -29,8 +29,10 @@ import { moodInfo } from './mood';
 import type { CalEvent, MoodLevel, State } from './types';
 import { forecastText, type Weather } from './weather';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outside';
+import { bossFor, questsFor } from './quests';
+import { upcomingDays } from './swedish-days';
 
-const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming' } as const;
+const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status' } as const;
 
 // Notifications re-planned on every app change; gaming/rest alerts are managed separately.
 const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-'];
@@ -42,7 +44,8 @@ const DAYS_AHEAD = 3;
 const SNOOZE_ID = 'snooze-water'; // not a planned prefix, so a replan leaves it alone
 
 // Buttons on reminders. Tapping one opens the app, which does the thing (see onReminderAction).
-const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood' } as const;
+const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood', status: 'spider_status' } as const;
+const STATUS_ID = 'status-line'; // the ongoing summary in the shade (cluster F); not a planned prefix
 const MOOD_BUTTONS: MoodLevel[] = [4, 3, 2];
 
 // Where tapping a notification takes you, by its id's prefix (so ones scheduled before this existed work too).
@@ -69,12 +72,10 @@ const LINKS: [prefix: string, href: Href][] = [
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (n) => {
+    const quiet = n.request.identifier === STATUS_ID; // the status line never pings or pops up
+    return { shouldPlaySound: !quiet, shouldSetBadge: false, shouldShowBanner: !quiet, shouldShowList: true };
+  },
 });
 
 let permitted = false;
@@ -90,6 +91,14 @@ export async function initNotifications(askIfNeeded: boolean) {
       await Notifications.setNotificationChannelAsync(CH.remind, { name: 'Reminders & roasts', ...base });
       await Notifications.setNotificationChannelAsync(CH.gym, { name: 'Gym', ...base });
       await Notifications.setNotificationChannelAsync(CH.game, { name: 'Gaming timer', ...base });
+      await Notifications.setNotificationChannelAsync(CH.status, {
+        name: 'Status line',
+        importance: Notifications.AndroidImportance.LOW,
+        sound: null,
+        enableVibrate: false,
+        vibrationPattern: null,
+        showBadge: false,
+      });
     } catch {
       channelsOk = false;
     }
@@ -100,6 +109,10 @@ export async function initNotifications(askIfNeeded: boolean) {
       { identifier: 'water_snooze', buttonTitle: 'Snooze 30 min' },
     ]);
     await Notifications.setNotificationCategoryAsync(CATEGORY.habit, [{ identifier: 'habit_done', buttonTitle: 'Done ✓' }]);
+    await Notifications.setNotificationCategoryAsync(CATEGORY.status, [
+      { identifier: 'water_glass', buttonTitle: '+1 glass' },
+      { identifier: 'focus_start', buttonTitle: '🕸️ Focus 25 min' },
+    ]);
     await Notifications.setNotificationCategoryAsync(
       CATEGORY.mood,
       MOOD_BUTTONS.map((level) => ({ identifier: `mood_${level}`, buttonTitle: `${moodInfo(level).emoji} ${moodInfo(level).label}` })),
@@ -214,7 +227,8 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const evText = count === 0 ? 'No meetings' : count === 1 ? '1 event' : `${count} events`;
       const wkText = plan ? `${plan.name} day` : 'Rest day';
       const forecast = weather?.days.find((f) => f.date === key);
-      const body = say(s, 'morningBrief', { events: evText, workout: wkText }) + (forecast ? ` ${forecastText(forecast)}.` : '');
+      const sv = upcomingDays(date, 2).map((n) => `${n.emoji} ${n.text}`).join(' ');
+      const body = say(s, 'morningBrief', { events: evText, workout: wkText }) + (forecast ? ` ${forecastText(forecast)}.` : '') + (sv ? ` ${sv}` : '');
       jobs.push(scheduleAt(`morning-${key}`, atTime(now, d, st.wakeHour), `☀️ Good morning, ${st.userName || 'boss'}`, body, CH.remind));
     }
 
@@ -322,7 +336,44 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   jobs.push(scheduleAt('comeback-3', atTime(now, 3, 18), '🕷️ Hello?', say(s, 'comeback'), CH.remind));
   jobs.push(scheduleAt('comeback-6', atTime(now, 6, 18), '🕷️ Still here. Still judging.', say(s, 'comeback'), CH.remind));
 
+  jobs.push(updateStatusLine(s, events).catch((e) => console.warn('[spider] status line failed', e)));
   await Promise.all(jobs);
+}
+
+let statusCleared = false;
+
+/** The status line: today's water, quests, boss and next event, with "+1 glass" and "Focus" buttons. Off by default. */
+async function updateStatusLine(s: State, events: CalEvent[]) {
+  if (!s.settings.notify.statusLine) {
+    if (!statusCleared) await Notifications.dismissNotificationAsync(STATUS_ID);
+    statusCleared = true;
+    return;
+  }
+  statusCleared = false;
+  const now = new Date();
+  const d = dayOf(s, dayKey(now));
+  const quests = questsFor(s, now);
+  const done = (d.questsDone ?? []).length;
+  const boss = bossFor(s, now);
+  const next = events.filter((e) => !e.allDay && e.start > now.getTime() && dayKey(e.start) === dayKey(now)).sort((a, b) => a.start - b.start)[0];
+  const parts = [
+    `💧 ${(waterMl(d) / 1000).toFixed(1)}/${(s.settings.waterGoalMl / 1000).toFixed(1)} L`,
+    quests.length ? `🗡️ ${Math.min(done, quests.length)}/${quests.length} quests` : null,
+    boss.defeated ? `${boss.emoji} defeated` : `${boss.emoji} ${boss.hp} HP`,
+    next ? `⏭️ ${fmtTime(next.start)} ${next.title}` : null,
+  ];
+  await Notifications.scheduleNotificationAsync({
+    identifier: STATUS_ID,
+    content: {
+      title: `🕷️ S.P.I.D.E.R. · ${fmtTime(now)}`,
+      body: parts.filter(Boolean).join(' · '),
+      color: C.red,
+      sticky: true,
+      autoDismiss: false,
+      categoryIdentifier: CATEGORY.status,
+    },
+    trigger: channelsOk ? { channelId: CH.status } : null,
+  });
 }
 
 export async function scheduleGameAlerts(s: State, remainingMin: number) {
@@ -348,7 +399,13 @@ export async function snoozeWater(s: State, minutes = 30) {
   await scheduleAt(SNOOZE_ID, Date.now() + minutes * MIN, '💧 Hydration check (snoozed)', say(s, 'waterRemind'), CH.remind, { category: CATEGORY.water });
 }
 
-export type ReminderAction = { kind: 'glass' } | { kind: 'snooze' } | { kind: 'habit'; habitId: string } | { kind: 'mood'; level: MoodLevel };
+export type ReminderAction =
+  | { kind: 'glass' }
+  | { kind: 'snooze' }
+  | { kind: 'habit'; habitId: string }
+  | { kind: 'mood'; level: MoodLevel }
+  | { kind: 'focus' }; // the status line's "Focus 25 min"
+
 
 const handled = new Set<string>(); // module-wide: the response that launched the app is seen twice otherwise
 
@@ -374,7 +431,9 @@ export function onNotificationTap(onAction: (a: ReminderAction) => void, onOpen:
     else if (a === 'water_snooze') onAction({ kind: 'snooze' });
     else if (a === 'habit_done' && typeof habitId === 'string') onAction({ kind: 'habit', habitId });
     else if (mood) onAction({ kind: 'mood', level: Number(mood[1]) as MoodLevel });
-    Notifications.dismissNotificationAsync(r.notification.request.identifier).catch(() => {});
+    else if (a === 'focus_start') onAction({ kind: 'focus' });
+    // The status line stays put; it's refreshed by the replan its button causes.
+    if (r.notification.request.identifier !== STATUS_ID) Notifications.dismissNotificationAsync(r.notification.request.identifier).catch(() => {});
   };
   Notifications.getLastNotificationResponseAsync()
     .then(handle)

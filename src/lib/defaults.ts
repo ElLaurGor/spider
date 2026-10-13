@@ -33,9 +33,10 @@ export function defaultState(): State {
       easyOnPeriod: true,
       phoneGamesCount: true,
       phoneLimitMin: 180,
-      notify: { water: true, gym: true, morning: true, evening: true, gaming: true, mood: true, habits: true, report: true, sleep: true, cycle: true, countdowns: true, wrapped: true, windDown: true, league: true, pollen: true, air: true, smhi: true, vma: true },
+      notify: { water: true, gym: true, morning: true, evening: true, gaming: true, mood: true, habits: true, report: true, sleep: true, cycle: true, countdowns: true, wrapped: true, windDown: true, league: true, pollen: true, air: true, smhi: true, vma: true, statusLine: false },
       respectMeetings: true,
       calendarIds: null,
+      redDaysOff: false,
     },
     plan: {
       0: null,

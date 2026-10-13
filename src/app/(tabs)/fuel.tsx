@@ -8,6 +8,7 @@ import { EntryEditor } from '@/components/entry-editor';
 import { FoodSuggestions } from '@/components/food-search';
 import { PhotoViewer } from '@/components/photo-viewer';
 import { Bar, Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T } from '@/components/ui';
+import { HiddenEgg } from '@/components/swedish-year';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtTime, WEEKDAYS } from '@/lib/dates';
 import { foodNutrients, type Food } from '@/lib/food-db';
@@ -82,6 +83,7 @@ export default function Fuel() {
 
       <CoffeeCard day={day} />
       <FoodCard day={day} />
+      <HiddenEgg id="fuel" align="flex-end" />
     </Screen>
   );
 }
