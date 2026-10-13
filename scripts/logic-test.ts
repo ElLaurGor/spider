@@ -44,6 +44,9 @@ import { cycleNotes, cycleStats } from '../src/lib/cycle-stats';
 import { detective } from '../src/lib/detective';
 import { experimentDays, experimentResult, verdictText } from '../src/lib/experiments';
 import { pressureDrops } from '../src/lib/weather';
+import { catchFly, critDamage, FLIES, flyFor, logEvents, MAX_CRITS, MAX_SPAWNS, rollCritters } from '../src/lib/critters';
+import { kindDay, pageDue, unlockPages, writePage } from '../src/lib/diary';
+import { webDays, webGeometry, webParams } from '../src/lib/web-art';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -511,9 +514,9 @@ assert.equal(Math.round(gamingUsedMs(sc) / 60_000), 40);
 sc.settings.phoneGamesCount = false;
 assert.equal(gamingUsedMs(sc), 0);
 
-// secret achievements: 22, unique, none unlocked on a fresh state, some trigger correctly
-assert.equal(SECRET_ACHIEVEMENTS.length, 22);
-assert.equal(new Set(SECRET_ACHIEVEMENTS.map((a) => a.id)).size, 22);
+// secret achievements: at least the original 22, unique, none unlocked on a fresh state, some trigger correctly
+assert.ok(SECRET_ACHIEVEMENTS.length >= 22);
+assert.equal(new Set(SECRET_ACHIEVEMENTS.map((a) => a.id)).size, SECRET_ACHIEVEMENTS.length);
 assert.equal(SECRET_ACHIEVEMENTS.filter((a) => a.test(defaultState())).length, 0);
 const sec = defaultState();
 const at3 = atTime(new Date(), -1, 3).getTime();
@@ -861,4 +864,129 @@ console.log('all logic tests passed');
   for (const k of ['experimentStarted', 'experimentDone', 'experimentStopped'] as const) {
     for (const t of [...LINES[k].mild, ...LINES[k].savage]) assert.ok(!/streak|in a row/i.test(t), t);
   }
+}
+
+// ---- cluster G ----
+{
+  const at = new Date(2027, 0, 12, 10); // a Tuesday morning
+  const k = dayKey(at);
+  const empty = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+  const base = defaultState();
+  base.onboarded = true;
+  base.days[k] = empty();
+  const withWater = (s: typeof base, n: number, late = false) => {
+    const d = { ...s.days[k], water: [...s.days[k].water] };
+    for (let i = 0; i < n; i++) d.water.push({ id: `w${d.water.length}`, ml: 250, at: at.getTime(), ...(late ? { late: true } : {}) });
+    return { ...s, days: { ...s.days, [k]: d } };
+  };
+
+  // what was just logged: new glasses by their place in the day; back-dated ones never count
+  const two = withWater(base, 2);
+  assert.deepEqual(logEvents(base, two, at).map((e) => e.key), ['water:0', 'water:1']);
+  assert.equal(logEvents(base, withWater(base, 1, true), at).length, 0);
+  assert.equal(logEvents(two, two, at).length, 0);
+
+  // crits: once per logged thing, at most 3 a day, damage 15–90, and the boss takes it
+  assert.equal(critDamage(1), 15);
+  assert.equal(critDamage(20), 60);
+  assert.equal(critDamage(100), 90);
+  let s = base;
+  for (let i = 0; i < 300; i++) s = rollCritters(s, withWater(s, 1), at).state;
+  const crits = s.days[k].critKeys ?? [];
+  assert.equal(crits.length, MAX_CRITS, 'a long day of glasses crits exactly 3 times');
+  assert.equal(s.days[k].critDamage, 3 * critDamage(1));
+  assert.equal(bossFor(s, at).damage - bossFor({ ...s, days: { ...s.days, [k]: { ...s.days[k], critDamage: 0 } } }, at).damage, 45);
+
+  // undo + re-log gives the same roll: no fresh crit or fly for the same glass
+  const first = crits[0];
+  const idx = Number(first.split(':')[1]);
+  let c = base;
+  for (let i = 0; i <= idx; i++) c = rollCritters(c, withWater(c, 1), at).state;
+  assert.ok(c.days[k].critKeys?.includes(first));
+  const undone = { ...c, days: { ...c.days, [k]: { ...c.days[k], water: c.days[k].water.slice(0, -1) } } };
+  const relogged = rollCritters(undone, withWater(undone, 1), at);
+  assert.equal(relogged.state.days[k].critKeys?.length, c.days[k].critKeys?.length);
+  assert.ok(!relogged.msgs.some((m) => m.key === 'critHit'));
+
+  // flies: at most 2 a day, never while one is still buzzing; same roll for the same glass
+  let f = base;
+  let spawned = 0;
+  for (let i = 0; i < 400; i++) {
+    const r = rollCritters(f, withWater(f, 1), at);
+    spawned += r.msgs.filter((m) => m.key === 'flySpawn').length;
+    f = r.state;
+    if (f.pendingFly) f = { ...f, pendingFly: { ...f.pendingFly, until: 0 } }; // it flew off
+  }
+  assert.equal(spawned, MAX_SPAWNS);
+  assert.equal(f.days[k].flySpawns?.length, MAX_SPAWNS);
+  const busy = { ...base, pendingFly: { id: 'house_fly', until: at.getTime() + 60_000 } };
+  for (let i = 0; i < 100; i++) assert.ok(!rollCritters(busy, withWater(busy, i + 1), at).msgs.some((m) => m.key === 'flySpawn'));
+
+  // catching: into the jar with coins; a legendary also bombs the boss; too late = gone
+  const caught = catchFly({ ...base, pendingFly: { id: 'house_fly', until: at.getTime() + 1000 } }, at.getTime());
+  assert.equal(caught.key, 'flyCaught');
+  assert.equal(caught.state.flies?.house_fly?.count, 1);
+  assert.equal(caught.state.coins, base.coins + 10);
+  assert.ok(caught.newSpecies);
+  assert.equal(catchFly(caught.state, at.getTime()).key, null);
+  const legend = catchFly({ ...base, pendingFly: { id: 'golden_scarab', until: at.getTime() + 1000 } }, at.getTime());
+  assert.equal(legend.key, 'flyLegendary');
+  assert.equal(Object.values(legend.state.bossBombs).reduce((a, b) => a + b, 0), 100);
+  const late = catchFly({ ...base, pendingFly: { id: 'house_fly', until: at.getTime() - 1 } }, at.getTime());
+  assert.equal(late.key, 'flyGone');
+  assert.equal(late.state.pendingFly, null);
+
+  // no fly is about food: logging food only ever turns up the "log anything" fly
+  const ctx = { now: at, day: empty(), prevDay: empty(), season: undefined };
+  const foodFlies = FLIES.filter((x) => x.when({ kind: 'food', key: 'food:0', at: at.getTime(), xp: 1 }, ctx)).map((x) => x.id);
+  assert.deepEqual(foodFlies, ['house_fly']);
+  for (const x of FLIES) assert.ok(!/food|meal|\b(eat|eats|ate|eating)\b|kcal|calor|weigh(?!ts)|body/i.test(`${x.name} ${x.hint}`), x.id);
+  assert.equal(new Set(FLIES.map((x) => x.id)).size, FLIES.length);
+  // the same logged thing always rolls the same
+  const e = { kind: 'water' as const, key: 'water:3', at: at.getTime(), xp: 1 };
+  assert.equal(flyFor(e, ctx)?.id, flyFor(e, ctx)?.id);
+
+  // diary: a page per 10 quests (a total), kind on low days, never food/body
+  const dd = defaultState();
+  dd.onboarded = true;
+  dd.counters.quests = 9;
+  assert.ok(!pageDue(dd));
+  dd.counters.quests = 25;
+  const y = dayKey(addDays(at, -1));
+  dd.days[y] = { ...empty(), water: [{ id: 'a', ml: 2800, at: 0 }], food: [{ id: 'f', name: 'Pizza', kcal: 900, protein: 30, at: 0 }], steps: 9000, sleepMin: 340 };
+  dd.bodyLog = [{ id: 'b', at: 0, weight: 70 }];
+  const unlocked = unlockPages(dd, at);
+  assert.equal(unlocked.added, 2);
+  assert.equal(unlocked.state.diary?.length, 2);
+  assert.ok(!pageDue(unlocked.state));
+  for (const page of unlocked.state.diary ?? []) {
+    assert.ok(!page.text.includes('{'), page.text);
+    assert.ok(!/kcal|calor|pizza|food|meal|ate |eat|weigh|\bkg\b|body/i.test(page.text), page.text);
+    assert.equal(page.day, y);
+  }
+  assert.ok(/2\.8 L/.test(unlocked.state.diary![0].text), unlocked.state.diary![0].text);
+  const low = { ...dd, days: { ...dd.days, [y]: { ...dd.days[y], moods: [{ id: 'm', level: 1 as const, emotions: [], at: 0 }] } } };
+  assert.ok(kindDay(low.days[y]));
+  const kindPage = writePage(low, 1, at).text;
+  assert.ok(/quieter day|running low/.test(kindPage), kindPage);
+  assert.ok(!/spite|petition|couch|cactus/.test(kindPage), kindPage);
+  assert.deepEqual(writePage(dd, 1, at), writePage(dd, 1, at));
+
+  // the day's web: stable, from water/habits/quests/training/sleep/tasks/gaming/mood, never the body
+  const w = defaultState();
+  w.days[k] = { ...empty(), water: Array.from({ length: 7 }, (_, i) => ({ id: `x${i}`, ml: 250, at: 0 })), sleepMin: 450, habits: ['h1', 'h2'], questsDone: ['q'], moods: [{ id: 'm', level: 4, emotions: [], at: 0 }] };
+  const wp = webParams(w, k);
+  assert.equal(wp.threads, 7);
+  assert.equal(wp.rings, 4);
+  assert.equal(wp.dew, 8);
+  assert.equal(wp.mood, 4);
+  assert.ok(!wp.empty);
+  assert.deepEqual(webParams({ ...w, bodyLog: [{ id: 'b', at: 0, weight: 60, waist: 70 }] }, k), wp);
+  const g = webGeometry(wp, 200, k);
+  assert.equal(g.segs.length, wp.threads + wp.rings * wp.threads + wp.frays);
+  assert.equal(g.dots.length, wp.dew + wp.catches);
+  assert.ok(g.segs.every((x) => [x.x1, x.y1, x.x2, x.y2, x.w].every(Number.isFinite)));
+  assert.deepEqual(webGeometry(wp, 200, k), g);
+  assert.equal(webParams(defaultState(), k).empty, true);
+  assert.deepEqual(webDays(w, 28, at), [k]);
 }

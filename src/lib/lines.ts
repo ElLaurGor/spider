@@ -865,6 +865,35 @@ export const LINES = {
     mild: ['Experiment stopped. No penalty, it was your experiment.'],
     savage: ['Experiment abandoned. Science weeps quietly in the corner. No penalty, though.'],
   },
+  // ---- cluster G: wild ----
+  flySpawn: {
+    mild: ['🪰 A {title} is buzzing around HQ. Catch it within 5 minutes!'],
+    savage: [
+      '🪰 A wild {title} appeared. Catch it, or watch it leave like your motivation.',
+      '🪰 {title} spotted. Five minutes. Even you can manage that.',
+      '🪰 Something buzzes. A {title}. My web is ready. Are you?',
+    ],
+  },
+  flyCaught: {
+    mild: ['Caught: {title}! +{coins} 🪙'],
+    savage: ['{title} caught. Into the jar it goes. +{coins} 🪙', 'Got it: {title}. A predator after my own heart. +{coins} 🪙'],
+  },
+  flyLegendary: {
+    mild: ['🌟 LEGENDARY catch: {title}! +{coins} 🪙 and a boss bomb.'],
+    savage: ['🌟 {title}. LEGENDARY. I would frame it if I had hands. +{coins} 🪙 and a boss bomb.'],
+  },
+  flyGone: {
+    mild: ['Too late, it flew off. Another one will turn up.'],
+    savage: ['It left. Flies have better time management than you.', 'Gone. The fly had places to be. Unlike some people.'],
+  },
+  critHit: {
+    mild: ["💥 CRITICAL HIT! {n} bonus damage to this week's boss."],
+    savage: ["💥 CRITICAL HIT! {n} damage. The boss felt that one.", "💥 CRIT! {n} extra damage. RNG likes you today. I remain neutral."],
+  },
+  diaryPage: {
+    mild: ['📓 A new page of my secret diary unlocked. Open it from HQ.'],
+    savage: ["📓 You unlocked a page of my private observation log. Read it. Or don't. I know what it says."],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

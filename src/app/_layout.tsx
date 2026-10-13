@@ -171,6 +171,36 @@ export default function RootLayout() {
               headerShadowVisible: false,
             }}
           />
+          <Stack.Screen
+            name="flies"
+            options={{
+              headerShown: true,
+              title: 'Fly collection',
+              headerStyle: { backgroundColor: C.bg },
+              headerTintColor: C.text,
+              headerShadowVisible: false,
+            }}
+          />
+          <Stack.Screen
+            name="diary"
+            options={{
+              headerShown: true,
+              title: 'Secret diary',
+              headerStyle: { backgroundColor: C.bg },
+              headerTintColor: C.text,
+              headerShadowVisible: false,
+            }}
+          />
+          <Stack.Screen
+            name="webs"
+            options={{
+              headerShown: true,
+              title: 'Web gallery',
+              headerStyle: { backgroundColor: C.bg },
+              headerTintColor: C.text,
+              headerShadowVisible: false,
+            }}
+          />
           <Stack.Screen name="onboarding" options={{ gestureEnabled: false, animation: 'fade' }} />
         </Stack>
         <ToastHost />

@@ -7,6 +7,7 @@ import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { QuestsCard } from '@/components/quests-card';
+import { WildCard } from '@/components/hq-wild';
 import { SleepCheckIn } from '@/components/sleep-checkin';
 import { SpiderAvatar } from '@/components/spider-avatar';
 import { Bar, Btn, Card, H, Icon, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
@@ -203,6 +204,7 @@ export default function HQ() {
       ) : null}
 
       <QuestsCard />
+      <WildCard />
 
       <View style={styles.grid}>
         <Tile icon="water_drop" color={C.water} label="Water" onPress={() => router.navigate('/fuel')}>

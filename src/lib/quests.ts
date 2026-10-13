@@ -255,7 +255,7 @@ export function bossFor(s: State, date: Date | number = new Date()) {
     const d = dayOf(s, day);
     healed += Math.max(0, (d.screen?.doomMin ?? 0) - DOOM_FREE_MIN);
     const xp = d.xpEarned ?? 0;
-    damage += xp;
+    damage += xp + (d.critDamage ?? 0); // critical hits (lib/critters.ts, cluster G)
     if (xp > 0 && weakness.hit(s, d, day)) bonus += Math.round(xp * WEAKNESS_BONUS);
   }
   // Sized to beat your usual week; a brand-new player gets a starter boss instead.
