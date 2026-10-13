@@ -5,7 +5,8 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
 ## Layout
 - `src/app/`: routes.
   - `(tabs)/` holds index (HQ), plan, gym, fuel and game.
-  - Stack screens, each registered in `_layout.tsx`: settings, mood, report, scan, cycle, wrapped, insights, shop, league, records, focus, breathe, body, outside, onboarding.
+  - Stack screens, each registered in `_layout.tsx`: settings, mood, report, scan, cycle, wrapped, insights, shop, league, records, focus, breathe, body, outside, heart, sleep, movement, bestiary, perks, flies, diary, webs, debrief, onboarding.
+  - HQ's movable cards are a registry: a new card needs an entry in `HQ_SECTIONS` (`src/lib/hq-layout.ts`) and a renderer in `SECTIONS` in `(tabs)/index.tsx`.
 - `src/lib/store.tsx`: the single store.
   - Each action calls `run()`, which applies the change, then checks the league, quests (and the boss), then achievements and secret achievements, then saves and shows the toasts.
   - `reward()` adds XP and coins.
@@ -34,6 +35,7 @@ npx expo-doctor
   - `npm run test:logic` runs `scripts/logic-test.ts`: offline checks of the pure modules. Extend it when changing logic. It also checks that every `{placeholder}` in `lines.ts` is in its known list.
   - `npm run test:live` runs `scripts/live-api-test.ts`: hits Open-Meteo, SMHI and Krisinformation and prints what came back.
   - Modules that import `@/constants/theme` (e.g. `records.ts`, `store.tsx`) can't load under tsx. Test their pure parts via other modules or leave them to tsc.
+- Parallel work in git worktrees: new worktrees start at `origin/master`, which lags local master, so reset to `master` first. With a `node_modules` junction they share Metro's cache in TEMP, and an export can bundle another worktree's `src/app`. Export with a private `TEMP`/`TMP` and `--clear`. Delete the junction before `git worktree remove`.
 - Typed routes: `npx expo start --port 8099` run for ~45 s (e.g. `timeout 45 npx expo start --port 8099`) regenerates `.expo/types`; `--offline` does not.
 
 ## Shipping
