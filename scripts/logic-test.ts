@@ -23,6 +23,7 @@ import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log'
 import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '../src/lib/xp';
 import { HQ_SECTIONS, hqOrder, hqVisible, moveSection, toggleSection } from '../src/lib/hq-layout';
 import { fmtTime } from '../src/lib/dates';
+import { allRivalLines, rivalTalk } from '../src/lib/rival-talk';
 import { IMMORTAL_DAYS, immortalTask, taskAgeDays, yesterdayHighlight } from '../src/lib/memory';
 import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/lib/league';
 import { coinsFor, rollChest } from '../src/lib/economy';
@@ -800,5 +801,41 @@ console.log('all logic tests passed');
   assert.deepEqual(yesterdayHighlight(yc, thu), { key: 'callbackDry', vars: { water: '0.5' } });
   for (const k of ['callbackGentle', 'callbackPR', 'callbackQuests', 'callbackLateGame', 'callbackSkip', 'callbackWin', 'callbackDry', 'callbackSlow'] as const) {
     assert.ok(LINES[k].mild.length > 0 && LINES[k].savage.length > 0, k);
+  }
+
+  // rival trash talk: first look only remembers; a pass makes one rival talk; at most two a day; quiet on low-mood days
+  const noon = new Date(2027, 0, 13, 12);
+  const rt = defaultState();
+  rt.onboarded = true;
+  rt.league = newLeague(0, weekKeyOf(noon));
+  const first = rivalTalk(rt, noon)!;
+  assert.equal(first.line, null);
+  assert.equal(first.talk.rank, 10); // 0 XP: last
+  rt.rivalTalk = first.talk;
+  assert.equal(rivalTalk(rt, noon), null); // nothing changed
+  const todayKey = dayKey(noon);
+  rt.days[todayKey] = { ...blank(), xpEarned: 100_000 };
+  const up = rivalTalk(rt, noon, () => 0)!;
+  const table = standings(rt, noon);
+  assert.equal(up.talk.rank, 1);
+  assert.equal(up.talk.n, 1);
+  assert.equal(up.line?.tone, 'good');
+  assert.ok(up.line!.text.startsWith(`${table[1].emoji} ${table[1].name}: "`), up.line!.text); // the one you just passed
+  rt.rivalTalk = up.talk;
+  rt.days[todayKey] = { ...blank(), xpEarned: 0 };
+  const down = rivalTalk(rt, noon, () => 0)!;
+  assert.equal(down.talk.rank, 10);
+  assert.equal(down.line?.tone, 'info');
+  rt.rivalTalk = down.talk;
+  rt.days[todayKey] = { ...blank(), xpEarned: 100_000 };
+  const third = rivalTalk(rt, noon)!;
+  assert.equal(third.line, null); // today's two are used up
+  assert.equal(third.talk.rank, 1);
+  rt.rivalTalk = { ...third.talk, rank: 10, day: '2027-01-12' }; // a new day resets the allowance
+  assert.ok(rivalTalk(rt, noon)!.line);
+  rt.days[todayKey].moods = [{ id: 'm', level: 1, emotions: [], at: noon.getTime() }];
+  assert.equal(rivalTalk(rt, noon)!.line, null); // low mood: rivals keep quiet
+  for (const t of allRivalLines()) {
+    for (const m of t.matchAll(/\{(\w+)\}/g)) assert.equal(m[1], 'name', t);
   }
 }

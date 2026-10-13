@@ -206,6 +206,8 @@ export type State = {
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
   contract?: Contract | null; // this or last week's weekly contract (lib/contracts.ts)
   seasonWins?: string[]; // "halloween-2026": a boss beaten while that season was on (seasons.ts)
+  // cluster E
+  rivalTalk?: { week: string; rank: number; day: string; n: number } | null; // last league rank seen and today's rival remarks (rival-talk.ts)
 };
 
 export type CalEvent = {

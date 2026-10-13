@@ -39,6 +39,7 @@ import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './phot
 import { bossFor, pickQuests, questsFor } from './quests';
 import { canSign, contractProgress, goalOf, roughWeek } from './contracts';
 import { respectFor } from './respect';
+import { rivalTalk } from './rival-talk';
 import { isSnow, seasonOn, winterOf } from './seasons';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, usageBetween } from './screentime';
 import {
@@ -248,6 +249,15 @@ function checkRespect(s: State, msgs: Msg[]): State {
   return { ...s, respectTier: tier };
 }
 
+/** A league rival reacts when your rank changes (rival-talk.ts: at most two a day). */
+function checkRivalTalk(s: State, msgs: Msg[]): State {
+  if (!s.onboarded) return s;
+  const r = rivalTalk(s);
+  if (!r) return s;
+  if (r.line) msgs.push(r.line);
+  return { ...s, rivalTalk: r.talk };
+}
+
 /** Pays out a weekly contract as soon as it's reached, and settles a missed one once its week is over. */
 function checkContract(s: State, msgs: Msg[]): State {
   const c = s.contract;
@@ -394,7 +404,7 @@ function useStoreValue() {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
       const checked = checkContract(checkQuests(checkLeague(fn(prev, msgs), msgs), msgs), msgs);
-      const next = checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs);
+      const next = checkRivalTalk(checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone));
       // Earned bonus minutes mid-session move the gaming alerts.
@@ -676,6 +686,20 @@ function useStoreValue() {
     const t = setTimeout(() => run((s) => s), 0);
     return () => clearTimeout(t);
   }, [ready, state, tick, run]);
+
+  // ----- league rivals earn XP through the day, so they can pass you while the app sits open -----
+  useEffect(() => {
+    if (!ready || !state.onboarded) return;
+    const check = () => {
+      if (rivalTalk(stateRef.current)) run((s) => s);
+    };
+    const first = setTimeout(check, 5_000);
+    const every = setInterval(check, 5 * 60_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, [ready, state.onboarded, tick, run]);
 
   // ----- app foreground / background -----
   useEffect(() => {
