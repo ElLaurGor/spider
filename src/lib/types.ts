@@ -120,6 +120,9 @@ export type DayLog = {
   waterGoalHit?: boolean;
   proteinGoalHit?: boolean;
   workoutCounted?: boolean;
+  // cluster A
+  questRerolled?: boolean; // today's one paid quest swap is used (quests.ts rerollFor)
+  questFocus?: { id: string; spot: string }; // the quest aimed at the week's weak spot (weak-spot.ts)
 };
 
 export type ContractGoal = 'train' | 'water' | 'steps' | 'focus' | 'habits' | 'gaming' | 'tasks';
@@ -204,6 +207,13 @@ export type State = {
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
   contract?: Contract | null; // this or last week's weekly contract (lib/contracts.ts)
   seasonWins?: string[]; // "halloween-2026": a boss beaten while that season was on (seasons.ts)
+  // cluster A
+  minionsPaid?: Record<string, number>; // week key -> minion waves already paid out
+  bossPhaseSeen?: string; // week key whose boss rage (phase 2) was announced
+  bossKilledAt?: Record<string, number>; // week key -> when its boss fell, for the bestiary
+  finalBossWeek?: string; // week key of the Couch King fight, once all 8 bosses have fallen
+  syndicateBroken?: number; // when the Couch King fell: unlocks its theme
+  pauses?: Pause[]; // sick/away periods (pause.ts)
 };
 
 export type CalEvent = {
@@ -220,3 +230,7 @@ export type CalEvent = {
 export type CalInfo = { id: string; title: string; account: string; color?: string };
 
 export type CalStatus = 'unsupported' | 'unknown' | 'denied' | 'granted';
+
+// cluster A
+/** Sick or away, from and to inclusive (day keys). */
+export type Pause = { from: string; to: string; kind: 'sick' | 'away' };

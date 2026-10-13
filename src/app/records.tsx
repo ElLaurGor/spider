@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Card, H, Row, T } from '@/components/ui';
@@ -15,7 +16,14 @@ export default function RecordsScreen() {
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
       <Card accent={C.yellow}>
-        <H>🏆 Hall of Fame</H>
+        <H
+          right={
+            <Text style={{ color: C.red, fontWeight: '700', fontSize: 13 }} onPress={() => router.push('/bestiary')}>
+              Bestiary →
+            </Text>
+          }>
+          🏆 Hall of Fame
+        </H>
         {fame.map((r) => (
           <RecordRow key={r.label} r={r} />
         ))}

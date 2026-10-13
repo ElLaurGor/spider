@@ -37,6 +37,12 @@ import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
 import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
 import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/weather';
 import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
+// cluster A
+import { bestiary, lastKillDay, LORE } from '../src/lib/bestiary';
+import { WEEKDAYS_LONG } from '../src/lib/dates';
+import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
+import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
+import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -59,6 +65,7 @@ for (let i = 0; i < 100; i++) {
 }
 // every placeholder used in a pool is one we actually pass somewhere
 const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins']);
+for (const k of ['weakness', 'day', 'until']) known.add(k); // cluster A
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -613,7 +620,7 @@ console.log('all logic tests passed');
   assert.ok(!WEAKNESS.snooze.hit(b, { ...early, water: [{ id: 'l', ml: 250, at: atTime(new Date(), 0, 9).getTime() }] }, k));
   // when this week's boss is weak to the day, the bonus is half the day's XP
   const now = bossFor(b);
-  assert.equal(now.bonus, WEAKNESS[now.id].hit(b, b.days[k], k) ? 50 : 0);
+  assert.equal(now.bonus, WEAKNESS[now.id as keyof typeof WEAKNESS].hit(b, b.days[k], k) ? 50 : 0);
 }
 
 // seasons: dates, one seasonal quest a day in season, Halloween boss skins, seasonal secrets, first snow per winter
@@ -737,4 +744,136 @@ console.log('all logic tests passed');
   // The Binge Necromancer: today isn't within budget until it's over
   assert.ok(!WEAKNESS.binge.hit(base, lateDay, k));
   assert.ok(WEAKNESS.binge.hit(base, lateDay, dayKey(addDays(new Date(), -1))));
+}
+
+// ---- cluster A ----
+{
+  const empty = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+  const monday = new Date(2027, 0, 11); // a Monday
+  const mk = (n: number) => dayKey(addDays(monday, n));
+  // 10 days of 100 XP before the week: pace 100/day -> 100 x 7 x 1.1 = 770 -> 750 HP
+  const paced = () => {
+    const st = defaultState();
+    for (let i = 1; i <= 10; i++) st.days[mk(-i)] = { ...empty(), xpEarned: 100 };
+    return st;
+  };
+  assert.equal(bossFor(paced(), monday).maxHp, 750);
+
+  // pause: a range, capped at 7 days a calendar month, ended early
+  let ps = startPause(defaultState(), 'sick', 3, '2027-03-10');
+  assert.ok(pausedOn(ps, '2027-03-11') && pausedOn(ps, '2027-03-12') && !pausedOn(ps, '2027-03-13'));
+  ps = startPause(ps, 'away', 10, '2027-03-10'); // changing it re-measures from today
+  assert.equal(ps.pauses?.length, 1);
+  assert.equal(ps.pauses?.[0].to, '2027-03-16');
+  assert.equal(startPause(ps, 'sick', 2, '2027-03-20'), ps, "March's 7 days are used up");
+  ps = endPause(ps, '2027-03-12');
+  assert.ok(pausedOn(ps, '2027-03-11') && !pausedOn(ps, '2027-03-12'));
+  assert.equal(endPause(startPause(defaultState(), 'sick', 2, '2027-03-10'), '2027-03-10').pauses?.length, 0);
+  // across a month boundary each month has its own cap
+  assert.equal(startPause(defaultState(), 'away', 4, '2027-03-30').pauses?.[0].to, '2027-04-02');
+
+  // paused days: left out of the pace, shrink the boss, one quest a day, no league demotion
+  const pz = paced();
+  pz.days[mk(-11)] = { ...empty(), xpEarned: 100 };
+  pz.days[mk(-12)] = { ...empty(), xpEarned: 100 };
+  pz.days[mk(-4)] = { ...empty(), xpEarned: 0 };
+  pz.pauses = [{ from: mk(-4), to: mk(-4), kind: 'sick' }];
+  assert.equal(paceOf(pz, monday), 100);
+  pz.pauses.push({ from: mk(0), to: mk(1), kind: 'away' });
+  assert.equal(pausedInWeek(pz, monday), 2);
+  assert.equal(bossFor(pz, monday).maxHp, 550); // 750 x 5/7 = 536 -> 550
+  pz.days[mk(0)] = { ...empty(), quests: ['water_goal', 'meals', 'mood'] };
+  assert.equal(questsFor(pz, addDays(monday, 0)).length, 1);
+  const lgA = defaultState();
+  lgA.league = newLeague(2, mk(0));
+  assert.equal(settle(lgA).tier, 1, 'last place demotes');
+  lgA.pauses = [{ from: mk(0), to: mk(2), kind: 'sick' }];
+  assert.equal(settle(lgA).tier, 2, '3 sick days: no demotion');
+
+  // weak spot: no water goal all week -> one quest aims at water, in slot 2
+  const ws = defaultState();
+  for (let i = 1; i <= 5; i++) ws.days[mk(-i)] = empty();
+  assert.equal(weakSpot(ws, monday), 'water');
+  const wp = pickQuestsWithFocus(ws, monday);
+  assert.ok(wp.focus && WEAK_SPOT_QUESTS.water.includes(wp.focus.id));
+  assert.equal(wp.ids[1], wp.focus!.id);
+  assert.equal(wp.ids.length, 3);
+  assert.equal(weakSpot(defaultState(), monday), null, 'too little data');
+
+  // quest swap: once a day, only quests with no progress, to one with no progress
+  const rq = defaultState();
+  const tue = new Date(2027, 0, 12, 12);
+  rq.days[dayKey(tue)] = { ...empty(), quests: ['water_goal', 'meals', 'mood'] };
+  const swap = rerollFor(rq, 'meals', tue);
+  assert.ok(swap && !['water_goal', 'meals', 'mood'].includes(swap));
+  rq.days[dayKey(tue)].water = [{ id: 'w', ml: 250, at: tue.getTime() }];
+  assert.equal(rerollFor(rq, 'water_goal', tue), null, 'already started');
+  rq.days[dayKey(tue)].questRerolled = true;
+  assert.equal(rerollFor(rq, 'meals', tue), null, 'once a day');
+
+  // rage: below half HP the boss gets a second weakness from the next day on
+  let rageMonday: Date | null = null;
+  for (let i = 0; i < 400 && !rageMonday; i++) {
+    const m = addDays(monday, 7 * i);
+    const id = bossFor(defaultState(), m).id;
+    if (['doomscroll', 'snooze', 'sugar_baron', 'procrastinator'].includes(id) && rageWeaknessOf(id, dayKey(m)) === 'dehydration') rageMonday = m;
+  }
+  assert.ok(rageMonday, 'a week whose rage weakness is water');
+  const rm = rageMonday!;
+  const rk = (n: number) => dayKey(addDays(rm, n));
+  const rs = defaultState();
+  for (let i = 1; i <= 10; i++) rs.days[rk(-i)] = { ...empty(), xpEarned: 100 };
+  const wet = () => [{ id: 'w', ml: rs.settings.waterGoalMl, at: new Date(`${rk(1)}T12:00`).getTime() }];
+  rs.days[rk(0)] = { ...empty(), xpEarned: 100 };
+  rs.days[rk(1)] = { ...empty(), xpEarned: 100, water: wet() };
+  assert.equal(bossFor(rs, rm).bonus, 0, 'not enraged yet: water does nothing');
+  rs.days[rk(0)].xpEarned = 400; // 400 of 750 HP on Monday: enraged
+  const raged = bossFor(rs, rm);
+  assert.equal(raged.ragedOn, rk(0));
+  assert.ok(raged.rageWeakness);
+  assert.equal(raged.bonus, 50);
+  assert.equal(raged.damage, 400 + 100 + 50);
+
+  // overkill: waves of henchmen (15 % of the boss's HP each)
+  const ok = paced();
+  ok.days[mk(0)] = { ...empty(), xpEarned: 2000 };
+  const okb = bossFor(ok, monday);
+  assert.equal(okb.minionHp, 110);
+  assert.equal(okb.minions, Math.floor((okb.damage - 750) / 110));
+  assert.equal(okb.minionProgress, okb.damage - 750 - okb.minions * 110);
+
+  // the Couch King: after all 8 bosses fell in earlier weeks, once, 1.5x HP, every weakness
+  const fk = paced();
+  BOSSES.forEach((b, i) => (fk.bossesDefeated[dayKey(addDays(monday, -7 * (i + 1)))] = b.id));
+  assert.ok(finalBossDue(fk, mk(0)));
+  assert.ok(!finalBossDue({ ...fk, bossesDefeated: { [mk(-7)]: 'binge' } }, mk(0)));
+  fk.finalBossWeek = mk(0);
+  assert.ok(!finalBossDue(fk, mk(7)), 'only once');
+  const king = bossFor(fk, monday);
+  assert.equal(king.id, FINAL_BOSS.id);
+  assert.equal(king.maxHp, 1150); // 750 x 1.5 = 1125 -> 1150
+  assert.equal(king.weakness, "any boss's weakness");
+  assert.ok(`taunt_${FINAL_BOSS.id}` in LINES);
+
+  // ranks: a boss back after 8 weeks is "II"
+  const rk2 = defaultState();
+  rk2.days[mk(-56)] = { ...empty(), xpEarned: 50 };
+  assert.ok(bossFor(rk2, monday).name.endsWith(' II'));
+  assert.equal(bossFor(rk2, monday).rank, 2);
+  assert.equal(bossFor(defaultState(), monday).rank, 1);
+
+  // bestiary: fights since the first XP, wins, fastest kill, lore after a win
+  const bs = defaultState();
+  bs.days[mk(-14)] = { ...empty(), xpEarned: 50 };
+  const first = bossFor(bs, addDays(monday, -14));
+  bs.bossesDefeated[mk(-14)] = first.id;
+  bs.bossKilledAt = { [mk(-14)]: new Date(`${mk(-10)}T18:30`).getTime() };
+  const row = bestiary(bs, monday).find((r) => r.id === first.id)!;
+  assert.equal(row.wins, 1);
+  assert.equal(row.fights, 1);
+  assert.equal(row.fastest?.time, '18:30');
+  assert.equal(row.lore, LORE[first.id]);
+  assert.equal(bestiary(bs, monday).filter((r) => r.fights > 0).length, 3, 'three weeks, three bosses');
+  assert.equal(lastKillDay(bs, first.id, mk(0)), WEEKDAYS_LONG[new Date(`${mk(-10)}T12:00`).getDay()]);
+  assert.equal(lastKillDay(bs, first.id, mk(-14)), null);
 }

@@ -16,6 +16,7 @@ import { findPlace } from '@/lib/weather';
 import { levelForXp } from '@/lib/xp';
 import { sendTestRoast } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
+import { PauseCard } from '@/components/pause-card';
 import type { NotifyPrefs, Settings } from '@/lib/types';
 
 const SAVAGE_LABEL = (v: number) => (v <= 2 ? 'polite butler' : v <= 5 ? 'sassy' : v <= 8 ? 'savage' : 'no mercy');
@@ -84,7 +85,9 @@ export default function SettingsScreen() {
 
   const applyTheme = (id: ThemeId) => {
     if (id === THEME_ID) return;
-    if (!themeUnlocked(id, level)) return say(`${THEMES[id].name} unlocks at level ${THEMES[id].level}. Earn it.`, 'bad');
+    if (!themeUnlocked(id, level, state)) {
+      return say('unlock' in THEMES[id] ? `${THEMES[id].name} is a trophy: beat the Couch King to wear it.` : `${THEMES[id].name} unlocks at level ${THEMES[id].level}. Earn it.`, 'bad');
+    }
     Alert.alert(`Switch to ${THEMES[id].name}?`, 'S.P.I.D.E.R. restarts to change outfits. Takes a second.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -147,7 +150,7 @@ export default function SettingsScreen() {
         </T>
         {themeIds.map((id) => {
           const t = THEMES[id];
-          const open = themeUnlocked(id, level);
+          const open = themeUnlocked(id, level, state);
           return (
             <Pressable key={id} onPress={() => applyTheme(id)} style={({ pressed }) => [{ opacity: open ? (pressed ? 0.7 : 1) : 0.4 }]}>
               <Row>
@@ -158,13 +161,15 @@ export default function SettingsScreen() {
                 </View>
                 <T style={{ flex: 1 }}>{t.name}</T>
                 <Text style={{ color: id === THEME_ID ? C.green : C.dim, fontWeight: '700', fontSize: 12 }}>
-                  {id === THEME_ID ? '✓ active' : open ? 'tap to use' : `🔒 LVL ${t.level}`}
+                  {id === THEME_ID ? '✓ active' : open ? 'tap to use' : 'unlock' in t ? '🔒 trophy' : `🔒 LVL ${t.level}`}
                 </Text>
               </Row>
             </Pressable>
           );
         })}
       </Card>
+
+      <PauseCard />
 
       <Card>
         <H>Daily goals</H>

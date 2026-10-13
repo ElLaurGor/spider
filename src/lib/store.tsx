@@ -35,7 +35,8 @@ import {
   snoozeWater,
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
-import { bossFor, pickQuests, questsFor } from './quests';
+import { bossFor, finalBossDue, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_COST, questsFor, rerollFor, weekKey } from './quests';
+import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
 import { canSign, contractProgress, goalOf, roughWeek } from './contracts';
 import { respectFor } from './respect';
 import { isSnow, seasonOn, winterOf } from './seasons';
@@ -179,7 +180,10 @@ function checkQuests(s: State, msgs: Msg[]): State {
   if (!s.onboarded) return s;
   const key = dayKey();
   let next = s;
-  if (!dayOf(next, key).quests) next = patchDay(next, key, (d) => ({ ...d, quests: pickQuests(next) }));
+  if (!dayOf(next, key).quests) {
+    const picked = pickQuestsWithFocus(next);
+    next = patchDay(next, key, (d) => ({ ...d, quests: picked.ids, questFocus: picked.focus ?? undefined }));
+  }
 
   for (const q of questsFor(next)) {
     if ((dayOf(next, key).questsDone ?? []).includes(q.id) || q.progress < q.target) continue;
@@ -196,13 +200,40 @@ function checkQuests(s: State, msgs: Msg[]): State {
     next = reward(next, msgs, XP.questsAll, BONUS_MIN.questsAll);
   }
 
+  // The week after all 8 bosses have fallen, the Lazy Syndicate's ruler shows up instead.
+  const week = weekKey();
+  if (finalBossDue(next, week) && !next.bossesDefeated[week]) {
+    next = { ...next, finalBossWeek: week };
+    const king = bossFor(next);
+    msgs.push({ text: `${king.emoji} ${L(next, 'finalBossArrives', { boss: king.name })}`, tone: 'epic' });
+  }
+
   const boss = bossFor(next);
   if (!boss.defeated && boss.hp <= 0) {
-    next = bump({ ...next, bossesDefeated: { ...next.bossesDefeated, [boss.key]: boss.id } }, 'bosses');
+    next = bump(
+      { ...next, bossesDefeated: { ...next.bossesDefeated, [boss.key]: boss.id }, bossKilledAt: { ...next.bossKilledAt, [boss.key]: Date.now() } },
+      'bosses',
+    );
     const season = seasonOn();
     if (season) next = { ...next, seasonWins: [...(next.seasonWins ?? []), `${season.id}-${new Date().getFullYear()}`] };
     msgs.push({ text: `${boss.emoji} ${L(next, 'bossDefeated', { boss: boss.name })}`, tone: 'epic' });
     next = reward(next, msgs, XP.boss, BONUS_MIN.boss);
+    if (boss.final) {
+      next = { ...next, syndicateBroken: Date.now(), coins: next.coins + 500, coinsEarned: next.coinsEarned + 500 };
+      msgs.push({ text: `👑 ${L(next, 'syndicateBroken', { boss: boss.name })}`, tone: 'epic' });
+    }
+  } else if (!boss.defeated && boss.rageWeakness && next.bossPhaseSeen !== boss.key) {
+    next = { ...next, bossPhaseSeen: boss.key };
+    msgs.push({ text: `${boss.emoji} ${L(next, 'bossEnraged', { boss: boss.name, weakness: boss.rageWeakness })}`, tone: 'epic' });
+  }
+
+  // Overkill: every wave of henchmen beaten after the boss pays coins (not XP, so levels don't inflate).
+  const after = bossFor(next);
+  const paid = next.minionsPaid?.[after.key] ?? 0;
+  if (after.defeated && after.minions > paid) {
+    const coins = (after.minions - paid) * MINION_COINS;
+    next = { ...next, coins: next.coins + coins, coinsEarned: next.coinsEarned + coins, minionsPaid: { ...next.minionsPaid, [after.key]: after.minions } };
+    msgs.push({ text: `👾 ${L(next, 'minionDown', { n: after.minions, coins })}`, tone: 'good' });
   }
   return next;
 }
@@ -1150,6 +1181,51 @@ function useStoreValue() {
             msgs.push({ text: L(next, 'habitAllDone'), tone: 'epic' });
             next = reward(next, msgs, XP.habitsAll);
           }
+          return next;
+        });
+      },
+
+      // --- quest swap (once a day, for coins) ---
+      rerollQuest(id: string) {
+        run((s, msgs) => {
+          const swap = rerollFor(s, id);
+          if (!swap) return s;
+          if (s.coins < QUEST_REROLL_COST) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: QUEST_REROLL_COST - s.coins }), tone: 'bad' });
+            return s;
+          }
+          const next = patchDay({ ...s, coins: s.coins - QUEST_REROLL_COST }, dayKey(), (d) => ({
+            ...d,
+            quests: (d.quests ?? []).map((q) => (q === id ? swap : q)),
+            questRerolled: true,
+            questFocus: d.questFocus?.id === id ? undefined : d.questFocus,
+          }));
+          const title = questsFor(next).find((q) => q.id === swap)?.title ?? swap;
+          msgs.push({ text: `⟳ ${L(next, 'questRerolled', { quest: title })}`, tone: 'info' });
+          return next;
+        });
+      },
+
+      // --- sick / away mode ---
+      startPause(kind: 'sick' | 'away', days: number) {
+        run((s, msgs) => {
+          const next = pauseStarted(s, kind, days);
+          const p = pauseOn(next);
+          if (next === s || !p) {
+            msgs.push({ text: 'This month already has 7 paused days. That is the limit, sorry.', tone: 'info' });
+            return s;
+          }
+          const until = p.to === dayKey() ? 'tonight' : WEEKDAYS_LONG[new Date(`${p.to}T12:00`).getDay()];
+          msgs.push({ text: L(next, kind === 'sick' ? 'pauseSick' : 'pauseAway', { until }), tone: 'info' });
+          return next;
+        });
+      },
+
+      endPause() {
+        run((s, msgs) => {
+          if (!pauseOn(s)) return s;
+          const next = pauseEnded(s);
+          msgs.push({ text: L(next, 'pauseOff'), tone: 'info' });
           return next;
         });
       },

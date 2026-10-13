@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ContractCard } from '@/components/contract-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
+import { PauseBanner } from '@/components/pause-card';
 import { QuestsCard } from '@/components/quests-card';
 import { SleepCheckIn } from '@/components/sleep-checkin';
 import { SpiderAvatar } from '@/components/spider-avatar';
@@ -101,6 +102,7 @@ export default function HQ() {
       <OutsideAlerts />
       <CountdownRow />
       <SleepCheckIn />
+      <PauseBanner />
       <LowBatteryCard />
       <WindDownCard />
 

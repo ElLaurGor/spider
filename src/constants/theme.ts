@@ -40,6 +40,13 @@ export const THEMES = {
     level: 9,
     colors: { bg: '#08040F', card: '#120A1E', card2: '#1B102C', border: '#2E1C47', red: '#FF2E88', redDim: '#3D0F26', blue: '#00E5FF', blueDim: '#06323A' },
   },
+  // A trophy, not a level reward: beat the Couch King (quests.ts FINAL_BOSS). `level` is only for sorting.
+  crown: {
+    name: "Couch King's Crown",
+    level: 999,
+    unlock: 'syndicate',
+    colors: { bg: '#0A0507', card: '#170B11', card2: '#22101A', border: '#3D1C2C', red: '#E0B43A', redDim: '#3D300C', blue: '#C2185B', blueDim: '#3D0A1F' },
+  },
 };
 export type ThemeId = keyof typeof THEMES;
 
