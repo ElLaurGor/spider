@@ -175,4 +175,14 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
   { id: 's_entomologist', title: 'Entomologist', desc: 'Caught 10 different flies', hint: 'A jar full of tiny friends.', icon: 'bug_report', test: (s) => Object.keys(s.flies ?? {}).length >= 10 },
   // cluster F
   { id: 's_egg_hunter', title: 'Egg Hunter', desc: 'Found all five Easter eggs in one year', hint: 'Something is hiding in every tab. Only at Easter.', icon: 'egg', test: allEggsSomeYear },
+  // cluster E
+  {
+    id: 's_monster_hunter',
+    title: 'Monster Hunter',
+    desc: 'Finished a task that had been open for a week or more',
+    hint: 'Some things refuse to die. Until you.',
+    icon: 'skull',
+    // 7 days = IMMORTAL_DAYS in memory.ts (not imported: memory → report → quests → xp would be a cycle later)
+    test: (s) => s.tasks.some((t) => t.done && t.doneAt != null && t.doneAt - t.createdAt >= 7 * 86_400_000),
+  },
 ];

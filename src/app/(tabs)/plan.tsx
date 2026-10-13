@@ -2,13 +2,16 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { CountdownsCard } from '@/components/countdowns-card';
+import { EntryEditor } from '@/components/entry-editor';
 import { HabitsCard } from '@/components/habits-card';
 import { HiddenEgg, ValborgBonfire } from '@/components/swedish-year';
 import { Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { addDays, fmtTime, WEEKDAYS } from '@/lib/dates';
+import { IMMORTAL_DAYS, taskAgeDays } from '@/lib/memory';
 import { eventsOn, freeSlots, workoutFor } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import type { Task } from '@/lib/types';
 import { BONUS_MIN, XP } from '@/lib/xp';
 
 export default function Plan() {
@@ -16,6 +19,7 @@ export default function Plan() {
   const [offset, setOffset] = useState(0);
   const [draft, setDraft] = useState('');
   const [showDone, setShowDone] = useState(false);
+  const [renaming, setRenaming] = useState<Task | null>(null);
 
   const date = addDays(new Date(), offset);
   const dayEvents = eventsOn(cal.events, date);
@@ -130,7 +134,15 @@ export default function Plan() {
         </Row>
         {open.length === 0 ? <T dim small>{emptyLine}</T> : null}
         {open.map((t) => (
-          <TaskRow key={t.id} title={t.title} done={false} onToggle={() => actions.toggleTask(t.id)} onDelete={() => actions.deleteTask(t.id)} />
+          <TaskRow
+            key={t.id}
+            title={t.title}
+            done={false}
+            age={taskAgeDays(t)}
+            onToggle={() => actions.toggleTask(t.id)}
+            onEdit={() => setRenaming(t)}
+            onDelete={() => actions.deleteTask(t.id)}
+          />
         ))}
         {done.length > 0 ? (
           <Row style={{ justifyContent: 'space-between' }}>
@@ -148,26 +160,61 @@ export default function Plan() {
         ) : null}
         {showDone &&
           done.map((t) => (
-            <TaskRow key={t.id} title={t.title} done onToggle={() => actions.toggleTask(t.id)} onDelete={() => actions.deleteTask(t.id)} />
+            <TaskRow
+              key={t.id}
+              title={t.title}
+              done
+              onToggle={() => actions.toggleTask(t.id)}
+              onEdit={() => setRenaming(t)}
+              onDelete={() => actions.deleteTask(t.id)}
+            />
           ))}
         <ValborgBonfire />
         <T dim small>
-          Each finished task: +{XP.task} XP and +{BONUS_MIN.task} min gaming time.
+          Each finished task: +{XP.task} XP and +{BONUS_MIN.task} min gaming time. Long-press one to rename it.
         </T>
+        {renaming ? (
+          <EntryEditor
+            title="Rename task"
+            name={renaming.title}
+            onSave={(_at, v) => v.name && actions.renameTask(renaming.id, v.name)}
+            onDelete={() => actions.deleteTask(renaming.id)}
+            onClose={() => setRenaming(null)}
+          />
+        ) : null}
       </Card>
       <HiddenEgg id="plan" align="flex-start" />
     </Screen>
   );
 }
 
-function TaskRow({ title, done, onToggle, onDelete }: { title: string; done: boolean; onToggle: () => void; onDelete: () => void }) {
+function TaskRow({
+  title,
+  done,
+  age,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  done: boolean;
+  age?: number; // days open, for the immortal-task badge
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   return (
     <Row>
-      <Pressable onPress={onToggle} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+      <Pressable onPress={onToggle} onLongPress={onEdit} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
         <Icon name={done ? 'check_circle' : 'radio_button_unchecked'} size={22} color={done ? C.green : C.dim} />
         <T dim={done} style={[{ flex: 1 }, done && { textDecorationLine: 'line-through' }]}>
           {title}
         </T>
+        {!done && age != null && age >= IMMORTAL_DAYS ? (
+          <T small style={{ color: C.yellow }}>
+            🧟 {age} days
+          </T>
+        ) : null}
       </Pressable>
       <Pressable onPress={onDelete} hitSlop={8}>
         <Icon name="close" size={18} color={C.faint} />

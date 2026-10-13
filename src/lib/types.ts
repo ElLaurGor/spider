@@ -56,6 +56,8 @@ export type Settings = {
   calendarIds: string[] | null; // null = every calendar on the phone
   // cluster F
   redDaysOff: boolean; // red days (swedish-days.ts) are rest days: no planned workout, no gym reminders
+  // cluster E
+  hq?: { order: string[]; hidden: string[] }; // HQ card order and hidden cards (lib/hq-layout.ts); unset = the default
 };
 
 // `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.
@@ -253,6 +255,9 @@ export type State = {
   // cluster F
   eggsFound?: Record<string, Record<string, number>>; // Easter hunt: year -> egg id -> found at
   backupFolderUri?: string | null; // folder picked for automatic weekly backups (a persisted SAF uri)
+  // cluster E
+  rivalTalk?: { week: string; rank: number; day: string; n: number } | null; // last league rank seen and today's rival remarks (rival-talk.ts)
+  topTomorrow?: { day: string; ids: string[] } | null; // task ids picked in an evening debrief for that day's top 3 (memory.ts)
 };
 
 export type DiaryPage = { n: number; at: number; day: string; text: string };

@@ -10,6 +10,7 @@ import * as Notifications from './local-notifications';
 import { cycleInfo } from './body';
 import { standings } from './league';
 import { pausedOn } from './pause';
+import { immortalTask } from './memory';
 import { nextDate } from './countdowns';
 import {
   coffeeOf,
@@ -68,8 +69,9 @@ const LINKS: [prefix: string, href: Href][] = [
   ['game-', '/game'],
   [FOCUS_ID, '/focus'],
   ['backup-', '/settings'],
+  ['evening-', '/debrief'],
 ];
-/** The screen a notification opens. Morning, evening, sleep, wind-down and comeback ones open HQ. */
+/** The screen a notification opens. Morning, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
 
 Notifications.setNotificationHandler({
@@ -286,7 +288,10 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     }
 
     if (st.notify.evening) {
-      const body = d === 0 ? say(s, 'eveningReport', { summary: daySummary(s, now) }) : 'Your report card is ready. Open S.P.I.D.E.R. if you dare.';
+      const zombie = immortalTask(s, atTime(now, d, st.sleepHour - 2, 30).getTime());
+      const body =
+        (d === 0 ? say(s, 'eveningReport', { summary: daySummary(s, now) }) : 'Your report card is ready. Open S.P.I.D.E.R. if you dare.') +
+        (zombie ? ` ${say(s, 'immortalTask', { task: zombie.task.title, days: zombie.days })}` : '');
       jobs.push(scheduleAt(`evening-${key}`, atTime(now, d, st.sleepHour - 2, 30), '📋 Daily report card', body, CH.remind));
     }
   }

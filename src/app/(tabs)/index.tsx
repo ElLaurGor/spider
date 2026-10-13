@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ContractCard } from '@/components/contract-card';
 import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { SwedishDaysRow } from '@/components/swedish-year';
+import { DebriefCard, TopThreeCard } from '@/components/debrief-cards';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { PauseBanner } from '@/components/pause-card';
 import { ProgressChips } from '@/components/progress-chips';
@@ -18,11 +19,13 @@ import { OutsideAlerts } from '@/components/outside-alerts';
 import { WeatherRow } from '@/components/weather-row';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
+import { hqVisible, type HqSectionId } from '@/lib/hq-layout';
 import { ACRONYM, type LineKey } from '@/lib/lines';
 import { cycleInfo, sleepInfo } from '@/lib/body';
 import { shownTitle } from '@/lib/cosmetics';
 import { nextStage, stageFor } from '@/lib/evolution';
 import { insightOfTheDay } from '@/lib/insights';
+import { immortalTask, yesterdayHighlight } from '@/lib/memory';
 import { moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
 import { respectFor } from '@/lib/respect';
@@ -62,7 +65,11 @@ function greetingKey(): LineKey {
 
 export default function HQ() {
   const { state, actions, quip, cal, health } = useStore();
-  const [bubble, setBubble] = useState(() => quip(greetingKey()));
+  const [bubble, setBubble] = useState(() => {
+    // Mornings, half the time: a remark about how yesterday actually went.
+    const callback = timeOfDay() === 'morning' && Math.random() < 0.5 ? yesterdayHighlight(state) : null;
+    return callback ? quip(callback.key, callback.vars) : quip(greetingKey());
+  });
   const now = useNow(30_000);
 
   const s = state.settings;
@@ -93,53 +100,22 @@ export default function HQ() {
   const emptyKey = cal.status === 'granted' ? 'calFree' : 'tasksEmpty';
   const emptyLine = useMemo(() => quip(emptyKey), [quip, emptyKey]);
 
-  return (
-    <Screen
-      title="S.P.I.D.E.R."
-      subtitle={ACRONYM}
-      right={
-        <Pressable onPress={() => router.push('/settings')} hitSlop={10} style={styles.gear}>
-          <Icon name="settings" color={C.dim} />
-        </Pressable>
-      }>
-      <SpiderSays text={bubble} onPress={() => setBubble(quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'))} />
-      <WeatherRow />
-      <OutsideAlerts />
-      <CountdownRow />
-      <SwedishDaysRow />
-      <SleepCheckIn />
-      <PauseBanner />
-      <LowBatteryCard />
-      <WindDownCard />
+  // A tap on the spider: a random jab, its opinion of your week, or a word about the task that won't die.
+  const tapSpider = () => {
+    const zombie = immortalTask(state);
+    if (zombie && Math.random() < 0.3) return setBubble(quip('immortalTask', { task: zombie.task.title, days: zombie.days }));
+    setBubble(quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'));
+  };
 
-      {new Date().getDate() <= 5 ? (
-        <Pressable onPress={() => router.push('/wrapped')} style={styles.banner}>
-          <Text style={{ fontSize: 26 }}>🎁</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.bannerTitle}>Your {lastMonth} Wrapped is ready</Text>
-            <T dim small>
-              Tap to see your month. Brace yourself.
-            </T>
-          </View>
-          <Icon name="chevron_right" color={C.dim} />
-        </Pressable>
-      ) : null}
-
-      {season ? (
-        <View style={styles.banner}>
-          <Text style={{ fontSize: 26 }}>{season.emoji}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.bannerTitle}>
-              {season.name}
-              {dayKey(season.lastDay) !== dayKey(now) ? ` · until ${season.lastDay.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · today'}
-            </Text>
-            <T dim small>
-              {season.about}
-            </T>
-          </View>
-        </View>
-      ) : null}
-
+  // The movable cards, by id (lib/hq-layout.ts sets their order and which are hidden).
+  const SECTIONS: Record<HqSectionId, () => ReactNode> = {
+    weather: () => <WeatherRow />,
+    countdowns: () => <CountdownRow />,
+    sleep: () => <SleepCheckIn />,
+    top3: () => <TopThreeCard />,
+    winddown: () => <WindDownCard />,
+    debrief: () => <DebriefCard />,
+    level: () => (
       <Card accent={C.red}>
         <Row style={{ justifyContent: 'space-between' }}>
           <SpiderAvatar size={58} />
@@ -181,24 +157,25 @@ export default function HQ() {
             : 'Respect: still making up its mind. Give it a few days.'}
         </T>
       </Card>
-      <ProgressChips />
-
-      <Row gap={8}>
-        <Btn label="Focus" icon="center_focus_strong" kind="ghost" small onPress={() => router.push('/focus')} style={{ flex: 1 }} />
-        <Btn label="Shop" icon="storefront" kind="ghost" small onPress={() => router.push('/shop')} style={{ flex: 1 }} />
-        <Btn label="Records" icon="emoji_events" kind="ghost" small onPress={() => router.push('/records')} style={{ flex: 1 }} />
-      </Row>
-      <Row gap={8}>
-        <Btn label="Report" icon="assessment" kind="ghost" small onPress={() => router.push('/report')} style={{ flex: 1 }} />
-        <Btn label="Wrapped" icon="redeem" kind="ghost" small onPress={() => router.push('/wrapped')} style={{ flex: 1 }} />
-        <Btn label="Insights" icon="insights" kind="ghost" small onPress={() => router.push('/insights')} style={{ flex: 1 }} />
-      </Row>
-
-      <LeagueCard />
-      <ContractCard />
-      <ExperimentCard compact />
-
-      {insight ? (
+    ),
+    shortcuts: () => (
+      <>
+        <Row gap={8}>
+          <Btn label="Focus" icon="center_focus_strong" kind="ghost" small onPress={() => router.push('/focus')} style={{ flex: 1 }} />
+          <Btn label="Shop" icon="storefront" kind="ghost" small onPress={() => router.push('/shop')} style={{ flex: 1 }} />
+          <Btn label="Records" icon="emoji_events" kind="ghost" small onPress={() => router.push('/records')} style={{ flex: 1 }} />
+        </Row>
+        <Row gap={8}>
+          <Btn label="Report" icon="assessment" kind="ghost" small onPress={() => router.push('/report')} style={{ flex: 1 }} />
+          <Btn label="Wrapped" icon="redeem" kind="ghost" small onPress={() => router.push('/wrapped')} style={{ flex: 1 }} />
+          <Btn label="Insights" icon="insights" kind="ghost" small onPress={() => router.push('/insights')} style={{ flex: 1 }} />
+        </Row>
+      </>
+    ),
+    league: () => <LeagueCard />,
+    contract: () => <ContractCard />,
+    insight: () =>
+      insight ? (
         <Pressable onPress={() => router.push('/insights')}>
           <Card>
             <H right={<T dim small>all insights →</T>}>Insight of the day</H>
@@ -208,11 +185,9 @@ export default function HQ() {
             </Row>
           </Card>
         </Pressable>
-      ) : null}
-
-      <QuestsCard />
-      <WildCard />
-
+      ) : null,
+    quests: () => <QuestsCard />,
+    tiles: () => (
       <View style={styles.grid}>
         <Tile icon="water_drop" color={C.water} label="Water" onPress={() => router.navigate('/fuel')}>
           <Text style={styles.tileVal}>
@@ -296,7 +271,8 @@ export default function HQ() {
           </T>
         </Tile>
       </View>
-
+    ),
+    buttons: () => (
       <Row>
         <Btn label={`+${s.glassMl} ml`} icon="water_drop" kind="blue" onPress={() => actions.addWater(s.glassMl)} style={{ flex: 1 }} />
         {state.activeGame ? (
@@ -305,7 +281,8 @@ export default function HQ() {
           <Btn label="Start gaming" icon="play_arrow" kind="ghost" onPress={() => actions.startGame()} style={{ flex: 1 }} />
         )}
       </Row>
-
+    ),
+    upnext: () => (
       <Card>
         <H right={<Text style={styles.link} onPress={() => router.navigate('/plan')}>Plan →</Text>}>Up next</H>
         {upcoming.length > 0 &&
@@ -332,7 +309,8 @@ export default function HQ() {
           </T>
         ) : null}
       </Card>
-
+    ),
+    achievements: () => (
       <Card>
         <H
           right={
@@ -359,6 +337,66 @@ export default function HQ() {
           })}
         </View>
       </Card>
+    ),
+    swedishDays: () => <SwedishDaysRow />,
+    progress: () => <ProgressChips />,
+    experiment: () => <ExperimentCard compact />,
+    wild: () => <WildCard />,
+    // NEW HQ CARD: add `<id>: () => <YourCard />,` here and `{ id, label }` to HQ_SECTIONS in lib/hq-layout.ts.
+  };
+
+  return (
+    <Screen
+      title="S.P.I.D.E.R."
+      subtitle={ACRONYM}
+      right={
+        <Pressable onPress={() => router.push('/settings')} hitSlop={10} style={styles.gear}>
+          <Icon name="settings" color={C.dim} />
+        </Pressable>
+      }>
+      {/* Pinned: these can't be moved or hidden. */}
+      <SpiderSays text={bubble} onPress={tapSpider} />
+      <OutsideAlerts />
+      <PauseBanner />
+      <LowBatteryCard />
+
+      {new Date().getDate() <= 5 ? (
+        <Pressable onPress={() => router.push('/wrapped')} style={styles.banner}>
+          <Text style={{ fontSize: 26 }}>🎁</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bannerTitle}>Your {lastMonth} Wrapped is ready</Text>
+            <T dim small>
+              Tap to see your month. Brace yourself.
+            </T>
+          </View>
+          <Icon name="chevron_right" color={C.dim} />
+        </Pressable>
+      ) : null}
+
+      {season ? (
+        <View style={styles.banner}>
+          <Text style={{ fontSize: 26 }}>{season.emoji}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bannerTitle}>
+              {season.name}
+              {dayKey(season.lastDay) !== dayKey(now) ? ` · until ${season.lastDay.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · today'}
+            </Text>
+            <T dim small>
+              {season.about}
+            </T>
+          </View>
+        </View>
+      ) : null}
+
+      {hqVisible(s.hq).map((id) => (
+        <Fragment key={id}>{SECTIONS[id]()}</Fragment>
+      ))}
+
+      <Pressable onPress={() => router.push('/settings')} hitSlop={8}>
+        <T dim small style={{ textAlign: 'center' }}>
+          Arrange or hide HQ cards in Settings →
+        </T>
+      </Pressable>
     </Screen>
   );
 }

@@ -13,7 +13,7 @@ import { sleepInfo } from '@/lib/body';
 import { EMOTIONS, emotionEmoji, MOOD_LEVELS, moodInfo } from '@/lib/mood';
 import { avgMood, dayOf, effectiveSavage, emotionCounts, moodsOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
-import type { MoodLevel } from '@/lib/types';
+import type { MoodEntry, MoodLevel } from '@/lib/types';
 
 export default function MoodScreen() {
   const { state, actions } = useStore();
@@ -22,6 +22,7 @@ export default function MoodScreen() {
   const [note, setNote] = useState('');
   const [sleepDay, setSleepDay] = useState<string | null>(null); // night being logged, by its morning's key
   const [picked, setPicked] = useState<string | null>(null); // a past day being fixed; null = today
+  const [editing, setEditing] = useState<MoodEntry | null>(null); // a check-in being fixed
   const day = picked ?? dayKey();
 
   const today = moodsOf(dayOf(state, day));
@@ -36,19 +37,38 @@ export default function MoodScreen() {
   const toggle = (name: string) =>
     setEmotions(emotions.includes(name) ? emotions.filter((e) => e !== name) : [...emotions, name]);
 
-  const log = () => {
-    if (!level) return;
-    actions.logMood(level, emotions, note, day);
+  const clear = () => {
     setLevel(null);
     setEmotions([]);
     setNote('');
+    setEditing(null);
+  };
+
+  const log = () => {
+    if (!level) return;
+    if (editing) actions.updateMood(editing.id, { level, emotions, note }, day);
+    else actions.logMood(level, emotions, note, day);
+    clear();
+  };
+
+  const edit = (m: MoodEntry) => {
+    setEditing(m);
+    setLevel(m.level);
+    setEmotions(m.emotions);
+    setNote(m.note ?? '');
   };
 
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
-      <DayPicker value={day} onChange={(k) => setPicked(k === dayKey() ? null : k)} />
+      <DayPicker
+        value={day}
+        onChange={(k) => {
+          setPicked(k === dayKey() ? null : k);
+          clear();
+        }}
+      />
       <Card>
-        <H>{day === dayKey() ? 'How are you feeling?' : 'How were you feeling?'}</H>
+        <H>{editing ? `Fixing the ${fmtTime(editing.at)} check-in` : day === dayKey() ? 'How are you feeling?' : 'How were you feeling?'}</H>
         <Row style={{ justifyContent: 'space-between' }}>
           {MOOD_LEVELS.map((m) => {
             const on = level === m.level;
@@ -73,7 +93,13 @@ export default function MoodScreen() {
           ))}
         </Row>
         <Field value={note} onChangeText={setNote} placeholder="Note (optional)" />
-        <Btn label={level ? `Log ${moodInfo(level).emoji}` : 'Pick a mood first'} icon="check_circle" onPress={log} disabled={!level} />
+        <Btn
+          label={!level ? 'Pick a mood first' : editing ? `Save ${moodInfo(level).emoji}` : `Log ${moodInfo(level).emoji}`}
+          icon="check_circle"
+          onPress={log}
+          disabled={!level}
+        />
+        {editing ? <Btn label="Cancel" kind="ghost" onPress={clear} /> : null}
         {goingEasy ? (
           <T small style={{ color: C.cyan }}>
             Roasts are dialed down for today. Log a better mood later to bring them back.
@@ -90,9 +116,10 @@ export default function MoodScreen() {
           <T dim small>
             {day === dayKey() ? 'No check-ins yet today.' : 'No check-ins that day.'}
           </T>
-        ) : (
-          today.map((m) => (
-            <Row key={m.id} style={{ alignItems: 'flex-start' }}>
+        ) : null}
+        {today.map((m) => (
+          <Row key={m.id} style={{ alignItems: 'flex-start' }}>
+            <Pressable onPress={() => edit(m)} style={[styles.entry, editing?.id === m.id && { opacity: 0.5 }]}>
               <Text style={styles.time}>{fmtTime(m.at)}</Text>
               <Text style={{ fontSize: 20 }}>{moodInfo(m.level).emoji}</Text>
               <View style={{ flex: 1, gap: 2 }}>
@@ -103,12 +130,22 @@ export default function MoodScreen() {
                   </T>
                 ) : null}
               </View>
-              <Pressable onPress={() => actions.removeMood(m.id, day)} hitSlop={8}>
-                <Icon name="close" size={18} color={C.faint} />
-              </Pressable>
-            </Row>
-          ))
-        )}
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (editing?.id === m.id) clear();
+                actions.removeMood(m.id, day);
+              }}
+              hitSlop={8}>
+              <Icon name="close" size={18} color={C.faint} />
+            </Pressable>
+          </Row>
+        ))}
+        {today.length > 0 ? (
+          <T dim small>
+            Tap a check-in to fix it.
+          </T>
+        ) : null}
       </Card>
 
       <Card>
@@ -193,5 +230,6 @@ const styles = StyleSheet.create({
   },
   moodLabel: { color: C.dim, fontSize: 11, fontWeight: '700' },
   time: { color: C.dim, fontFamily: MONO, fontSize: 12, marginTop: 4 },
+  entry: { flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   dayLabel: { color: C.dim, fontSize: 11, fontWeight: '700' },
 });

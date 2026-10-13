@@ -8,6 +8,7 @@ import { dayKey } from '@/lib/dates';
 import { PITY_AFTER } from '@/lib/economy';
 import { standings, TIERS } from '@/lib/league';
 import { goldChest, GOLD_SCORE } from '@/lib/loot';
+import { topToday } from '@/lib/memory';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 
@@ -102,7 +103,9 @@ export function LeagueCard() {
 export function LowBatteryCard() {
   const { state } = useStore();
   if (!lowBattery(dayOf(state))) return null;
-  const mustDos = state.tasks.filter((t) => !t.done).slice(0, 3);
+  // Last night's debrief picks first, else the newest open tasks.
+  const picked = topToday(state).filter((t) => !t.done);
+  const mustDos = picked.length ? picked : state.tasks.filter((t) => !t.done).slice(0, 3);
   return (
     <Card accent={C.yellow}>
       <H>🪫 Low-battery mode</H>

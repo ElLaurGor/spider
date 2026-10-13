@@ -21,6 +21,10 @@ import {
 import { SECRET_ACHIEVEMENTS } from '../src/lib/xp';
 import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log';
 import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '../src/lib/xp';
+import { HQ_SECTIONS, hqOrder, hqVisible, moveSection, toggleSection } from '../src/lib/hq-layout';
+import { fmtTime } from '../src/lib/dates';
+import { allRivalLines, rivalTalk } from '../src/lib/rival-talk';
+import { eveningKey, IMMORTAL_DAYS, immortalTask, taskAgeDays, tomorrowKey, topToday, yesterdayHighlight } from '../src/lib/memory';
 import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/lib/league';
 import { coinsFor, rollChest } from '../src/lib/economy';
 import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
@@ -88,7 +92,7 @@ for (let i = 0; i < 100; i++) {
   assert.ok(!t.includes('{'), t);
 }
 // every placeholder used in a pool is one we actually pass somewhere
-const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins']);
+const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins', /* cluster E */ 'task', 'days', 'water', 'score']);
 for (const k of ['weakness', 'day', 'until']) known.add(k); // cluster A
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
@@ -1376,4 +1380,118 @@ console.log('all logic tests passed');
   rd.settings.redDaysOff = true;
   assert.equal(workoutFor(rd, xmas), null);
   assert.ok(workoutFor(rd, new Date(2027, 5, 25, 12)));
+}
+
+// ---- cluster E ----
+{
+  // HQ layout: default order, saved orders keep their order, retired ids drop out and new ones slot in by their default neighbour
+  const ids = HQ_SECTIONS.map((x) => x.id);
+  assert.deepEqual(hqOrder(), ids);
+  assert.deepEqual(hqOrder({ order: ['achievements', 'gone', 'weather'], hidden: [] }).slice(0, 3), ['achievements', 'weather', 'countdowns']);
+  const saved = hqOrder({ order: ['achievements', 'weather'], hidden: [] });
+  assert.equal(saved.length, ids.length);
+  assert.equal(new Set(saved).size, ids.length);
+  const moved = moveSection(null, 'quests', -1);
+  assert.equal(moved.order.indexOf('quests'), ids.indexOf('quests') - 1);
+  assert.deepEqual(moveSection(null, 'weather', -1).order, ids); // already first
+  const hidden = toggleSection(null, 'league');
+  assert.ok(!hqVisible(hidden).includes('league'));
+  assert.ok(hqVisible(toggleSection(hidden, 'league')).includes('league'));
+
+  // the immortal task: the oldest one open a week or more, counted by age (never "days in a row")
+  const day = 86_400_000;
+  const nowMs = Date.now();
+  const it = defaultState();
+  it.tasks = [
+    { id: 'new', title: 'New', done: false, createdAt: nowMs - 2 * day },
+    { id: 'old', title: 'Call the dentist', done: false, createdAt: nowMs - 12 * day - 60_000 },
+    { id: 'older-done', title: 'Done ages ago', done: true, createdAt: nowMs - 40 * day, doneAt: nowMs - 30 * day },
+  ];
+  assert.deepEqual(immortalTask(it, nowMs), { task: it.tasks[1], days: 12 });
+  assert.equal(immortalTask({ ...it, tasks: [it.tasks[0]] }, nowMs), null);
+  assert.equal(taskAgeDays(it.tasks[0], nowMs), 2);
+  const hunter = SECRET_ACHIEVEMENTS.find((a) => a.id === 's_monster_hunter')!;
+  assert.ok(hunter.test(it)); // 'Done ages ago' was open 10 days
+  assert.ok(!hunter.test({ ...it, tasks: [it.tasks[0], it.tasks[1]] }));
+  assert.equal(IMMORTAL_DAYS, 7); // the secret's test hard-codes 7 days
+
+  // yesterday callbacks (now: Wednesday 13 Jan 2027, so yesterday was a Tuesday = Pull day in the default plan)
+  const wed = new Date(2027, 0, 13, 9);
+  const tue = '2027-01-12';
+  const blank = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+  const yc = defaultState();
+  assert.equal(yesterdayHighlight(yc, wed), null); // nothing logged yesterday
+  yc.days[tue] = blank();
+  assert.deepEqual(yesterdayHighlight(yc, wed), { key: 'callbackSkip', vars: { workout: 'Pull' } });
+  // a heavier set than any earlier session is a record
+  yc.days['2027-01-05'] = { ...blank(), sets: [{ id: 'a', exercise: 'Barbell row', weight: 50, reps: 8, at: 0 }] };
+  yc.days[tue] = { ...blank(), sets: [{ id: 'b', exercise: 'barbell row ', weight: 55, reps: 6, at: 0 }] };
+  assert.deepEqual(yesterdayHighlight(yc, wed), { key: 'callbackPR', vars: { exercise: 'barbell row', weight: 55 } });
+  // gaming past bedtime (23:00) beats the plain training remark
+  yc.days[tue] = { ...blank(), sets: [{ id: 'b', exercise: 'Barbell row', weight: 45, reps: 6, at: 0 }] };
+  yc.days[tue].games = [{ start: new Date(2027, 0, 12, 22).getTime(), end: new Date(2027, 0, 13, 1, 12).getTime() }];
+  assert.deepEqual(yesterdayHighlight(yc, wed), { key: 'callbackLateGame', vars: { time: fmtTime(new Date(2027, 0, 13, 1, 12)) } });
+  // a low mood yesterday: only kind words
+  yc.days[tue].moods = [{ id: 'm', level: 2, emotions: [], at: 0 }];
+  assert.equal(yesterdayHighlight(yc, wed)?.key, 'callbackGentle');
+  // a rest day with very little water
+  const thu = new Date(2027, 0, 14, 8);
+  yc.days['2027-01-13'] = { ...blank(), water: [{ id: 'w', ml: 500, at: 0 }] };
+  assert.deepEqual(yesterdayHighlight(yc, thu), { key: 'callbackDry', vars: { water: '0.5' } });
+  for (const k of ['callbackGentle', 'callbackPR', 'callbackQuests', 'callbackLateGame', 'callbackSkip', 'callbackWin', 'callbackDry', 'callbackSlow'] as const) {
+    assert.ok(LINES[k].mild.length > 0 && LINES[k].savage.length > 0, k);
+  }
+
+  // rival trash talk: first look only remembers; a pass makes one rival talk; at most two a day; quiet on low-mood days
+  const noon = new Date(2027, 0, 13, 12);
+  const rt = defaultState();
+  rt.onboarded = true;
+  rt.league = newLeague(0, weekKeyOf(noon));
+  const first = rivalTalk(rt, noon)!;
+  assert.equal(first.line, null);
+  assert.equal(first.talk.rank, 10); // 0 XP: last
+  rt.rivalTalk = first.talk;
+  assert.equal(rivalTalk(rt, noon), null); // nothing changed
+  const todayKey = dayKey(noon);
+  rt.days[todayKey] = { ...blank(), xpEarned: 100_000 };
+  const up = rivalTalk(rt, noon, () => 0)!;
+  const table = standings(rt, noon);
+  assert.equal(up.talk.rank, 1);
+  assert.equal(up.talk.n, 1);
+  assert.equal(up.line?.tone, 'good');
+  assert.ok(up.line!.text.startsWith(`${table[1].emoji} ${table[1].name}: "`), up.line!.text); // the one you just passed
+  rt.rivalTalk = up.talk;
+  rt.days[todayKey] = { ...blank(), xpEarned: 0 };
+  const down = rivalTalk(rt, noon, () => 0)!;
+  assert.equal(down.talk.rank, 10);
+  assert.equal(down.line?.tone, 'info');
+  rt.rivalTalk = down.talk;
+  rt.days[todayKey] = { ...blank(), xpEarned: 100_000 };
+  const third = rivalTalk(rt, noon)!;
+  assert.equal(third.line, null); // today's two are used up
+  assert.equal(third.talk.rank, 1);
+  rt.rivalTalk = { ...third.talk, rank: 10, day: '2027-01-12' }; // a new day resets the allowance
+  assert.ok(rivalTalk(rt, noon)!.line);
+  rt.days[todayKey].moods = [{ id: 'm', level: 1, emotions: [], at: noon.getTime() }];
+  assert.equal(rivalTalk(rt, noon)!.line, null); // low mood: rivals keep quiet
+  for (const t of allRivalLines()) {
+    for (const m of t.matchAll(/\{(\w+)\}/g)) assert.equal(m[1], 'name', t);
+  }
+
+  // evening debrief: until 04:00 it's still last night; tonight's top-3 picks show up the next day only
+  const late = new Date(2027, 0, 14, 1, 30).getTime();
+  assert.equal(eveningKey(late), '2027-01-13');
+  assert.equal(tomorrowKey(late), '2027-01-14');
+  assert.equal(tomorrowKey(new Date(2027, 0, 13, 21).getTime()), '2027-01-14');
+  const tt = defaultState();
+  tt.tasks = [
+    { id: 'a', title: 'A', done: false, createdAt: 0 },
+    { id: 'b', title: 'B', done: true, createdAt: 0, doneAt: 1 },
+  ];
+  tt.topTomorrow = { day: '2027-01-14', ids: ['b', 'gone', 'a'] };
+  assert.deepEqual(
+    topToday(tt, new Date(2027, 0, 14, 9).getTime()).map((t) => t.id),
+    ['b', 'a'],
+  );
+  assert.deepEqual(topToday(tt, new Date(2027, 0, 15, 9).getTime()), []);
 }

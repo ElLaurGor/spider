@@ -20,6 +20,7 @@ import { connectHealth, healthStatus, healthSupported, readHealth, type HealthDa
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, type LineKey } from './lines';
+import { IMMORTAL_DAYS, taskAgeDays, tomorrowKey } from './memory';
 import { moodInfo } from './mood';
 import {
   cancelEverything,
@@ -40,6 +41,7 @@ import { bossFor, finalBossDue, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_
 import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
 import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
+import { rivalTalk } from './rival-talk';
 import { isSnow, seasonOn, winterOf } from './seasons';
 import { catchFly as catchPendingFly, caughtCount, FLIES, rollCritters } from './critters';
 import { unlockPages } from './diary';
@@ -310,6 +312,15 @@ function checkRespect(s: State, msgs: Msg[]): State {
   return { ...s, respectTier: tier };
 }
 
+/** A league rival reacts when your rank changes (rival-talk.ts: at most two a day). */
+function checkRivalTalk(s: State, msgs: Msg[]): State {
+  if (!s.onboarded) return s;
+  const r = rivalTalk(s);
+  if (!r) return s;
+  if (r.line) msgs.push(r.line);
+  return { ...s, rivalTalk: r.talk };
+}
+
 /** Pays out a weekly contract as soon as it's reached, and settles a missed one once its week is over. */
 function checkContract(s: State, msgs: Msg[]): State {
   const c = s.contract;
@@ -506,7 +517,7 @@ function useStoreValue() {
       const msgs: Msg[] = [];
       const rolled = checkDayRollover(prev, msgs);
       const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(fn(rolled, msgs), msgs), msgs), msgs), msgs);
-      const next = checkDiary(checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs), msgs);
+      const next = checkRivalTalk(checkDiary(checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone, m.action));
       // Earned bonus minutes mid-session move the gaming alerts.
@@ -796,6 +807,20 @@ function useStoreValue() {
     const t = setTimeout(() => run((s) => s), 0);
     return () => clearTimeout(t);
   }, [ready, state, tick, run]);
+
+  // ----- league rivals earn XP through the day, so they can pass you while the app sits open -----
+  useEffect(() => {
+    if (!ready || !state.onboarded) return;
+    const check = () => {
+      if (rivalTalk(stateRef.current)) run((s) => s);
+    };
+    const first = setTimeout(check, 5_000);
+    const every = setInterval(check, 5 * 60_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, [ready, state.onboarded, tick, run]);
 
   // ----- app foreground / background -----
   useEffect(() => {
@@ -1099,6 +1124,16 @@ function useStoreValue() {
         run((s) => patchDay(s, key, (d) => ({ ...d, moods: moodsOf(d).filter((m) => m.id !== id) })));
       },
 
+      /** Fixes a check-in's mood, emotions or note. Its time and XP stay as they were. */
+      updateMood(id: string, patch: { level: MoodLevel; emotions: string[]; note: string }, key = dayKey()) {
+        run((s) =>
+          patchDay(s, key, (d) => ({
+            ...d,
+            moods: moodsOf(d).map((m) => (m.id === id ? { ...m, level: patch.level, emotions: patch.emotions, note: patch.note.trim() || undefined } : m)),
+          })),
+        );
+      },
+
       // --- gym ---
       logSet(exercise: string, weight: number, reps: number) {
         const next = run((s, msgs) => {
@@ -1140,6 +1175,16 @@ function useStoreValue() {
           if (!set) return s;
           const next = patchDay(s, dayKey(), (d) => ({ ...d, sets: d.sets.filter((x) => x.id !== id) }));
           return reward(recomputePr(next, set.exercise), msgs, -XP.set);
+        });
+      },
+
+      /** Fixes a typo in one of today's sets. The record follows the new numbers; no XP changes hands. */
+      updateSet(id: string, patch: { weight: number; reps: number }) {
+        run((s) => {
+          const set = dayOf(s).sets.find((x) => x.id === id);
+          if (!set) return s;
+          const next = patchDay(s, dayKey(), (d) => ({ ...d, sets: d.sets.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+          return recomputePr(next, set.exercise);
         });
       },
 
@@ -1251,7 +1296,9 @@ function useStoreValue() {
           if (!task) return s;
           const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: !t.done, doneAt: t.done ? undefined : Date.now() } : t));
           if (!task.done) {
-            msgs.push({ text: L(s, 'taskDone'), tone: 'good' });
+            const age = taskAgeDays(task);
+            if (age >= IMMORTAL_DAYS) msgs.push({ text: L(s, 'immortalSlain', { task: task.title, days: age }), tone: 'epic' });
+            else msgs.push({ text: L(s, 'taskDone'), tone: 'good' });
             return reward(bump({ ...s, tasks }, 'tasksDone'), msgs, XP.task, BONUS_MIN.task);
           }
           const doneToday = task.doneAt && dayKey(task.doneAt) === dayKey();
@@ -1261,6 +1308,17 @@ function useStoreValue() {
 
       deleteTask(id: string) {
         run((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
+      },
+
+      /** Tonight's picks for tomorrow's top 3 (the evening debrief). */
+      setTopTomorrow(ids: string[]) {
+        run((s) => ({ ...s, topTomorrow: { day: tomorrowKey(), ids: ids.slice(0, 3) } }));
+      },
+
+      renameTask(id: string, title: string) {
+        const t = title.trim();
+        if (!t) return;
+        run((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, title: t } : x)) }));
       },
 
       clearDoneTasks() {
