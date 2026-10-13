@@ -11,6 +11,10 @@ type NativeUsage = {
   openSettings(): void;
   getUsage(startMs: number, endMs: number): Promise<AppUsage[]>;
   getForegroundSpans(startMs: number, endMs: number): Promise<ForegroundSpan[]>;
+  // APK 1.4.0+
+  startGuard?(endsAtMs: number, keywords: string[], lines: string[], title: string): boolean;
+  stopGuard?(): void;
+  getUnlocks?(startMs: number, endMs: number): Promise<number>;
 };
 
 const native = requireOptionalNativeModule<NativeUsage>('SpiderUsage');
@@ -50,6 +54,36 @@ export async function focusBreaker(start: number, end: number): Promise<string |
   for (const s of spans) time.set(s.label, (time.get(s.label) ?? 0) + (s.end - s.start));
   const worst = [...time.entries()].sort((a, b) => b[1] - a[1])[0];
   return worst && worst[1] >= 30_000 ? worst[0] : null;
+}
+
+/** The Web Focus guard (APK 1.4.0+): nudges the moment a social app opens during focus. */
+export const guardSupported = typeof native?.startGuard === 'function';
+
+export function startFocusGuard(endsAt: number, lines: string[], title: string): boolean {
+  if (!native?.startGuard || !hasUsageAccess()) return false;
+  try {
+    return native.startGuard(endsAt, DOOMSCROLL, lines, title);
+  } catch {
+    return false;
+  }
+}
+
+export function stopFocusGuard() {
+  try {
+    native?.stopGuard?.();
+  } catch {
+    // not running
+  }
+}
+
+/** Phone unlocks between two times (APK 1.4.0+), or null when unknown. */
+export async function unlocksBetween(start: number, end: number): Promise<number | null> {
+  if (!native?.getUnlocks || !hasUsageAccess()) return null;
+  try {
+    return await native.getUnlocks(start, end);
+  } catch {
+    return null;
+  }
 }
 
 /** Social/video apps that count as doomscrolling (matched on package name). */

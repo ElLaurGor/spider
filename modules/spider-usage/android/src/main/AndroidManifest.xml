@@ -4,4 +4,18 @@
   <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
   <!-- Needed on Android 11+ to read app names and the "game" category of other apps. -->
   <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+  <!-- Web Focus guard: a foreground service that runs only during a focus session the user started. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+  <application>
+    <service
+      android:name="expo.modules.spiderusage.GuardService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="Focus guard: during a focus session the user started, watches for distracting apps and nudges right away" />
+    </service>
+  </application>
 </manifest>

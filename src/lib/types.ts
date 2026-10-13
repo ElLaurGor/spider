@@ -50,6 +50,7 @@ export type Settings = {
   aqiAlert: number; // European AQI at or above this triggers an alert
   easyOnPeriod: boolean; // tone down the roasts on period days
   phoneGamesCount: boolean; // auto-detected phone gaming counts toward the gaming budget
+  focusGuard?: boolean; // during Web Focus, nudge the moment a social app opens (APK 1.4.0+, default on)
   phoneLimitMin: number; // daily phone time before S.P.I.D.E.R. gets loud
   notify: NotifyPrefs;
   respectMeetings: boolean;
@@ -79,6 +80,7 @@ export type ScreenDay = {
   doomMin: number; // social/video apps
   gamesMin: number; // apps in Android's "game" category
   top: { label: string; min: number; game: boolean; doom: boolean }[];
+  unlocks?: number; // times the phone was unlocked that day (APK 1.4.0+)
 };
 export type ChestPrize = { kind: 'coins' | 'gaming' | 'double_xp' | 'boss_bomb' | 'legendary'; amount: number; text: string; gold?: boolean };
 export type FocusEntry = { id: string; start: number; end: number; minutes: number; label?: string; snapped?: string };

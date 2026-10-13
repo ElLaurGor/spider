@@ -1106,6 +1106,16 @@ export const LINES = {
       'The watch says this is when you turn into furniture. Prove it wrong.',
     ],
   },
+  // ---- APK 1.4.0: Web Focus guard (shown by the native GuardService, {app} filled in there) ----
+  focusGuard: {
+    mild: ['{app} can wait. Your focus session is still running.', 'Quick reminder: Web Focus is on. Back to it when you can.'],
+    savage: [
+      '{app}? During focus? Close it. I am counting.',
+      'I saw that. {app}, mid-focus. The web is trembling.',
+      'Put {app} down slowly and walk back to your work.',
+      '{app} again. Your focus has the attention span of a goldfish. Prove me wrong.',
+    ],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;
@@ -1122,6 +1132,14 @@ function pickList(key: LineKey, savageLevel: number) {
 
 export const fillLine = (text: string, vars: Record<string, string | number>) =>
   text.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+
+/** A whole pool, for native code that picks its own line later. Keeps `{keep}` placeholders for it to fill. */
+export function poolFor(key: LineKey, savageLevel: number, vars: Record<string, string | number>, keep: string[] = []) {
+  const pool: Pool = LINES[key];
+  const list = savageLevel >= 5 && pool.savage.length > 0 ? pool.savage : pool.mild;
+  const kept = Object.fromEntries(keep.map((k) => [k, `{${k}}`]));
+  return list.map((t) => fillLine(t, { ...kept, ...vars }));
+}
 
 /** A random line. Notifications use this: they're redrawn on every change, so they mustn't use up freshLine's memory. */
 export function line(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}) {

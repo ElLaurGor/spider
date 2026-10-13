@@ -50,6 +50,34 @@ class SpiderUsageModule : Module() {
       }
     }
 
+    // Web Focus guard (GuardService): alerts the moment a distracting app opens, until `endsAtMs`.
+    Function("startGuard") { endsAtMs: Double, keywords: List<String>, lines: List<String>, title: String ->
+      if (!hasUsageAccess()) {
+        false
+      } else {
+        val intent = Intent(context, GuardService::class.java)
+          .putExtra(GuardService.EXTRA_ENDS_AT, endsAtMs.toLong())
+          .putStringArrayListExtra(GuardService.EXTRA_KEYWORDS, ArrayList(keywords))
+          .putStringArrayListExtra(GuardService.EXTRA_LINES, ArrayList(lines))
+          .putExtra(GuardService.EXTRA_TITLE, title)
+        try {
+          context.startForegroundService(intent)
+          true
+        } catch (e: Exception) {
+          false
+        }
+      }
+    }
+
+    Function("stopGuard") {
+      context.stopService(Intent(context, GuardService::class.java))
+    }
+
+    // How many times the phone was unlocked between two times.
+    AsyncFunction("getUnlocks") { startMs: Double, endMs: Double ->
+      countUnlocks(startMs.toLong(), endMs.toLong())
+    }
+
     AsyncFunction("getForegroundSpans") { startMs: Double, endMs: Double ->
       foregroundSpans(startMs.toLong(), endMs.toLong()).map {
         mapOf(
@@ -70,6 +98,19 @@ class SpiderUsageModule : Module() {
       ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
     }
     return mode == AppOpsManager.MODE_ALLOWED
+  }
+
+  private fun countUnlocks(start: Long, end: Long): Int {
+    if (!hasUsageAccess() || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return 0
+    val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+    val events = usm.queryEvents(start, end)
+    val event = UsageEvents.Event()
+    var n = 0
+    while (events.hasNextEvent()) {
+      events.getNextEvent(event)
+      if (event.eventType == UsageEvents.Event.KEYGUARD_HIDDEN) n++
+    }
+    return n
   }
 
   /** Home screen, keyboard and system UI aren't "using an app". Neither is S.P.I.D.E.R. itself. */

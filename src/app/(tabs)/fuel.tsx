@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CaffeineCurve } from '@/components/caffeine-curve';
@@ -20,6 +20,7 @@ import { useStore } from '@/lib/store';
 
 export default function Fuel() {
   const { state, actions, quip } = useStore();
+  const { photo: sharedPhoto } = useLocalSearchParams<{ photo?: string }>();
   const s = state.settings;
   const [picked, setPicked] = useState<string | null>(null); // a past day being fixed; null = today
   const day = picked ?? dayKey();
@@ -91,7 +92,7 @@ export default function Fuel() {
       </Card>
 
       <CoffeeCard day={day} />
-      <FoodCard day={day} />
+      <FoodCard day={day} sharedPhoto={sharedPhoto} />
       <HiddenEgg id="fuel" align="flex-end" />
     </Screen>
   );
@@ -149,7 +150,7 @@ function CoffeeCard({ day }: { day: string }) {
 
 type Picked = { name: string; kcal100: number; protein100: number };
 
-function FoodCard({ day }: { day: string }) {
+function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
   const { state, actions, say } = useStore();
   const s = state.settings;
   const shownDay = dayOf(state, day);
@@ -157,6 +158,15 @@ function FoodCard({ day }: { day: string }) {
   const [kcal, setKcal] = useState('');
   const [protein, setProtein] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
+  // A picture shared from another app arrives as a param: it becomes the meal's photo, waiting for a name.
+  const [takenShare, setTakenShare] = useState<string | undefined>();
+  if (sharedPhoto && sharedPhoto !== takenShare) {
+    setTakenShare(sharedPhoto);
+    setPhoto(sharedPhoto);
+  }
+  useEffect(() => {
+    if (sharedPhoto) router.setParams({ photo: undefined });
+  }, [sharedPhoto]);
   const [viewing, setViewing] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked | null>(null); // a Livsmedelsverket food, fills kcal/protein from grams

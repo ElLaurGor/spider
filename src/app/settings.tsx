@@ -11,7 +11,7 @@ import { pad } from '@/lib/dates';
 import { hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
 import { ACRONYM_REAL, line } from '@/lib/lines';
 import { openHealthSettings } from '@/lib/health';
-import { hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
+import { guardSupported, hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
 import { POLLEN } from '@/lib/outside';
 import { findPlace } from '@/lib/weather';
 import { levelForXp } from '@/lib/xp';
@@ -402,6 +402,14 @@ export default function SettingsScreen() {
           </T>
           <Btn label="Usage access settings" kind="ghost" onPress={openUsageSettings} />
           <Toggle label="Count phone games in gaming budget" value={s.phoneGamesCount} onChange={(v) => set({ phoneGamesCount: v })} />
+          {guardSupported ? (
+            <Toggle
+              label="Focus guard"
+              hint="during Web Focus, a nudge the moment you open a social app"
+              value={s.focusGuard !== false}
+              onChange={(v) => set({ focusGuard: v })}
+            />
+          ) : null}
           <SettingRow label="Daily phone limit" hint="above this, the roasts get louder">
             <Stepper value={s.phoneLimitMin} step={30} min={30} max={720} format={(v) => `${Math.floor(v / 60)}h${v % 60 ? ` ${v % 60}m` : ''}`} onChange={(v) => set({ phoneLimitMin: v })} />
           </SettingRow>

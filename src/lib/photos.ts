@@ -33,6 +33,16 @@ export async function getPhoto(kind: PhotoKind, source: PhotoSource): Promise<st
   return saved.uri;
 }
 
+/** Copies a file another app shared (it lives in a cache that gets cleared) into the app's own storage. */
+export async function importPhoto(kind: PhotoKind, uri: string): Promise<string> {
+  const dir = photoDir();
+  if (!dir.exists) dir.create({ intermediates: true });
+  const ext = uri.split('.').pop()?.split('?')[0]?.toLowerCase() || 'jpg';
+  const saved = new File(dir, `${kind}-${Date.now()}.${/^[a-z0-9]{2,5}$/.test(ext) ? ext : 'jpg'}`);
+  await new File(uri).copy(saved);
+  return saved.uri;
+}
+
 export function deletePhoto(uri: string | undefined) {
   if (!uri) return;
   try {

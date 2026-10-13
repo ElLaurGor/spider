@@ -19,7 +19,7 @@ import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, readHealth, type HealthData, type HealthStatus } from './health';
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
-import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, type LineKey } from './lines';
+import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, poolFor, type LineKey } from './lines';
 import { IMMORTAL_DAYS, taskAgeDays, tomorrowKey } from './memory';
 import { moodInfo } from './mood';
 import {
@@ -46,7 +46,7 @@ import { withNights } from './sleep';
 import { isSnow, seasonOn, winterOf } from './seasons';
 import { catchFly as catchPendingFly, caughtCount, FLIES, rollCritters } from './critters';
 import { unlockPages } from './diary';
-import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, spansBetween, usageBetween } from './screentime';
+import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, spansBetween, startFocusGuard, stopFocusGuard, unlocksBetween, usageBetween } from './screentime';
 import { nightPhone, nightWindow } from './night';
 import { BURN_XP, BURN_XP_MAX, EGG_COINS, eggsLeft, eggsThisYear, staleTasks, type EggId } from './traditions';
 import {
@@ -440,7 +440,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 }
 
 /** Opens a tapped notification's screen. On a cold start the navigator may still be mounting, so it retries for a few seconds. */
-function openSoon(href: Href, tries = 20) {
+export function openSoon(href: Href, tries = 20) {
   try {
     router.navigate(href);
   } catch {
@@ -643,8 +643,10 @@ function useStoreValue() {
     setScreenStatus('connected');
     try {
       const screen = screenDayOf(await usageBetween(startOfDay().getTime(), Date.now()));
+      const unlocks = await unlocksBetween(startOfDay().getTime(), Date.now());
+      if (unlocks != null) screen.unlocks = unlocks;
       const old = dayOf(stateRef.current).screen;
-      if (!old || old.totalMin !== screen.totalMin || old.top.length !== screen.top.length) {
+      if (!old || old.totalMin !== screen.totalMin || old.top.length !== screen.top.length || old.unlocks !== screen.unlocks) {
         run((s) => patchDay(s, dayKey(), (d) => ({ ...d, screen })));
       }
       // Each day's number froze at the last time the app was open; now that those days are over, take the
@@ -982,7 +984,11 @@ function useStoreValue() {
       // --- progress photos ---
       async addProgressPhoto(source: PhotoSource) {
         const uri = await getPhoto('progress', source);
-        if (!uri) return;
+        if (uri) actions.addProgressPhotoFrom(uri);
+      },
+
+      /** A progress photo already saved in the app's storage (e.g. shared from another app). */
+      addProgressPhotoFrom(uri: string) {
         run((s, msgs) => {
           const todayStart = startOfDay().getTime();
           const firstToday = !s.progressPhotos.some((p) => p.at >= todayStart);
@@ -1796,6 +1802,20 @@ function useStoreValue() {
       } else actions.logMood(a.level, [], '');
     }, openSoon);
   }, [ready, actions, say]);
+
+  // ----- Web Focus guard (APK 1.4.0+): runs while a session is on, also after a restart mid-session -----
+  const guardOn = !!state.activeFocus && state.settings.focusGuard !== false;
+  const guardEnd = state.activeFocus ? state.activeFocus.start + state.activeFocus.minutes * MIN : 0;
+  useEffect(() => {
+    if (!ready) return;
+    if (!guardOn || guardEnd <= Date.now()) {
+      stopFocusGuard();
+      return;
+    }
+    const s = stateRef.current;
+    const lines = poolFor('focusGuard', effectiveSavage(s), { name: s.settings.userName || 'boss' }, ['app']);
+    startFocusGuard(guardEnd, lines, `🕸️ Web Focus${s.activeFocus?.label ? ` · ${s.activeFocus.label}` : ''}`);
+  }, [ready, guardOn, guardEnd]);
 
   // ----- Web Focus: complete (or snap) when the time is up -----
   const activeFocus = state.activeFocus;

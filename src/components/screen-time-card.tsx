@@ -54,6 +54,7 @@ export function ScreenTimeCard() {
       <Bar pct={(d?.totalMin ?? 0) / limit} color={over ? C.red : C.blue} height={8} />
       <T dim small mono>
         limit {fmtDuration(limit * MIN)} · games {fmtDuration((d?.gamesMin ?? 0) * MIN)} · social {fmtDuration((d?.doomMin ?? 0) * MIN)}
+        {d?.unlocks != null ? ` · ${d.unlocks} unlocks` : ''}
       </T>
       {(d?.top ?? []).map((a) => (
         <Row key={a.label}>

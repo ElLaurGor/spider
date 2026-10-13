@@ -2,7 +2,7 @@
   "expo": {
     "name": "S.P.I.D.E.R",
     "slug": "spider",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "spider",
@@ -82,6 +82,17 @@
           "microphonePermission": false,
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
+        }
+      ],
+      "expo-sharing",
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": [
+            "text/*",
+            "image/*"
+          ],
+          "disableIOS": true
         }
       ]
     ],
