@@ -8,6 +8,7 @@ import { DayPicker } from '@/components/day-picker';
 import { EntryEditor } from '@/components/entry-editor';
 import { FoodSuggestions } from '@/components/food-search';
 import { PhotoViewer } from '@/components/photo-viewer';
+import { ReadinessCard } from '@/components/readiness-card';
 import { Bar, Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T } from '@/components/ui';
 import { HiddenEgg } from '@/components/swedish-year';
 import { C, MONO } from '@/constants/theme';
@@ -44,6 +45,7 @@ export default function Fuel() {
     <Screen title="FUEL" subtitle="Water · coffee · food">
       <SpiderSays text={spiderLine} />
       <DayPicker value={day} onChange={(k) => setPicked(k === dayKey() ? null : k)} />
+      {isToday ? <ReadinessCard /> : null}
 
       <Card accent={C.water}>
         <H right={<T dim small>{isToday && s.notify.water && next && pct < 1 ? `next nag ${fmtTime(next)}` : ''}</T>}>Water</H>

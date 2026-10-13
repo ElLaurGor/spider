@@ -12,7 +12,6 @@ import { PauseBanner } from '@/components/pause-card';
 import { ProgressChips } from '@/components/progress-chips';
 import { QuestsCard } from '@/components/quests-card';
 import { WildCard } from '@/components/hq-wild';
-import { ReadinessCard } from '@/components/readiness-card';
 import { SleepCheckIn } from '@/components/sleep-checkin';
 import { SpiderAvatar } from '@/components/spider-avatar';
 import { Bar, Btn, Card, H, Icon, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
@@ -341,7 +340,6 @@ export default function HQ() {
       </Card>
     ),
     swedishDays: () => <SwedishDaysRow />,
-    readiness: () => <ReadinessCard />,
     progress: () => <ProgressChips />,
     experiment: () => <ExperimentCard compact />,
     wild: () => <WildCard />,

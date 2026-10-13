@@ -13,7 +13,6 @@ export const HQ_SECTIONS = [
   { id: 'countdowns', label: 'Countdowns' },
   { id: 'swedishDays', label: 'Red days & payday' },
   { id: 'sleep', label: 'Sleep & energy check-in' },
-  { id: 'readiness', label: 'Morning readiness' },
   { id: 'top3', label: "Today's top 3" },
   { id: 'winddown', label: 'Wind-down (evenings)' },
   { id: 'debrief', label: 'Evening debrief (evenings)' },

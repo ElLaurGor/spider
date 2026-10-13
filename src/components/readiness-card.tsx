@@ -12,11 +12,10 @@ const LOOK: Record<ReadinessTier, { emoji: string; title: string; color: string 
   easy: { emoji: '🔵', title: 'Body: take it easy', color: C.cyan },
 };
 
-/** Morning readiness on HQ until noon: sleep, resting heart rate, sleep rating and energy against her normal. */
+/** Today's readiness on the Fuel tab: sleep, resting heart rate, sleep rating and energy against her normal. */
 export function ReadinessCard() {
   const { state, health } = useStore();
   const now = new Date();
-  if (now.getHours() >= 12) return null;
   const r = readinessFor(state, health.data?.restingDays ?? [], now);
   if (!r) return null;
   const look = LOOK[r.tier];
