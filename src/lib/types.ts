@@ -52,6 +52,8 @@ export type Settings = {
   notify: NotifyPrefs;
   respectMeetings: boolean;
   calendarIds: string[] | null; // null = every calendar on the phone
+  // cluster E
+  hq?: { order: string[]; hidden: string[] }; // HQ card order and hidden cards (lib/hq-layout.ts); unset = the default
 };
 
 // `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.

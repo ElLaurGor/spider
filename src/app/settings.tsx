@@ -4,10 +4,11 @@ import * as Updates from 'expo-updates';
 import { useState, type ReactNode } from 'react';
 import { Alert, DevSettings, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 
-import { Btn, Card, Chip, Field, H, Row, SpiderSays, Stepper, T } from '@/components/ui';
+import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T } from '@/components/ui';
 import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { pad } from '@/lib/dates';
+import { hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
 import { ACRONYM_REAL, line } from '@/lib/lines';
 import { openHealthSettings } from '@/lib/health';
 import { hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
@@ -162,6 +163,41 @@ export default function SettingsScreen() {
                 </Text>
               </Row>
             </Pressable>
+          );
+        })}
+      </Card>
+
+      <Card>
+        <H
+          right={
+            s.hq ? (
+              <Text style={{ color: C.red, fontWeight: '700', fontSize: 13 }} onPress={() => set({ hq: undefined })}>
+                Reset
+              </Text>
+            ) : undefined
+          }>
+          HQ layout
+        </H>
+        <T dim small>
+          Order HQ&apos;s cards and hide the ones you don&apos;t look at. The spider, health alerts and banners stay on top.
+        </T>
+        {hqOrder(s.hq).map((id, i, all) => {
+          const shown = !(s.hq?.hidden ?? []).includes(id);
+          return (
+            <Row key={id} gap={6}>
+              <T style={{ flex: 1, opacity: shown ? 1 : 0.45 }}>{hqLabel(id)}</T>
+              <Pressable onPress={() => set({ hq: moveSection(s.hq, id, -1) })} disabled={i === 0} hitSlop={6} style={{ opacity: i === 0 ? 0.25 : 1 }}>
+                <Icon name="expand_less" size={24} color={C.dim} />
+              </Pressable>
+              <Pressable
+                onPress={() => set({ hq: moveSection(s.hq, id, 1) })}
+                disabled={i === all.length - 1}
+                hitSlop={6}
+                style={{ opacity: i === all.length - 1 ? 0.25 : 1 }}>
+                <Icon name="expand_more" size={24} color={C.dim} />
+              </Pressable>
+              <Switch value={shown} onValueChange={() => set({ hq: toggleSection(s.hq, id) })} trackColor={{ true: C.red, false: C.card2 }} thumbColor={C.text} />
+            </Row>
           );
         })}
       </Card>

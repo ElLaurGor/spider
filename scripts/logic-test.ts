@@ -21,6 +21,7 @@ import {
 import { SECRET_ACHIEVEMENTS } from '../src/lib/xp';
 import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log';
 import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '../src/lib/xp';
+import { HQ_SECTIONS, hqOrder, hqVisible, moveSection, toggleSection } from '../src/lib/hq-layout';
 import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/lib/league';
 import { coinsFor, rollChest } from '../src/lib/economy';
 import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
@@ -737,4 +738,21 @@ console.log('all logic tests passed');
   // The Binge Necromancer: today isn't within budget until it's over
   assert.ok(!WEAKNESS.binge.hit(base, lateDay, k));
   assert.ok(WEAKNESS.binge.hit(base, lateDay, dayKey(addDays(new Date(), -1))));
+}
+
+// ---- cluster E ----
+{
+  // HQ layout: default order, saved orders keep their order, retired ids drop out and new ones slot in by their default neighbour
+  const ids = HQ_SECTIONS.map((x) => x.id);
+  assert.deepEqual(hqOrder(), ids);
+  assert.deepEqual(hqOrder({ order: ['achievements', 'gone', 'weather'], hidden: [] }).slice(0, 3), ['achievements', 'weather', 'countdowns']);
+  const saved = hqOrder({ order: ['achievements', 'weather'], hidden: [] });
+  assert.equal(saved.length, ids.length);
+  assert.equal(new Set(saved).size, ids.length);
+  const moved = moveSection(null, 'quests', -1);
+  assert.equal(moved.order.indexOf('quests'), ids.indexOf('quests') - 1);
+  assert.deepEqual(moveSection(null, 'weather', -1).order, ids); // already first
+  const hidden = toggleSection(null, 'league');
+  assert.ok(!hqVisible(hidden).includes('league'));
+  assert.ok(hqVisible(toggleSection(hidden, 'league')).includes('league'));
 }
