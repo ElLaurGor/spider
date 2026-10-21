@@ -72,6 +72,9 @@ const range = (start: Date, end: Date) => ({
   endTime: end.toISOString(),
 });
 
+// The Zepp app's package. Its own step data goes first so the count matches what Zepp shows.
+const ZEPP = 'com.huami.watch.hmwatchmanager';
+
 /** Runs a read and turns "no permission / no data" into null instead of an error. */
 async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
   try {
@@ -118,10 +121,12 @@ export async function readSleepNight(key: string): Promise<Night | null> {
 export async function readStepsByHour(days = 14, now = new Date()): Promise<{ at: number; steps: number }[]> {
   const lib = hc;
   if (!lib || !(await ready(lib))) return [];
+  const today = startOfDay(now);
   const r = await safe(() =>
     lib.aggregateGroupByDuration({
       recordType: 'Steps',
-      timeRangeFilter: range(addDays(startOfDay(now), -days), now),
+      // Up to midnight, not now: see stepsOn in readHealth.
+      timeRangeFilter: range(addDays(today, -days), addDays(today, 1)),
       timeRangeSlicer: { duration: 'HOURS', length: 1 },
     }),
   );
@@ -167,9 +172,14 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
   if (!lib || !(await ready(lib))) return null;
   const today = startOfDay(now);
 
+  // Always up to midnight, even today. Health Connect prorates a record that sticks out of the
+  // range, so ending at "now" cut Zepp's still-open block (e.g. 14:00–15:00 at 14:37) to 37/60.
+  // Zepp's own data first: with another step source ranked above it, the merged total came out lower than Zepp's.
   const stepsOn = async (dayStart: Date) => {
-    const end = dayStart.getTime() === today.getTime() ? now : addDays(dayStart, 1);
-    const r = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: range(dayStart, end) }));
+    const filter = range(dayStart, addDays(dayStart, 1));
+    const zepp = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter, dataOriginFilter: [ZEPP] }));
+    if (zepp && zepp.COUNT_TOTAL > 0) return zepp.COUNT_TOTAL;
+    const r = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter }));
     return r?.COUNT_TOTAL ?? 0;
   };
 
