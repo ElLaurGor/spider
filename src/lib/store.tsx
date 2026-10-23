@@ -97,6 +97,7 @@ import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWor
 import { goldChest } from './loot';
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
 import { restedAfter, restedGain, restedSplit } from './rested';
+import { goldenAllowed } from './tone';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /** A button on a toast (cluster G: "Catch it!" on a fly). */
@@ -391,7 +392,8 @@ function perkBomb(s: State, msgs: Msg[], damage: number, label: string): State {
 
 /** Anything that got a reaction has a small chance to turn up a golden line for the Roast Book. Not while going easy. */
 function checkGolden(s: State, msgs: Msg[]): State {
-  if (!msgs.length || effectiveSavage(s) < s.settings.savageLevel || Math.random() >= GOLDEN_CHANCE) return s;
+  // Golden lines are roasts too: none on a kind day, below level 4 or while the tone is turned down.
+  if (!msgs.length || !goldenAllowed(s) || Math.random() >= GOLDEN_CHANCE) return s;
   const found = s.goldenFound ?? {};
   const fresh = GOLDEN.filter((g) => !found[g.id]);
   const g = (fresh.length ? fresh : GOLDEN)[Math.floor(Math.random() * (fresh.length || GOLDEN.length))];

@@ -2,7 +2,8 @@
 import { addDays, dayKey, fmtTime } from './dates';
 import type { LineKey } from './lines';
 import { dayScoreFor } from './report';
-import { dayOf, moodsOf, onPeriod, trainedOn, waterMl, workoutFor } from './selectors';
+import { trainedOn, waterGoalFor, waterMl, workoutFor } from './selectors';
+import { gentleDay } from './tone';
 import type { DayLog, State, Task } from './types';
 
 /** A task open this many days becomes "immortal": a running joke until it's done. */
@@ -67,16 +68,16 @@ function lateGameEnd(s: State, d: DayLog, date: Date): number | null {
 
 /**
  * The most notable thing about yesterday, for a morning callback; null when there's nothing to go on.
- * After a low-mood day, or on a period day, only something kind. Never food, never the body.
+ * After a low-mood, period or paused day (or on one), only something kind. Never food, never the body.
  */
 export function yesterdayHighlight(s: State, now = new Date()): Callback | null {
   const date = addDays(now, -1);
   const key = dayKey(date);
   const d = s.days[key];
   if (!d) return null;
-  const today = dayOf(s, dayKey(now));
-  const low = (log: DayLog) => moodsOf(log).some((m) => m.level <= 2);
-  if (low(d) || low(today) || onPeriod(d) || onPeriod(today)) return { key: 'callbackGentle', vars: {} };
+  const today = dayKey(now);
+  const low = (k: string) => (s.days[k]?.moods ?? []).some((m) => m.level <= 2);
+  if (low(key) || low(today) || gentleDay(s, key) || gentleDay(s, today)) return { key: 'callbackGentle', vars: {} };
 
   const pr = prOn(s, d, key);
   if (pr) return { key: 'callbackPR', vars: pr };
@@ -88,7 +89,7 @@ export function yesterdayHighlight(s: State, now = new Date()): Callback | null 
   const water = (waterMl(d) / 1000).toFixed(1);
   const score = dayScoreFor(s, date);
   if ((d.waterGoalHit && (!plan || trainedOn(d))) || score >= 85) return { key: 'callbackWin', vars: { water } };
-  if (d.water.length > 0 && waterMl(d) < s.settings.waterGoalMl / 2) return { key: 'callbackDry', vars: { water } };
+  if (d.water.length > 0 && waterMl(d) < waterGoalFor(s, key) / 2) return { key: 'callbackDry', vars: { water } };
   if (score <= 40) return { key: 'callbackSlow', vars: { score } };
   return null;
 }

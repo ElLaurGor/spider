@@ -75,6 +75,8 @@ import { bestiary, lastKillDay, LORE } from '../src/lib/bestiary';
 import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
+import { gentleDay, goldenAllowed, periodDay, toneOn } from '../src/lib/tone';
+import type { DayLog } from '../src/lib/types';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // cluster B
@@ -280,6 +282,86 @@ assert.equal(effectiveSavage(old), 10);
 assert.deepEqual(LINES.moodAwful.savage, LINES.moodAwful.mild);
 assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
 
+// ---------- step 2 tone ----------
+// toneOn: one tone per day. Low mood (carried overnight), sick mode and period days are kind; away isn't.
+{
+  const blank = (extra: Partial<DayLog> = {}): DayLog => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0, ...extra });
+  const mood = (level: 1 | 2 | 3 | 4 | 5) => ({ moods: [{ id: `m${level}`, level, emotions: [], at: 1 }] });
+  const at = new Date(2027, 0, 13, 9); // Wed 13 Jan 2027
+  const wed = '2027-01-13';
+  const thu = '2027-01-14';
+  const fri = '2027-01-15';
+  const t = defaultState();
+  assert.deepEqual(toneOn(t, wed, at), { level: 10, kind: false });
+  t.days[wed] = blank(mood(2));
+  assert.deepEqual(toneOn(t, wed, at), { level: 1, kind: true });
+  assert.deepEqual(toneOn(t, thu, at), { level: 1, kind: true }); // tonight's low mood carries into tomorrow's reminders
+  assert.equal(toneOn(t, fri, at).kind, false); // but not two days on
+  t.days[wed] = blank(mood(3));
+  assert.deepEqual(toneOn(t, wed, at), { level: 10, kind: false });
+  // sick is kind, away isn't (away only stops the nagging)
+  assert.ok(toneOn(startPause(defaultState(), 'sick', 2, wed), wed, at).kind);
+  assert.deepEqual(toneOn(startPause(defaultState(), 'away', 2, wed), wed, at), { level: 10, kind: false });
+  // low battery turns it down, never up
+  const lb2 = defaultState();
+  lb2.days[wed] = blank({ energy: 1 });
+  assert.deepEqual(toneOn(lb2, wed, at), { level: 5, kind: false });
+  lb2.settings.savageLevel = 3;
+  assert.equal(toneOn(lb2, wed, at).level, 3);
+  // period days: logged, still running (day 2 before it's logged), and predicted ones ahead
+  const pd = defaultState();
+  const flow = (k: string) => (pd.days[k] = blank({ period: { flow: 'medium', symptoms: [] } }));
+  for (const k of ['2026-12-14', '2026-12-15', '2026-12-16', '2026-12-17']) flow(k); // an earlier 4-day period
+  flow('2027-01-12');
+  assert.ok(periodDay(pd, '2027-01-12'));
+  assert.ok(periodDay(pd, wed)); // day 2, not logged yet
+  assert.ok(toneOn(pd, wed, at).kind);
+  pd.days[wed] = blank({ period: { flow: null, symptoms: ['Cramps'] } }); // logged without flow: goes by that
+  assert.ok(!periodDay(pd, wed));
+  delete pd.days[wed];
+  for (const k of ['2027-01-13', '2027-01-14', '2027-01-15']) flow(k); // 4 days in, the usual length
+  assert.ok(!periodDay(pd, '2027-01-16')); // a 5th day only if the run is still under the usual 4
+  pd.settings.easyOnPeriod = false;
+  assert.equal(toneOn(pd, '2027-01-14', at).kind, false); // "go easy" off: the usual tone
+  assert.ok(gentleDay(pd, '2027-01-14')); // recaps stay kind on period days either way
+  pd.settings.easyOnPeriod = true;
+  const forecast = { nextStart: new Date(2027, 1, 9), avgPeriodDays: 4 };
+  assert.ok(toneOn(defaultState(), '2027-02-10', at, forecast).kind);
+  assert.ok(!toneOn(defaultState(), '2027-02-13', at, forecast).kind); // the 5th day is past the predicted 4
+  assert.ok(!toneOn(defaultState(), '2027-02-10', at).kind); // no forecast given, no prediction
+  assert.ok(!toneOn(defaultState(), '2027-02-10', new Date(2027, 1, 10, 9), forecast).kind); // today goes by what's logged
+  // gentle days for recaps: low mood, period, any pause
+  assert.ok(gentleDay(startPause(defaultState(), 'away', 2, wed), wed));
+  assert.ok(!gentleDay(defaultState(), wed));
+  // golden lines: never on a kind day, never below level 4, never while turned down
+  const gd = defaultState();
+  assert.ok(goldenAllowed(gd, at));
+  gd.settings.savageLevel = 3;
+  assert.ok(!goldenAllowed(gd, at));
+  gd.settings.savageLevel = 10;
+  gd.days[wed] = blank(mood(1));
+  assert.ok(!goldenAllowed(gd, at));
+  gd.days[wed] = blank({ energy: 2 });
+  assert.ok(!goldenAllowed(gd, at)); // low battery caps the tone at 5
+  // a sick yesterday with a planned workout: a kind callback, not "you skipped Pull"
+  const sk = startPause(defaultState(), 'sick', 1, '2027-01-12');
+  sk.days['2027-01-12'] = blank();
+  assert.equal(yesterdayHighlight(sk, at)?.key, 'callbackGentle');
+  // the diary never assumes pronouns, and paused days get kind pages
+  const dn = startPause(defaultState(), 'away', 1, '2027-01-12');
+  dn.days['2027-01-12'] = blank({ water: [{ id: 'w', ml: 2000, at: 0 }], moods: [{ id: 'g', level: 5, emotions: [], at: 0 }] });
+  assert.ok(kindDay(dn, '2027-01-12'));
+  for (const who of ['', 'Alex']) {
+    const named = { ...dn, pauses: [], settings: { ...dn.settings, userName: who } };
+    for (let n = 1; n <= 12; n++) {
+      const text = writePage(named, n, at).text;
+      assert.ok(!/\b(she|her|hers|herself|he|him|his|himself)\b/i.test(text), text);
+      assert.ok(!text.includes('{'), text);
+      if (who) assert.ok(!/\bboss\b/.test(text), text);
+    }
+  }
+}
+
 // new fields default sensibly for old saves
 const h2 = hydrate({ xp: 1 } as never);
 assert.deepEqual(h2.progressPhotos, []);
@@ -447,15 +529,15 @@ assert.deepEqual(names('kycklingfilé'), ['Kyckling bröstfilé rå u. skinn']);
 assert.deepEqual(names('x'), []);
 assert.deepEqual(names('3 eggs + toast'), []);
 
-// period: go easy (level 4) unless turned off; never overrides a lower setting
+// period: kind (mild lines only) unless "go easy" is turned off
 const p = defaultState();
 p.days[dayKey()] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, period: { flow: 'medium', symptoms: [] } };
-assert.equal(effectiveSavage(p), 4);
+assert.equal(effectiveSavage(p), 1);
 p.settings.easyOnPeriod = false;
 assert.equal(effectiveSavage(p), 10);
 p.settings.easyOnPeriod = true;
 p.settings.savageLevel = 2;
-assert.equal(effectiveSavage(p), 2);
+assert.equal(effectiveSavage(p), 1);
 // symptoms only (no flow) is not a period day
 p.settings.savageLevel = 10;
 p.days[dayKey()].period = { flow: null, symptoms: ['Cramps'] };
@@ -1204,7 +1286,7 @@ void (async () => {
   }
   assert.ok(/2\.8 L/.test(unlocked.state.diary![0].text), unlocked.state.diary![0].text);
   const low = { ...dd, days: { ...dd.days, [y]: { ...dd.days[y], moods: [{ id: 'm', level: 1 as const, emotions: [], at: 0 }] } } };
-  assert.ok(kindDay(low.days[y]));
+  assert.ok(kindDay(low, y));
   const kindPage = writePage(low, 1, at).text;
   assert.ok(/quieter day|running low/.test(kindPage), kindPage);
   assert.ok(!/spite|petition|couch|cactus/.test(kindPage), kindPage);
