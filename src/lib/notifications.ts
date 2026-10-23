@@ -33,6 +33,7 @@ import { moodInfo } from './mood';
 import type { CalEvent, MoodLevel, State } from './types';
 import { forecastText, type Weather } from './weather';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outside';
+import { bossFinisher } from './boss-plan';
 import { bossFor, questsFor } from './quests';
 import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
 import { periodDay, toneOn, type DayTone } from './tone';
@@ -41,7 +42,7 @@ import { upcomingDays } from './swedish-days';
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
 // Notifications re-planned on every app change; gaming/rest alerts are managed separately.
-const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-'];
+const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-'];
 const MOOD_HOURS = [13, 20];
 const GAME_IDS = ['game-warn', 'game-over', 'game-way-over'];
 const REST_ID = 'rest-done';
@@ -65,6 +66,7 @@ const LINKS: [prefix: string, href: Href][] = [
   ['countdown-', '/plan'],
   ['report-', '/report'],
   ['league-', '/league'],
+  ['weekendboss-', '/'],
   ['wrapped-', '/wrapped'],
   ['cycle-', '/cycle'],
   ['pollen-', '/outside'],
@@ -377,6 +379,18 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     const at = atTime(now, daysToSun, 17);
     const rank = standings(s, now).findIndex((r) => r.me) + 1;
     jobs.push(scheduleAt(`league-${dayKey(at)}`, at, '🏆 League ends tonight', `You were #${rank} last I checked. Top 3 get promoted. Go earn XP.`, CH.remind));
+  }
+
+  // Weekend finisher: Saturday or Sunday at 15:00, when what's still open today can finish the boss. Planned
+  // with today's numbers and re-planned on every change, so it goes once the boss is down. Never on a paused
+  // or kind day (bossFinisher checks).
+  if (st.notify.weekendBoss) {
+    const at = atTime(now, 0, 15);
+    const fin = at.getTime() > now.getTime() ? bossFinisher(s, now) : null;
+    if (fin) {
+      const body = sayOn(s, toneOn(s, dayKey(now), now, cycle), 'bossFinisher', { boss: fin.boss, hp: fin.hp, plan: fin.plan });
+      jobs.push(scheduleAt(`weekendboss-${dayKey(at)}`, at, `🏁 ${fin.emoji} ${fin.boss} is almost down`, body, CH.remind));
+    }
   }
 
   // Monthly Wrapped on the 1st at 10:00, for the month that just ended.

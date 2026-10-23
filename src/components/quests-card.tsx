@@ -1,13 +1,15 @@
 import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { BossRecapPanel } from '@/components/boss-recap';
 import { ChestButton } from '@/components/hq-extras';
-import { Bar, Card, H, Icon, Row, T } from '@/components/ui';
+import { Bar, Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { lastKillDay } from '@/lib/bestiary';
+import { bossFinisher } from '@/lib/boss-plan';
 import { addDays, dayKey, WEEKDAYS_LONG } from '@/lib/dates';
-import { bossFor, MINION_COINS, QUEST_REROLL_COST, questsFor, rerollFor } from '@/lib/quests';
+import { bossFor, DRAFT_UNTIL_HOUR, draftOpen, draftPickable, MINION_COINS, QUEST_REROLL_COST, questInfo, questsFor, rerollFor, validDraft } from '@/lib/quests';
 import { BONUS_MIN, XP } from '@/lib/xp';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
@@ -17,8 +19,11 @@ const num = (n: number) => (n >= 1000 ? n.toLocaleString('sv-SE') : String(n));
 
 export function QuestsCard() {
   const { state, quip, actions } = useStore();
+  // Ticks each minute: the draft closes at noon and the finisher is only for the weekend.
+  const at = useNow(60_000);
   const quests = questsFor(state);
   const today = dayOf(state);
+  const drafting = draftOpen(state, new Date(at));
   const done = today.questsDone ?? [];
   const focus = today.questFocus;
   const boss = bossFor(state);
@@ -54,7 +59,9 @@ export function QuestsCard() {
         }>
         Daily quests
       </H>
-      {quests.map((q) => {
+      <BossRecapPanel />
+      {drafting ? <QuestDraft key={dayKey(at)} at={at} /> : null}
+      {drafting ? null : quests.map((q) => {
         const complete = done.includes(q.id);
         const canSwap = !complete && rerollFor(state, q.id) != null;
         return (
@@ -109,6 +116,7 @@ export function QuestsCard() {
           {!boss.defeated && boss.healed > 0 ? ` 💀 Doomscrolling healed it +${boss.healed} HP.` : ''}
           {!boss.defeated && boss.paused > 0 ? ` 🛌 ${boss.paused} sick/away day${boss.paused === 1 ? '' : 's'} this week: it has less HP.` : ''}
         </T>
+        <FinisherLine at={at} />
         {!boss.defeated ? (
           <T small style={{ color: C.yellow }}>
             🎯 Weakness: {boss.weakness}. Those days&apos; XP hits 50% harder.
@@ -140,6 +148,70 @@ export function QuestsCard() {
   );
 }
 
+/** Saturday and Sunday: what still finishes this week's boss today (lib/boss-plan.ts), if anything does. */
+function FinisherLine({ at }: { at: number }) {
+  const { state, quip } = useStore();
+  const f = bossFinisher(state, new Date(at));
+  const boss = f?.boss ?? '';
+  const hp = f?.hp ?? 0;
+  const plan = f?.plan ?? '';
+  // Picked again only when the numbers change, not on every minute's tick.
+  const text = useMemo(() => (boss ? quip('bossFinisher', { boss, hp, plan }) : ''), [quip, boss, hp, plan]);
+  if (!text) return null;
+  return (
+    <T small style={{ color: C.green }}>
+      🏁 {text}
+    </T>
+  );
+}
+
+/** The morning draft: five quests on offer, keep three. Finished ones stay; already-met new ones can't be picked. */
+function QuestDraft({ at }: { at: number }) {
+  const { state, actions } = useStore();
+  const now = new Date(at);
+  const d = dayOf(state, dayKey(now));
+  const candidates = d.questDraft?.candidates ?? [];
+  const done = d.questsDone ?? [];
+  const [picks, setPicks] = useState<string[]>(() => d.quests ?? []);
+  const toggle = (id: string) => {
+    if (done.includes(id)) return;
+    setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length < 3 ? [...p, id] : p));
+  };
+  const ready = validDraft(state, picks, now);
+  return (
+    <View style={styles.draft}>
+      <Text style={styles.draftHead}>🗳️ PICK TODAY&apos;S 3 OF {candidates.length} · UNTIL {DRAFT_UNTIL_HOUR}:00</Text>
+      {candidates.map((id) => {
+        const q = questInfo(state, id, now);
+        if (!q) return null;
+        const on = picks.includes(id);
+        const can = draftPickable(state, id, now) && !done.includes(id);
+        const note = done.includes(id) ? 'done today, it stays' : !draftPickable(state, id, now) ? 'already met today' : d.questFocus?.id === id ? 'aimed at your weak spot' : null;
+        return (
+          <Pressable
+            key={id}
+            onPress={() => can && toggle(id)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: on, disabled: !can }}
+            accessibilityLabel={q.title}
+            style={[styles.pick, on && styles.pickOn, !can && !on && { opacity: 0.45 }]}>
+            <Row>
+              <Icon name={on ? 'check_circle' : 'radio_button_unchecked'} size={20} color={on ? C.purple : C.dim} />
+              <T style={{ flex: 1 }}>{q.title}</T>
+              <Text style={styles.xp}>+{q.xp}</Text>
+            </Row>
+            {note ? <Text style={[styles.progress, { paddingLeft: 30 }]}>{note}</Text> : null}
+          </Pressable>
+        );
+      })}
+      <Btn label={ready ? 'Lock in these 3' : `Pick ${3 - Math.min(3, picks.length)} more`} small disabled={!ready} onPress={() => actions.draftQuests(picks)} />
+      <T dim small>
+        Leave it, and the three ticked when you opened this stand from {DRAFT_UNTIL_HOUR}:00. They already count.
+      </T>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   link: { color: C.red, fontWeight: '700', fontSize: 13 },
   xp: { color: C.purple, fontFamily: MONO, fontSize: 12, fontWeight: '800' },
@@ -148,4 +220,8 @@ const styles = StyleSheet.create({
   bossName: { color: C.text, fontWeight: '800', fontSize: 15 },
   swap: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
   swapText: { color: C.dim, fontFamily: MONO, fontSize: 11, fontWeight: '700' },
+  draft: { gap: 8 },
+  draftHead: { color: C.purple, fontFamily: MONO, fontSize: 11, fontWeight: '800' },
+  pick: { borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 8, gap: 2 },
+  pickOn: { borderColor: C.purple },
 });

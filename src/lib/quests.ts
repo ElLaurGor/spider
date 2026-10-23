@@ -212,6 +212,64 @@ export function pickQuestsWithFocus(s: State, date = new Date()) {
 
 export const pickQuests = (s: State, date = new Date()) => pickQuestsWithFocus(s, date).ids;
 
+// ---- the morning draft: 5 on offer, you keep 3 ----
+
+/** How many quests the morning draft offers, and the hour it closes (whatever is picked by then stands). */
+export const DRAFT_SIZE = 5;
+export const DRAFT_UNTIL_HOUR = 12;
+
+/**
+ * The morning draft: the day's default 3 (pickQuestsWithFocus, weak-spot quest included) plus 2 more to
+ * choose from, the same all day. In season one of the extras is seasonal too, when there's another, so the
+ * season is on offer without being forced.
+ */
+export function draftFor(s: State, date = new Date()) {
+  const key = dayKey(date);
+  const season = seasonOn(date)?.id;
+  const { ids, focus } = pickQuestsWithFocus(s, date);
+  const pool = QUESTS.filter((q) => !q.reduced && !ids.includes(q.id) && (!q.season || q.season === season) && q.available(s, date));
+  const ranked = (qs: QuestDef[]) =>
+    qs
+      .map((q) => ({ id: q.id, r: hash(`${key}:draft:${q.id}`) }))
+      .sort((a, b) => a.r - b.r)
+      .map((x) => x.id);
+  const extras = [...ranked(pool.filter((q) => q.season)).slice(0, 1), ...ranked(pool.filter((q) => !q.season))].slice(0, DRAFT_SIZE - ids.length);
+  return { candidates: [...ids, ...extras], defaults: ids, focus };
+}
+
+/** Whether quest `id` is already met on `date` (picking it now would pay out at once). */
+export function questMet(s: State, id: string, date = new Date()) {
+  const def = QUESTS.find((q) => q.id === id);
+  if (!def) return false;
+  const b = def.build(s, dayOf(s, dayKey(date)), date);
+  return b.progress >= b.target;
+}
+
+/** The draft is open on a normal day until noon, until it's locked in, or until every quest is done. */
+export function draftOpen(s: State, now = new Date()) {
+  const key = dayKey(now);
+  const d = dayOf(s, key);
+  return !!d.questDraft && !d.questDraft.locked && !d.questsAllDone && !reducedDay(s, key) && now.getHours() < DRAFT_UNTIL_HOUR;
+}
+
+/**
+ * Whether quest `id` can be in today's three: it's on offer, and it's either already one of them or not
+ * yet met (picking a finished one would be free XP). A quest already completed today can't be dropped.
+ */
+export function draftPickable(s: State, id: string, now = new Date()) {
+  const d = dayOf(s, dayKey(now));
+  if (!d.questDraft?.candidates.includes(id)) return false;
+  return (d.quests ?? []).includes(id) || !questMet(s, id, now);
+}
+
+/** A valid pick: three different quests on offer, all pickable, keeping every quest already done today. */
+export function validDraft(s: State, ids: string[], now = new Date()) {
+  const d = dayOf(s, dayKey(now));
+  if (ids.length !== 3 || new Set(ids).size !== 3) return false;
+  if ((d.questsDone ?? []).some((id) => !ids.includes(id))) return false;
+  return ids.every((id) => draftPickable(s, id, now));
+}
+
 /** The XP a quest pays (0 for an id that's gone). */
 export const questXpOf = (id: string) => QUESTS.find((q) => q.id === id)?.xp ?? 0;
 
@@ -227,6 +285,7 @@ export function rerollFor(s: State, id: string, date = new Date()): string | nul
   const d = dayOf(s, key);
   const picked = d.quests;
   if (!picked?.includes(id) || d.questRerolled || (d.questsDone ?? []).includes(id)) return null;
+  if (draftOpen(s, date)) return null; // the draft is the free way to change them until it closes
   const def = QUESTS.find((q) => q.id === id);
   if (!def || def.season || def.build(s, d, date).progress > 0) return null;
   const next = QUESTS.filter((q) => !q.season && !q.reduced && !picked.includes(q.id) && q.available(s, date))
@@ -270,11 +329,17 @@ export function questsFor(s: State, date = new Date()): Quest[] {
   const picked = d.quests ?? pickQuests(s, date);
   const ids = reducedDay(s, key) ? [d.questReduced ?? gentleQuestFor(s, date)] : picked;
   return ids.flatMap((id) => {
-    const def = QUESTS.find((q) => q.id === id);
-    if (!def) return [];
-    const q = def.build(s, d, date);
-    return [{ id, xp: def.xp, ...q, progress: Math.min(q.progress, q.target) }];
+    const q = questInfo(s, id, date);
+    return q ? [q] : [];
   });
+}
+
+/** One quest as it stands on `date` (title, progress, XP), whether or not it's one of the day's; null for an id that's gone. */
+export function questInfo(s: State, id: string, date = new Date()): Quest | null {
+  const def = QUESTS.find((q) => q.id === id);
+  if (!def) return null;
+  const q = def.build(s, dayOf(s, dayKey(date)), date);
+  return { id, xp: def.xp, ...q, progress: Math.min(q.progress, q.target) };
 }
 
 // ---- weekly boss ----
@@ -452,16 +517,19 @@ export function bossFor(s: State, date: Date | number = new Date(), now: Date | 
   let damage = s.bossBombs?.[key] ?? 0;
   let bonus = 0;
   let ragedOn: string | null = null;
+  /** Each day's share: its XP, the weakness bonus on top, and critical hits (for the finisher and the recap). */
+  const perDay: { key: string; xp: number; bonus: number; crit: number; hit: boolean }[] = [];
   for (const day of days) {
     const d = dayOf(s, day);
     const xp = d.xpEarned ?? 0;
     const raging = rage != null && ragedOn != null && day > ragedOn;
-    if (xp > 0 && (weakness.hit(s, d, day) || (raging && WEAKNESS[rage].hit(s, d, day)))) {
-      const extra = Math.round(xp * WEAKNESS_BONUS);
-      bonus += extra;
-      damage += extra;
-    }
-    damage += xp + (d.critDamage ?? 0); // critical hits (lib/critters.ts)
+    const hit = weakness.hit(s, d, day) || (raging && WEAKNESS[rage].hit(s, d, day));
+    const extra = xp > 0 && hit ? Math.round(xp * WEAKNESS_BONUS) : 0;
+    bonus += extra;
+    damage += extra;
+    const crit = d.critDamage ?? 0; // critical hits (lib/critters.ts)
+    damage += xp + crit;
+    perDay.push({ key: day, xp, bonus: extra, crit, hit });
     if (ragedOn == null && damage >= maxHp / 2) ragedOn = day;
   }
 
@@ -485,6 +553,8 @@ export function bossFor(s: State, date: Date | number = new Date(), now: Date | 
     weakness: weakness.label,
     /** Below half HP: the day it happened, and the extra weakness that counts from the day after. */
     ragedOn,
+    perDay,
+    bombs: s.bossBombs?.[key] ?? 0,
     rageWeakness: rage && ragedOn ? WEAKNESS[rage].label : null,
     minions,
     minionHp,

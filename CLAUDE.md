@@ -37,6 +37,12 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - Finished tasks per day: `doneTasksOn` (survives Clear/delete).
   - `run(fn, {quiet})` skips roast reactions (body and photo logging).
   - One-time save repairs live in `fixes.ts` (listed in `State.fixes`, run from `hydrate`).
+- Weekly and monthly game layers (step 2b):
+  - Quest draft: a normal day offers 5 and the owner picks 3 until noon (`draftFor`/`validDraft` in `quests.ts`; defaults count until then).
+  - Weekend finisher: `boss-plan.ts`, with a nudge behind `notify.weekendBoss`. Monday boss recap: `boss-recap.ts`.
+  - Ghost of last week: `xp-timeline.ts` (`DayLog.xpHours`). Weekly medals: `medals.ts`, paid once per week at rollover, thresholds scale down for rough days. Weekly nemesis: `nemesisOf` in `league.ts`.
+  - Monthly Silk Track: `silk-track.ts`. Its tiers come from the month's `xpEarned`, an `EDITIONS` table has one edition per calendar month, and its rewards are cosmetics, never XP.
+  - All of these are per-week or per-month counts. Nothing here may become a streak.
 - Scores and recaps judge only `countedDay`s (`day-filters.ts`): something was logged and the day wasn't rough (paused, low mood, period). Rough days are listed as rest, never as misses; recaps start at `firstDataDay`. Mood and protein are shown but never graded.
 
 ## Before calling a change done

@@ -39,7 +39,8 @@ import {
   snoozeWater,
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
-import { bossFor, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_COST, questsFor, questXpOf, reducedDay, rerollFor, weekKey } from './quests';
+import { bossFor, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questsFor, questXpOf, reducedDay, rerollFor, validDraft, weekKey } from './quests';
+import { bossRecap, lastWeekKey } from './boss-recap';
 import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
 import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
@@ -225,10 +226,21 @@ function checkQuests(s: State, msgs: Msg[]): State {
   if (!s.onboarded) return s;
   const key = dayKey();
   let next = s;
+  const now = new Date();
   if (!dayOf(next, key).quests) {
-    const picked = pickQuestsWithFocus(next);
-    next = patchDay(next, key, (d) => ({ ...d, quests: picked.ids, questFocus: picked.focus ?? undefined }));
+    // The defaults stand from the start; until noon a normal day may swap them in the morning draft.
+    const draft = draftFor(next, now);
+    const offer = !reducedDay(next, key) && now.getHours() < DRAFT_UNTIL_HOUR;
+    next = patchDay(next, key, (d) => ({
+      ...d,
+      quests: draft.defaults,
+      questFocus: draft.focus ?? undefined,
+      ...(offer ? { questDraft: { candidates: draft.candidates, locked: false } } : {}),
+    }));
   }
+  // The draft closes at noon (or once the day is reduced): whatever is picked by then stands.
+  const open = dayOf(next, key).questDraft;
+  if (open && !open.locked && !draftOpen(next, now)) next = patchDay(next, key, (d) => ({ ...d, questDraft: { ...open, locked: true } }));
   // A reduced day's gentle quest is fixed the first time the day is reduced, so it can't change under you.
   if (reducedDay(next, key) && !dayOf(next, key).questReduced) {
     const id = gentleQuestFor(next);
@@ -264,7 +276,12 @@ function slay(s: State, msgs: Msg[], boss: Boss, late = false): State {
   const sunday = addDays(new Date(`${boss.key}T12:00`), 6);
   const when = late ? atTime(sunday, 0, 23, 59) : new Date();
   let next = bump(
-    { ...s, bossesDefeated: { ...s.bossesDefeated, [boss.key]: boss.id }, bossKilledAt: { ...s.bossKilledAt, [boss.key]: when.getTime() } },
+    {
+      ...s,
+      bossesDefeated: { ...s.bossesDefeated, [boss.key]: boss.id },
+      bossKilledAt: { ...s.bossKilledAt, [boss.key]: when.getTime() },
+      ...(late ? { bossLateKills: [...(s.bossLateKills ?? []), boss.key] } : {}),
+    },
     'bosses',
   );
   const season = seasonOn(when);
@@ -293,6 +310,18 @@ function checkBoss(s: State, msgs: Msg[]): State {
   let next = s;
   const lastWeek = bossFor(next, addDays(startOfWeek(new Date()), -7));
   if (!lastWeek.defeated && lastWeek.hp <= 0) next = slay(next, msgs, lastWeek, true);
+  // A new week: once, a word on how last week's fight went (the full recap waits on HQ and in the Bestiary).
+  const recapWeek = lastWeekKey();
+  if (next.bossRecapAt !== recapWeek) {
+    const r = bossRecap(next, recapWeek);
+    next = { ...next, bossRecapAt: recapWeek };
+    if (r) {
+      const text = r.beaten
+        ? L(next, 'bossRecapWon', { boss: r.boss, day: r.late ? 'after the whistle' : `on ${r.fellOn ?? 'Sunday'}` })
+        : L(next, 'bossRecapLost', { boss: r.boss, hp: r.hp });
+      msgs.push({ text: `${r.emoji} ${text}`, tone: r.beaten ? 'good' : 'info' });
+    }
+  }
 
   const week = weekKey();
   if (finalBossDue(next, week) && !next.bossesDefeated[week]) next = { ...next, finalBossWeek: week, kingWeeks: [week] };
@@ -1893,6 +1922,25 @@ function useStoreValue() {
           }
           return r.state;
         });
+      },
+
+      // --- morning quest draft: pick 3 of the 5 on offer, until noon ---
+      draftQuests(ids: string[]) {
+        run((s, msgs) => {
+          if (!draftOpen(s) || !validDraft(s, ids)) return s;
+          const next = patchDay(s, dayKey(), (d) => ({
+            ...d,
+            quests: ids,
+            questDraft: d.questDraft ? { ...d.questDraft, locked: true } : undefined,
+            questFocus: d.questFocus && ids.includes(d.questFocus.id) ? d.questFocus : undefined,
+          }));
+          msgs.push({ text: `🗡️ ${L(next, 'questsLocked')}`, tone: 'info' });
+          return next;
+        });
+      },
+      /** Hides last week's boss recap on HQ (it stays in the Bestiary). */
+      seenBossRecap(week: string) {
+        run((s) => (s.bossRecapSeen === week ? s : { ...s, bossRecapSeen: week }));
       },
 
       // --- quest swap (once a day, for coins) ---

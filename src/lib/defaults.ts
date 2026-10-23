@@ -1,4 +1,4 @@
-import { dayKey, isDayKey } from './dates';
+import { addDays, dayKey, isDayKey, startOfWeek } from './dates';
 import { applyFixes, FIXES } from './fixes';
 import type { DayLog, State } from './types';
 
@@ -35,7 +35,7 @@ export function defaultState(): State {
       easyOnPeriod: true,
       phoneGamesCount: true,
       phoneLimitMin: 180,
-      notify: { water: true, gym: true, morning: true, evening: true, gaming: true, mood: true, habits: true, report: true, sleep: true, cycle: true, countdowns: true, wrapped: true, windDown: true, league: true, pollen: true, air: true, smhi: true, vma: true, statusLine: false },
+      notify: { water: true, gym: true, morning: true, evening: true, gaming: true, mood: true, habits: true, report: true, sleep: true, cycle: true, countdowns: true, wrapped: true, windDown: true, league: true, pollen: true, air: true, smhi: true, vma: true, statusLine: false, weekendBoss: true },
       respectMeetings: true,
       calendarIds: null,
       redDaysOff: false,
@@ -113,6 +113,8 @@ export function withRealDays(days: State['days']): State['days'] {
   return out;
 }
 
+const lastWeekKey = () => dayKey(addDays(startOfWeek(new Date()), -7));
+
 /** Fills in fields added in newer versions so old saves keep working, then runs the one-time fixes it hasn't had. */
 export function hydrate(saved: Partial<State> | null): State {
   const base = defaultState();
@@ -121,6 +123,9 @@ export function hydrate(saved: Partial<State> | null): State {
     ...base,
     ...saved,
     fixes: saved.fixes ?? [], // an old save has had none of them (a new one starts with all done)
+    // The boss recap starts with the week after this update: no recap of a week that ended days ago.
+    bossRecapAt: saved.bossRecapAt ?? lastWeekKey(),
+    bossRecapSeen: saved.bossRecapSeen ?? lastWeekKey(),
     days: withRealDays(saved.days ?? base.days),
     settings: {
       ...base.settings,

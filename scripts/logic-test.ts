@@ -86,6 +86,9 @@ import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFo
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // step 2 game
 import { gentleQuestFor, KING_REMATCH_WEEKS, kingRematchFor, kingWeeksOf, reducedDay, weaknessOf } from '../src/lib/quests';
+import { DRAFT_SIZE, draftFor, draftOpen, draftPickable, questInfo, questMet, validDraft } from '../src/lib/quests';
+import { bossFinisher } from '../src/lib/boss-plan';
+import { bossRecap, lastWeekKey, pendingRecap, recentRecaps } from '../src/lib/boss-recap';
 import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
 import { doneTasksOn, gameCapAt, gamesInTimerMin, gamingBudgetMin, gamingUsedMs as usedMs, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
 import { areaScores } from '../src/lib/weak-spot';
@@ -147,6 +150,7 @@ const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exerc
 for (const k of ['weakness', 'day', 'until']) known.add(k); // cluster A
 for (const k of ['done', 'budget']) known.add(k); // step 2 tone: the Gym and Game tabs
 for (const k of ['rival', 'medals']) known.add(k); // step 2b progress: the nemesis and weekly medals
+for (const k of ['hp', 'plan']) known.add(k); // step 2b boss: the weekend finisher and the recap
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -2064,6 +2068,126 @@ void (async () => {
   const red = defaultState();
   red.settings.redDaysOff = true;
   assert.equal(workoutsThisWeek(red, new Date(2026, 11, 23, 12)).planned, 3, 'Christmas Eve week: the plan minus red Friday 25 Dec');
+}
+
+// ---------- step 2b boss ----------
+{
+  const empty = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+
+  // the morning draft: the default three plus two more, the same all day
+  const draftDay = new Date(2026, 10, 10, 9); // a Tuesday, no season
+  const ds = defaultState();
+  const dr = draftFor(ds, draftDay);
+  assert.equal(dr.candidates.length, DRAFT_SIZE);
+  assert.equal(new Set(dr.candidates).size, DRAFT_SIZE, 'no quest offered twice');
+  assert.deepEqual(dr.defaults, pickQuestsWithFocus(ds, draftDay).ids, 'the defaults are the old picks');
+  assert.ok(dr.defaults.every((id) => dr.candidates.includes(id)));
+  assert.ok(!dr.candidates.some((id) => id === 'checkin' || id === 'sip'), 'gentle quests stay out of the draft');
+  assert.deepEqual(draftFor(ds, new Date(2026, 10, 10, 11)).candidates, dr.candidates, 'same offer all day');
+  // in season the season is on offer
+  const sp = draftFor(defaultState(), new Date(2026, 9, 27, 9));
+  assert.ok(sp.candidates.some((id) => id.startsWith('hw_')));
+
+  // open until noon, then the picks stand; never on a reduced day or once all are done
+  const dk = dayKey(draftDay);
+  const open = defaultState();
+  open.days[dk] = { ...empty(), quests: dr.defaults, questDraft: { candidates: dr.candidates, locked: false } };
+  assert.ok(draftOpen(open, draftDay));
+  assert.ok(!draftOpen(open, new Date(2026, 10, 10, 12)), 'closed at 12:00');
+  assert.ok(!draftOpen({ ...open, days: { [dk]: { ...open.days[dk], questDraft: { candidates: dr.candidates, locked: true } } } }, draftDay));
+  assert.ok(!draftOpen({ ...open, days: { [dk]: { ...open.days[dk], energy: 1 } } }, draftDay), 'low battery: one gentle quest, no draft');
+  assert.ok(!draftOpen({ ...open, days: { [dk]: { ...open.days[dk], questsAllDone: true } } }, draftDay));
+  // reroll waits until the draft is closed
+  assert.equal(rerollFor(open, dr.defaults[0], draftDay), null);
+
+  // a valid pick: three different quests on offer, done ones kept, no already-met newcomers
+  const extra = dr.candidates.filter((id) => !dr.defaults.includes(id));
+  assert.ok(validDraft(open, [dr.defaults[0], extra[0], extra[1]], draftDay));
+  assert.ok(!validDraft(open, [dr.defaults[0], extra[0]], draftDay), 'three, not two');
+  assert.ok(!validDraft(open, [dr.defaults[0], dr.defaults[0], extra[0]], draftDay), 'three different ones');
+  assert.ok(!validDraft(open, [dr.defaults[0], extra[0], 'not_on_offer'], draftDay));
+  const kept = { ...open, days: { [dk]: { ...open.days[dk], questsDone: [dr.defaults[1]] } } };
+  assert.ok(!validDraft(kept, [dr.defaults[0], extra[0], extra[1]], draftDay), "a quest done today can't be dropped");
+  assert.ok(validDraft(kept, [dr.defaults[1], extra[0], extra[1]], draftDay));
+  // an already-met quest can't be drafted in (free XP)
+  const sippedDay = { ...open.days[dk], water: [{ id: 'w1', ml: 250, at: new Date(2026, 10, 10, 8).getTime() }] };
+  const sipped = { ...open, days: { [dk]: { ...sippedDay, questDraft: { candidates: ['early_sip', ...dr.candidates.filter((id) => id !== 'early_sip').slice(0, 4)], locked: false } } } };
+  assert.ok(questMet(sipped, 'early_sip', draftDay));
+  assert.equal(draftPickable(sipped, 'early_sip', draftDay), (sipped.days[dk].quests ?? []).includes('early_sip'));
+  assert.equal(questInfo(ds, 'meals', draftDay)?.target, 3);
+  assert.equal(questInfo(ds, 'gone_quest', draftDay), null);
+
+  // the weekend finisher: Saturday, the boss nearly down, and the cheapest way to end it
+  const sat = new Date(2026, 9, 31, 10); // Saturday
+  const monday = startOfWeek(sat);
+  const fin = defaultState();
+  fin.onboarded = true;
+  const setMonday = (xp: number) => {
+    fin.days[dayKey(monday)] = { ...empty(), xpEarned: xp };
+  };
+  setMonday(0);
+  const fullHp = bossFor(fin, sat, sat).maxHp;
+  // the damage that leaves 1–25 HP (a past day may hit the weakness, so find it rather than assume)
+  let xp = fullHp;
+  for (; xp > 0; xp--) {
+    setMonday(xp);
+    const hp = bossFor(fin, sat, sat).hp;
+    if (hp >= 1 && hp <= 25) break;
+  }
+  assert.ok(xp > 0, 'found a nearly beaten boss');
+  const f = bossFinisher(fin, sat);
+  assert.ok(f, 'Saturday, nearly down: a finishing line');
+  assert.equal(f!.hp, bossFor(fin, sat, sat).hp);
+  assert.ok(f!.steps.length >= 1 && f!.steps.length <= 3);
+  assert.equal(f!.plan, f!.steps.join(' + ').replace(/^./, (c) => c.toUpperCase()));
+  assert.ok(!/protein|meal|eat|food/i.test(f!.plan), 'never a food tactic');
+  assert.equal(bossFinisher(fin, new Date(2026, 9, 30, 10)), null, 'Friday: no finisher');
+  assert.equal(bossFinisher({ ...fin, bossesDefeated: { [dayKey(monday)]: bossFor(fin, sat).id } }, sat), null, 'already down');
+  assert.equal(bossFinisher({ ...fin, pauses: [{ from: dayKey(sat), to: dayKey(sat), kind: 'sick' }] }, sat), null, 'never on a sick day');
+  const sad = { ...fin, days: { ...fin.days, [dayKey(sat)]: { ...empty(), moods: [{ id: 'm', level: 1 as const, emotions: [], at: sat.getTime() }] } } };
+  assert.equal(bossFinisher(sad, sat), null, 'never on a kind day');
+  setMonday(0);
+  assert.equal(bossFinisher(fin, sat), null, 'a whole boss is more than one day can do');
+
+  // the boss recap: last week's fight, by source, from what the boss maths keeps per day
+  const now = new Date(2026, 10, 2, 9); // Monday 2 Nov
+  const week = lastWeekKey(now);
+  assert.equal(week, '2026-10-26');
+  const rc = defaultState();
+  rc.onboarded = true;
+  const wk = (n: number) => dayKey(addDays(new Date(`${week}T12:00`), n));
+  rc.days[wk(0)] = { ...empty(), xpEarned: 40, questsDone: ['meals'] };
+  rc.days[wk(1)] = { ...empty(), xpEarned: 120, critDamage: 15 };
+  rc.days[wk(3)] = { ...empty(), xpEarned: 80, questsDone: ['water_goal', 'mood'] };
+  rc.bossBombs = { [week]: 60 };
+  const r = bossRecap(rc, week)!;
+  assert.ok(r, 'a week with a fight');
+  assert.equal(r.sources.quests + r.sources.xp + r.sources.weakness + r.sources.crits + r.sources.bombs, r.damage, 'the sources add up to the damage');
+  assert.equal(r.sources.quests, 8 + 10 + 8, 'quest XP from each day');
+  assert.equal(r.sources.crits, 15);
+  assert.equal(r.sources.bombs, 60);
+  assert.equal(r.top.length, 2);
+  assert.ok(r.top[0].damage >= r.top[1].damage);
+  assert.equal(r.top[0].day, 'Tuesday');
+  assert.ok(!r.beaten && r.hp > 0 && r.fellOn == null);
+  const won = { ...rc, bossesDefeated: { [week]: bossFor(rc, new Date(`${week}T12:00`)).id }, bossKilledAt: { [week]: new Date(`${wk(3)}T19:00`).getTime() } };
+  const rw = bossRecap(won, week)!;
+  assert.ok(rw.beaten && !rw.late && rw.fellOn === 'Thursday' && rw.hp === 0);
+  assert.ok(bossRecap({ ...won, bossLateKills: [week] }, week)!.late, 'finished after its week');
+  assert.equal(bossRecap(defaultState(), week), null, 'no fight before any XP');
+  assert.equal(bossRecap(rc, '2026-10-12'), null, 'a week before the first XP day');
+  assert.equal(recentRecaps(rc, 4, now).length, 1);
+  assert.ok(pendingRecap(rc, now));
+  assert.equal(pendingRecap({ ...rc, bossRecapSeen: week }, now), null, 'dismissed on HQ');
+
+  // old saves: the recap starts next week (no recap of a week long gone), and the finisher ping is on
+  const base = defaultState();
+  const oldNotify: Partial<typeof base.settings.notify> = { ...base.settings.notify };
+  delete oldNotify.weekendBoss;
+  const old = hydrate({ ...base, settings: { ...base.settings, notify: oldNotify as typeof base.settings.notify } });
+  assert.equal(old.bossRecapSeen, lastWeekKey());
+  assert.equal(old.bossRecapAt, lastWeekKey());
+  assert.equal(old.settings.notify.weekendBoss, true);
 }
 
 // ---- cluster B ----
