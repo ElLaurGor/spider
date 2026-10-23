@@ -1,12 +1,14 @@
-import { useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, AppState, ScrollView, Text, View } from 'react-native';
 
 import { Big, Btn, Card, Chip, Field, H, Row, SpiderSays, T, useNow } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { dayKey, fmtClock, fmtTime } from '@/lib/dates';
-import { hasUsageAccess, screenTimeSupported } from '@/lib/screentime';
+import { focusBonusMin } from '@/lib/perks';
+import { hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import { focusXp } from '@/lib/xp';
 
 const DURATIONS = [15, 25, 50, 90];
 const SIZE = 250;
@@ -52,7 +54,14 @@ export default function FocusScreen() {
   const now = useNow(1000, !!f);
   const [minutes, setMinutes] = useState(25);
   const [label, setLabel] = useState('');
-  const strict = screenTimeSupported && hasUsageAccess();
+  // Checked again when the app comes back, e.g. from Android's usage-access settings.
+  const [strict, setStrict] = useState(() => screenTimeSupported && hasUsageAccess());
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') setStrict(screenTimeSupported && hasUsageAccess());
+    });
+    return () => sub.remove();
+  }, []);
   const today = (dayOf(state, dayKey()).focus ?? []).slice().reverse();
 
   const giveUp = () =>
@@ -72,8 +81,11 @@ export default function FocusScreen() {
         <T dim small style={{ textAlign: 'center' }}>
           {strict
             ? 'Strict mode: lock your phone or keep S.P.I.D.E.R. open. Opening other apps for more than 30 s snaps the web.'
-            : 'Put the phone down. Locking it is fine. (Strict mode, which catches other apps, arrives with app version 1.3.0.)'}
+            : screenTimeSupported
+              ? 'Put the phone down. Locking it is fine. Allow usage access and strict mode catches other apps too.'
+              : 'Put the phone down. Locking it is fine.'}
         </T>
+        {screenTimeSupported && !strict ? <Btn label="Usage access settings" kind="ghost" onPress={openUsageSettings} style={{ alignSelf: 'stretch' }} /> : null}
         <Btn label="Give up" kind="danger" onPress={giveUp} style={{ alignSelf: 'stretch' }} />
       </ScrollView>
     );
@@ -94,7 +106,7 @@ export default function FocusScreen() {
         </Row>
         <Field value={label} onChangeText={setLabel} placeholder="What are you focusing on? (optional)" />
         <T dim small>
-          Reward: +{Math.round(minutes / 5) * 2} XP and +{Math.floor(minutes / 5)} min gaming.
+          Reward: +{focusXp(minutes)} XP and +{focusBonusMin(state, minutes)} min gaming.
         </T>
         <Btn label={`Start ${minutes} min`} icon="play_arrow" onPress={() => actions.startFocus(minutes, label)} />
       </Card>

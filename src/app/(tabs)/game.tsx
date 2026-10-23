@@ -19,7 +19,9 @@ export default function Game() {
   const active = state.activeGame;
   const now = useNow(1000, !!active);
   const [game, setGame] = useState('');
-  const [renaming, setRenaming] = useState(false);
+  // The session being renamed (its start), so a rename left open doesn't carry over to the next session.
+  const [renamingFor, setRenamingFor] = useState<number | null>(null);
+  const renaming = renamingFor != null && renamingFor === active?.start;
   const [picked, setPicked] = useState<string | null>(null); // day tapped in the week chart
   const [editing, setEditing] = useState<{ key: string; start: number } | null>(null);
   const edited = editing ? dayOf(state, editing.key).games.find((g) => g.start === editing.start) : undefined;
@@ -71,7 +73,7 @@ export default function Game() {
           <Pressable
             onPress={() => {
               setGame(active.game ?? '');
-              setRenaming(true);
+              setRenamingFor(active.start);
             }}
             hitSlop={8}>
             <Text style={styles.gameName}>{active.game ? `🎮 ${active.game}` : 'Tap to name this game'}</Text>
@@ -99,7 +101,7 @@ export default function Game() {
               kind="ghost"
               onPress={() => {
                 actions.setGame(game);
-                setRenaming(false);
+                setRenamingFor(null);
               }}
               style={{ alignSelf: 'stretch' }}
             />

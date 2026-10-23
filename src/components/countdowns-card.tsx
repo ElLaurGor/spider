@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Btn, Card, Field, H, Icon, Row, Stepper, T } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { COUNTDOWN_EMOJIS, daysInMonth, daysLabel, daysLeft, defaultDate, nextDate, toKey, upcoming } from '@/lib/countdowns';
 import { pad } from '@/lib/dates';
@@ -18,8 +19,10 @@ export function CountdownsCard() {
   const [month, setMonth] = useState(start.getMonth() + 1);
   const [day, setDay] = useState(start.getDate());
   const [yearly, setYearly] = useState(false);
-  const list = upcoming(state);
-  const thisYear = new Date().getFullYear();
+  const today = useToday(); // the card stays mounted on Plan for days
+  const now = noonOf(today);
+  const list = upcoming(state, now);
+  const thisYear = Number(today.slice(0, 4));
 
   const add = () => {
     if (!title.trim()) return;
@@ -45,14 +48,14 @@ export function CountdownsCard() {
         </T>
       ) : null}
       {list.map((c) => {
-        const n = daysLeft(c);
+        const n = daysLeft(c, now);
         return (
           <Row key={c.id}>
             <Text style={{ fontSize: 22 }}>{c.emoji}</Text>
             <View style={{ flex: 1 }}>
               <T>{c.title}</T>
               <T dim small>
-                {nextDate(c).toLocaleDateString('sv-SE')}
+                {nextDate(c, now).toLocaleDateString('sv-SE')}
                 {c.yearly ? ' · every year' : ''}
               </T>
             </View>
@@ -93,7 +96,7 @@ export function CountdownsCard() {
             <Switch value={yearly} onValueChange={setYearly} trackColor={{ true: C.red }} />
           </Row>
           <T dim small>
-            {title.trim() || 'It'} is {daysLabel(daysLeft({ id: '', title, emoji, date: toKey(year, month, Math.min(day, daysInMonth(year, month))), yearly, createdAt: 0 }))}.
+            {title.trim() || 'It'} is {daysLabel(daysLeft({ id: '', title, emoji, date: toKey(year, month, Math.min(day, daysInMonth(year, month))), yearly, createdAt: 0 }, now))}.
           </T>
           <Btn label="Add countdown" icon="add" onPress={add} disabled={!title.trim()} />
         </View>
@@ -105,12 +108,13 @@ export function CountdownsCard() {
 /** HQ: the next few countdowns as compact pills. */
 export function CountdownRow() {
   const { state } = useStore();
-  const list = upcoming(state).slice(0, 4);
+  const now = noonOf(useToday()); // on HQ, which stays mounted past midnight
+  const list = upcoming(state, now).slice(0, 4);
   if (list.length === 0) return null;
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
       {list.map((c) => {
-        const n = daysLeft(c);
+        const n = daysLeft(c, now);
         return (
           <View key={c.id} style={[styles.pill, n <= 1 && { borderColor: C.yellow }]}>
             <Text style={{ fontSize: 16 }}>{c.emoji}</Text>

@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Btn, Card, H, Icon, Row, T } from '@/components/ui';
+import { Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { dayKey, WEEKDAYS } from '@/lib/dates';
+import { addDays, dayKey, WEEKDAYS } from '@/lib/dates';
 import { ALERT_COLOR, ALERT_LABEL, alertWhen, aqiBand, LEVEL_LABEL, POLLEN, pollenLevel, shortDate, sourceNote, sourceOk, type Alert } from '@/lib/outside';
 import { useStore } from '@/lib/store';
+import { staleNote } from '@/lib/weather';
 
 const LEVEL_COLOR = ['#545C6E', '#33D17A', '#FFC53D', '#E23636'];
 
@@ -34,11 +35,12 @@ export function AlertRow({ a }: { a: Alert }) {
 const dayLabel = (date: string) => {
   if (date === dayKey()) return 'Today';
   const d = new Date(`${date}T12:00`);
-  return date === dayKey(new Date(Date.now() + 86_400_000)) ? 'Tomorrow' : WEEKDAYS[d.getDay()];
+  return date === dayKey(addDays(new Date(), 1)) ? 'Tomorrow' : WEEKDAYS[d.getDay()];
 };
 
 export default function OutsideScreen() {
   const { state, outside } = useStore();
+  const now = useNow(60_000);
   const place = state.settings.weather;
   const allergies = state.settings.allergies;
 
@@ -63,7 +65,7 @@ export default function OutsideScreen() {
       <Card>
         <H
           right={
-            <Pressable onPress={outside.refresh} hitSlop={8}>
+            <Pressable onPress={outside.refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Check again">
               <Icon name="refresh" size={20} color={C.dim} />
             </Pressable>
           }>
@@ -92,6 +94,7 @@ export default function OutsideScreen() {
               <Text style={[styles.big, { color: band.color }]}>{a.aqi}</Text>
               <T dim small>
                 European AQI · {band.label}
+                {staleNote(a.fetchedAt, now)}
               </T>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 2 }}>

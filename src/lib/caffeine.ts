@@ -33,14 +33,18 @@ export function bedtimeOn(key: string, sleepHour: number) {
 /** Caffeine left at bedtime on day `key`. */
 export const bedtimeCaffeine = (s: State, key: string) => caffeineLeft(cupsAround(s, key), bedtimeOn(key, s.settings.sleepHour));
 
-/** The day's curve, one point per `stepMin` from `fromHour` to `toHour` (24+ means after midnight). */
+/** `hour` o'clock on day `key` (24+ is after midnight), on the clock: right on the days the clocks change too. */
+const clockOn = (key: string, hour: number) => {
+  const d = new Date(`${key}T00:00`);
+  d.setHours(hour, 0, 0, 0);
+  return d.getTime();
+};
+
+/** The day's curve, one point per `stepMin` from `fromHour` to `toHour` o'clock (24+ means after midnight). */
 export function caffeineCurve(s: State, key: string, fromHour: number, toHour: number, stepMin = 15) {
   const cups = cupsAround(s, key);
-  const start = new Date(`${key}T00:00`).getTime();
+  const end = clockOn(key, toHour);
   const points: { t: number; mg: number }[] = [];
-  for (let m = fromHour * 60; m <= toHour * 60; m += stepMin) {
-    const t = start + m * 60_000;
-    points.push({ t, mg: caffeineLeft(cups, t) });
-  }
+  for (let t = clockOn(key, fromHour); t <= end; t += stepMin * 60_000) points.push({ t, mg: caffeineLeft(cups, t) });
   return points;
 }

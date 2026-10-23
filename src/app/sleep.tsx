@@ -189,7 +189,7 @@ export default function SleepScreen() {
       <Card accent={C.purple}>
         <H
           right={
-            <Pressable onPress={health.refresh} hitSlop={8}>
+            <Pressable onPress={health.refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Refresh sleep">
               <Icon name="refresh" size={20} color={C.dim} />
             </Pressable>
           }>

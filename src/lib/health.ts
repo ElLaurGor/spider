@@ -3,16 +3,20 @@
 import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 
-import { addDays, dayKey, startOfDay } from './dates';
-import { nightOf, nightWindow, type Night, type RawSession } from './sleep';
+import { addDays, atTime, dayKey, startOfDay } from './dates';
+import { nightOf, nightWindow, ZEPP, type Night, type RawSession } from './sleep';
 
 type HC = typeof import('react-native-health-connect');
 
 export type HealthStatus = 'unsupported' | 'unavailable' | 'needs-permission' | 'connected';
 
 export type HealthData = {
-  steps: number;
-  stepsWeek: { key: string; steps: number }[]; // oldest first, today last
+  /** The day this read is for. One that started before midnight is still the old day's, whenever it lands. */
+  key: string;
+  steps: number; // `key`'s steps; 0 when unknown, see stepsKnown
+  /** False when the steps read failed: then `steps` is no reading at all and must never be saved as 0. */
+  stepsKnown: boolean;
+  stepsWeek: { key: string; steps: number | null }[]; // oldest first, `key` last; null = the read failed
   sleepWeek: { key: string; sleepMin: number | null }[]; // the night before each of those days
   heartAvg: number | null;
   heartMin: number | null;
@@ -56,6 +60,25 @@ export async function healthStatus(): Promise<HealthStatus> {
   return granted.some((p) => 'recordType' in p && p.recordType === 'Steps') ? 'connected' : 'needs-permission';
 }
 
+const PERMISSION_LABEL: Record<(typeof PERMISSIONS)[number]['recordType'], string> = {
+  Steps: 'steps',
+  HeartRate: 'heart rate',
+  RestingHeartRate: 'resting heart rate',
+  SleepSession: 'sleep',
+};
+
+/**
+ * What the app asks for but wasn't granted ("heart rate", "sleep"), so a half-granted connection can say so
+ * instead of "check that Zepp syncs". Also catches a type added in a later version, which Connect never asked for.
+ */
+export async function missingHealthAccess(): Promise<string[]> {
+  if (!hc || !(await ready(hc))) return [];
+  const granted = await hc.getGrantedPermissions();
+  return PERMISSIONS.filter((p) => !granted.some((g) => 'recordType' in g && g.recordType === p.recordType && g.accessType === p.accessType)).map(
+    (p) => PERMISSION_LABEL[p.recordType],
+  );
+}
+
 export async function connectHealth(): Promise<HealthStatus> {
   if (!hc || !(await ready(hc))) return healthStatus();
   await hc.requestPermission([...PERMISSIONS]);
@@ -71,9 +94,6 @@ const range = (start: Date, end: Date) => ({
   startTime: start.toISOString(),
   endTime: end.toISOString(),
 });
-
-// The Zepp app's package. Its own step data goes first so the count matches what Zepp shows.
-const ZEPP = 'com.huami.watch.hmwatchmanager';
 
 /** Runs a read and turns "no permission / no data" into null instead of an error. */
 async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -98,6 +118,7 @@ async function readSessions(lib: HC, from: Date, to: Date): Promise<RawSession[]
       out.push({
         start: new Date(rec.startTime).getTime(),
         end: new Date(rec.endTime).getTime(),
+        origin: rec.metadata?.dataOrigin,
         stages: (rec.stages ?? []).map((st) => ({ start: new Date(st.startTime).getTime(), end: new Date(st.endTime).getTime(), stage: st.stage })),
       });
     }
@@ -117,19 +138,26 @@ export async function readSleepNight(key: string): Promise<Night | null> {
   return nightOf(await readSessions(lib, new Date(from), new Date(end)), key);
 }
 
-/** Steps per hour for the last `days` days (oldest first), for the movement map. Empty outside the installed app. */
+/**
+ * Steps per hour over the last `days` finished days (oldest first), for the movement map. Today is left out:
+ * its hours still to come would count as zeros and drag that weekday down. Zepp's own data first, like the
+ * daily totals; every source when Zepp has none. Empty outside the installed app.
+ */
 export async function readStepsByHour(days = 14, now = new Date()): Promise<{ at: number; steps: number }[]> {
   const lib = hc;
   if (!lib || !(await ready(lib))) return [];
   const today = startOfDay(now);
-  const r = await safe(() =>
-    lib.aggregateGroupByDuration({
-      recordType: 'Steps',
-      // Up to midnight, not now: see stepsOn in readHealth.
-      timeRangeFilter: range(addDays(today, -days), addDays(today, 1)),
-      timeRangeSlicer: { duration: 'HOURS', length: 1 },
-    }),
-  );
+  const byHour = (origins?: string[]) =>
+    safe(() =>
+      lib.aggregateGroupByDuration({
+        recordType: 'Steps',
+        timeRangeFilter: range(addDays(today, -days), today),
+        timeRangeSlicer: { duration: 'HOURS', length: 1 },
+        ...(origins ? { dataOriginFilter: origins } : {}),
+      }),
+    );
+  const zepp = await byHour([ZEPP]);
+  const r = zepp?.some((x) => (x.result.COUNT_TOTAL ?? 0) > 0) ? zepp : await byHour();
   return (r ?? []).map((x) => ({ at: new Date(x.startTime).getTime(), steps: x.result.COUNT_TOTAL ?? 0 }));
 }
 
@@ -175,22 +203,22 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
   // Always up to midnight, even today. Health Connect prorates a record that sticks out of the
   // range, so ending at "now" cut Zepp's still-open block (e.g. 14:00–15:00 at 14:37) to 37/60.
   // Zepp's own data first: with another step source ranked above it, the merged total came out lower than Zepp's.
-  const stepsOn = async (dayStart: Date) => {
+  // A failed read (rate limit, Health Connect updating) is null, never 0: a 0 would overwrite today's steps.
+  const stepsOn = async (dayStart: Date): Promise<number | null> => {
     const filter = range(dayStart, addDays(dayStart, 1));
     const zepp = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter, dataOriginFilter: [ZEPP] }));
     if (zepp && zepp.COUNT_TOTAL > 0) return zepp.COUNT_TOTAL;
     const r = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter }));
-    return r?.COUNT_TOTAL ?? 0;
+    return r ? (r.COUNT_TOTAL ?? 0) : null;
   };
 
-  // "The night before a day": sleep between 18:00 the day before and 14:00 that day.
+  // "The night before a day": sleep between 18:00 the day before and 14:00 that day (clock times: DST nights
+  // are 23 or 25 hours). Zepp's own sessions first, like steps: another sleep writer would otherwise be added on.
   const sleepBefore = async (dayStart: Date) => {
-    const r = await safe(() =>
-      lib.aggregateRecord({
-        recordType: 'SleepSession',
-        timeRangeFilter: range(new Date(addDays(dayStart, -1).getTime() + 18 * 3_600_000), new Date(dayStart.getTime() + 14 * 3_600_000)),
-      }),
-    );
+    const filter = range(atTime(dayStart, -1, 18), atTime(dayStart, 0, 14));
+    const zepp = await safe(() => lib.aggregateRecord({ recordType: 'SleepSession', timeRangeFilter: filter, dataOriginFilter: [ZEPP] }));
+    const r =
+      zepp && zepp.SLEEP_DURATION_TOTAL > 0 ? zepp : await safe(() => lib.aggregateRecord({ recordType: 'SleepSession', timeRangeFilter: filter }));
     return r && r.SLEEP_DURATION_TOTAL > 0 ? Math.round(r.SLEEP_DURATION_TOTAL / 60) : null;
   };
   const week = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
@@ -222,8 +250,11 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
   const lastSample = lastRecord?.samples.reduce((a, b) => (new Date(b.time) > new Date(a.time) ? b : a), lastRecord.samples[0]);
   const hasHeart = !!heart && heart.MEASUREMENTS_COUNT > 0;
 
+  const todaySteps = stepsWeek[stepsWeek.length - 1].steps;
   return {
-    steps: stepsWeek[stepsWeek.length - 1].steps,
+    key: dayKey(today),
+    steps: todaySteps ?? 0,
+    stepsKnown: todaySteps != null,
     stepsWeek,
     heartAvg: hasHeart ? Math.round(heart.BPM_AVG) : null,
     heartMin: hasHeart ? heart.BPM_MIN : null,

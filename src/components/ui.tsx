@@ -112,8 +112,20 @@ export function Big({ children, color = C.text, size = 34 }: { children: ReactNo
 type BtnKind = 'primary' | 'blue' | 'ghost' | 'danger';
 const BTN_BG: Record<BtnKind, string> = { primary: C.red, blue: C.blue, ghost: C.card2, danger: C.redDim };
 
+/** What an icon-only button says to a screen reader. */
+const ICON_LABEL: Partial<Record<AndroidSymbol, string>> = {
+  undo: 'Undo the last one',
+  add: 'Add',
+  barcode_scanner: 'Scan a barcode',
+  photo_camera: 'Take a photo',
+  photo_library: 'Pick a photo',
+  refresh: 'Refresh',
+  close: 'Close',
+};
+
 export function Btn({
   label,
+  a11yLabel,
   onPress,
   icon,
   kind = 'primary',
@@ -122,6 +134,8 @@ export function Btn({
   style,
 }: {
   label?: string;
+  /** For a screen reader; defaults to the label, or to what the icon means. */
+  a11yLabel?: string;
   onPress: () => void;
   icon?: AndroidSymbol;
   kind?: BtnKind;
@@ -133,6 +147,9 @@ export function Btn({
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={a11yLabel ?? label ?? (icon ? (ICON_LABEL[icon] ?? icon.replace(/_/g, ' ')) : undefined)}
+      accessibilityState={{ disabled: !!disabled }}
       style={({ pressed }) => [
         styles.btn,
         { backgroundColor: BTN_BG[kind], opacity: disabled ? 0.4 : pressed ? 0.75 : 1 },

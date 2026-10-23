@@ -44,7 +44,7 @@ export type Settings = {
   coffeeLimit: number; // cups per day
   coffeeCutoffHour: number; // coffee after this hour gets roasted
   stepGoal: number;
-  weather: { name: string; lat: number; lon: number; county?: string } | null;
+  weather: { name: string; lat: number; lon: number; county?: string; municipality?: string } | null; // see Place in weather.ts
   allergies: ('alder' | 'birch' | 'grass' | 'mugwort' | 'ragweed')[];
   pollenAlertLevel: 2 | 3; // alert from moderate (2) or high (3)
   aqiAlert: number; // European AQI at or above this triggers an alert

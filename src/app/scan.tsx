@@ -1,7 +1,7 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, Card, H, Row, SpiderSays, Stepper, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
@@ -47,7 +47,16 @@ export default function ScanScreen() {
     return (
       <View style={[styles.fill, { padding: 24, justifyContent: 'center', gap: 14 }]}>
         <T>📷 I need the camera to read barcodes.</T>
-        <Btn label="Allow camera" icon="photo_camera" onPress={requestPermission} />
+        {permission.canAskAgain ? (
+          <Btn label="Allow camera" icon="photo_camera" onPress={requestPermission} />
+        ) : (
+          <>
+            <T dim small>
+              Android won&apos;t ask again. Turn on Camera for S.P.I.D.E.R. in its settings, then come back.
+            </T>
+            <Btn label="Open app settings" icon="settings" onPress={() => void Linking.openSettings().catch(() => {})} />
+          </>
+        )}
       </View>
     );
   }

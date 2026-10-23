@@ -3,14 +3,18 @@
 // that folder again.
 // Automatic weekly backups (cluster F) go into one "SPIDER-auto-backup" folder in a folder picked
 // once: "data-<date>.json" files (the newest few kept) and a shared "photos" folder that only
-// gets new photos. Restoring = picking that "SPIDER-auto-backup" folder; the newest file wins.
+// gets new photos. Restoring = picking that "SPIDER-auto-backup" folder; the newest readable file wins.
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { AUTO_BACKUPS_KEPT } from './backup-due';
+import { pickBackup, skipAutoBackup } from './backup-pick';
 import { hydrate } from './defaults';
 import type { State } from './types';
 
 type BackupFile = { app: 'spider'; version: 1; createdAt: number; photos: Record<string, string>; state: State };
+
+const AUTO_DIR = 'SPIDER-auto-backup';
+const AUTO_FILE = /^data-.+\.json$/;
 
 const localPhotos = () => new Directory(Paths.document, 'photos');
 
@@ -21,7 +25,25 @@ export function keepCopy(name: string, text: string) {
   f.write(text);
 }
 
-const mimeFor = (name: string) => (name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+const MIME: Record<string, string> = { png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', gif: 'image/gif' };
+/** The type a photo is written with. A wrong one makes Android's folder storage append ".jpg", so the name no longer matches. */
+const mimeFor = (name: string) => MIME[name.toLowerCase().split('.').pop() ?? ''] ?? 'image/jpeg';
+
+/** A backup file's contents, or null when it can't be read (cut off mid-write) or isn't ours. */
+async function readBackupFile(f: File): Promise<Partial<BackupFile> | null> {
+  try {
+    const data = JSON.parse(await f.text()) as Partial<BackupFile>;
+    return data.app === 'spider' && data.state && typeof data.state.days === 'object' ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+const autoFilesIn = (dir: Directory) =>
+  dir
+    .list()
+    .filter((e): e is File => e instanceof File && AUTO_FILE.test(e.name))
+    .sort((a, b) => (a.name < b.name ? -1 : 1));
 
 function photoUris(s: State) {
   const uris = s.progressPhotos.map((p) => p.uri);
@@ -59,8 +81,6 @@ export async function createBackup(state: State): Promise<{ folder: string; phot
   return { folder: folder.name, photos: Object.keys(names).length };
 }
 
-const AUTO_DIR = 'SPIDER-auto-backup';
-const AUTO_FILE = /^data-.+\.json$/;
 
 /** Asks for the folder automatic backups go into. Android keeps the permission across restarts. */
 export async function pickAutoBackupFolder(): Promise<{ uri: string; name: string } | null> {
@@ -71,11 +91,18 @@ export async function pickAutoBackupFolder(): Promise<{ uri: string; name: strin
 const childDir = (parent: Directory, name: string) =>
   parent.list().find((e): e is Directory => e instanceof Directory && e.name === name) ?? parent.createDirectory(name);
 
-/** Writes this week's automatic backup into the saved folder. Throws if the folder or its permission is gone. */
-export async function autoBackup(state: State, folderUri: string): Promise<{ photos: number }> {
+/**
+ * Writes this week's automatic backup into the saved folder. Throws if the folder or its permission is gone.
+ * `skipped`: nothing was written or pruned, because this phone holds far fewer days than the last backup (a
+ * wiped phone must not push the good backups out of the folder).
+ */
+export async function autoBackup(state: State, folderUri: string): Promise<{ photos: number; skipped?: boolean }> {
   const parent = new Directory(folderUri);
   if (!parent.exists) throw new Error('Backup folder is gone');
   const dir = childDir(parent, AUTO_DIR);
+  const newest = autoFilesIn(dir).at(-1);
+  const last = newest ? await readBackupFile(newest) : null;
+  if (skipAutoBackup(last?.state ? Object.keys(last.state.days).length : null, Object.keys(state.days).length)) return { photos: 0, skipped: true };
   const photoDir = childDir(dir, 'photos');
   const have = new Set(photoDir.list().map((e) => e.name));
 
@@ -95,10 +122,7 @@ export async function autoBackup(state: State, folderUri: string): Promise<{ pho
   const data: BackupFile = { app: 'spider', version: 1, createdAt: Date.now(), photos: names, state };
   dir.createFile(`data-${stampNow()}.json`, 'application/json').write(JSON.stringify(data));
 
-  const files = dir
-    .list()
-    .filter((e): e is File => e instanceof File && AUTO_FILE.test(e.name))
-    .sort((a, b) => (a.name < b.name ? -1 : 1));
+  const files = autoFilesIn(dir);
   for (const old of files.slice(0, Math.max(0, files.length - AUTO_BACKUPS_KEPT))) old.delete();
   return { photos: added };
 }
@@ -108,12 +132,22 @@ export async function readBackup(): Promise<{ state: State; createdAt: number; p
   const dir = await pickFolder();
   if (!dir) return null;
   const entries = dir.list();
-  // A manual backup has data.json; the automatic folder has dated files, of which the newest wins.
-  const autoFiles = entries.filter((e): e is File => e instanceof File && AUTO_FILE.test(e.name)).sort((a, b) => (a.name < b.name ? 1 : -1));
-  const dataFile = entries.find((e): e is File => e instanceof File && e.name === 'data.json') ?? autoFiles[0];
-  if (!dataFile) throw new Error('No backup in that folder. Pick the "SPIDER-backup-…" or "SPIDER-auto-backup" folder itself.');
-  const data = JSON.parse(await dataFile.text()) as Partial<BackupFile>;
-  if (data.app !== 'spider' || !data.state) throw new Error("That isn't a S.P.I.D.E.R. backup.");
+  // A manual backup has data.json; the automatic folder has dated files: the newest that reads and isn't a
+  // near-empty copy wins (a cut-off write or a post-wipe backup falls back to the one before).
+  const manual = entries.find((e): e is File => e instanceof File && e.name === 'data.json');
+  const autoFiles = autoFilesIn(dir);
+  if (!manual && !autoFiles.length) throw new Error('No backup in that folder. Pick the "SPIDER-backup-…" or "SPIDER-auto-backup" folder itself.');
+  let data: Partial<BackupFile> | null;
+  if (manual) {
+    data = await readBackupFile(manual);
+    if (!data) throw new Error("That isn't a S.P.I.D.E.R. backup, or it's damaged.");
+  } else {
+    const read = await Promise.all(autoFiles.map(async (f) => ({ name: f.name, data: await readBackupFile(f) })));
+    const name = pickBackup(read.map((x) => ({ name: x.name, days: x.data?.state ? Object.keys(x.data.state.days).length : null })));
+    data = read.find((x) => x.name === name)?.data ?? null;
+    if (!data) throw new Error("None of the backups in that folder could be read.");
+  }
+  if (!data.state) throw new Error("That isn't a S.P.I.D.E.R. backup.");
 
   const photoDir = entries.find((e): e is Directory => e instanceof Directory && e.name === 'photos');
   const backed = new Map((photoDir?.list() ?? []).filter((e): e is File => e instanceof File).map((f) => [f.name, f]));

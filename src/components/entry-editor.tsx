@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Btn, Field, Row, Stepper, T } from '@/components/ui';
 import { C } from '@/constants/theme';
@@ -20,6 +21,7 @@ type Props = {
 
 /** Bottom sheet for fixing a logged entry: time of day, optional name and numbers, delete. */
 export function EntryEditor({ title, at, name, numbers = [], note, onSave, onDelete, onClose }: Props) {
+  const insets = useSafeAreaInsets();
   const start = at !== undefined ? new Date(at) : null;
   const [hour, setHour] = useState(start?.getHours() ?? 0);
   const [minute, setMinute] = useState(start?.getMinutes() ?? 0);
@@ -36,7 +38,7 @@ export function EntryEditor({ title, at, name, numbers = [], note, onSave, onDel
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
+        <Pressable style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]} onPress={() => {}}>
           <Text style={styles.title}>{title}</Text>
           {at !== undefined ? (
             <>

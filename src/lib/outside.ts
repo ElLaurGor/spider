@@ -132,13 +132,26 @@ export async function fetchSmhi(county: string): Promise<Alert[]> {
   return out.sort((a, b) => rank[b.level] - rank[a.level]);
 }
 
-export function isMine(a: { type?: string; description?: string }, county: string, town?: string) {
+/** "Stockholms stad", "Solna Kommun", "Stockholms kommun" → "stockholms" / "solna": the kommun however it's named. */
+const kommunOf = (name: string) =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+(kommun|stad)$/, '');
+
+/**
+ * Whether a VMA area is the owner's: the whole country, the county, or the municipality. The municipality comes
+ * from the geocoder ("Stockholms stad" for Kista too), the town name is the fallback for places saved without it.
+ */
+export function isMine(a: { type?: string; description?: string }, county: string, town?: string, municipality?: string) {
   if (a.type === 'Country' || a.description === county) return true;
-  return !!town && !!a.description?.toLowerCase().startsWith(town.toLowerCase());
+  if (!a.description) return false;
+  if (municipality && kommunOf(a.description) === kommunOf(municipality)) return true;
+  return !!town && a.description.toLowerCase().startsWith(town.toLowerCase());
 }
 
-/** Active VMAs (Viktigt meddelande till allmänheten) for the county, the town's municipality, or nationwide. */
-export async function fetchVma(county: string, town?: string): Promise<Alert[]> {
+/** Active VMAs (Viktigt meddelande till allmänheten) for the county, the municipality, or nationwide. */
+export async function fetchVma(county: string, town?: string, municipality?: string): Promise<Alert[]> {
   const list = await getJson<
     {
       identifier: string;
@@ -153,7 +166,7 @@ export async function fetchVma(county: string, town?: string): Promise<Alert[]> 
   if (!Array.isArray(list)) throw new Error('Krisinformation changed format');
   // Municipal VMAs name the kommun ("Stockholms kommun", "Malmö kommun"), so match the town too.
   return list
-    .filter((v) => !v.area?.length || v.area.some((a) => isMine(a, county, town)))
+    .filter((v) => !v.area?.length || v.area.some((a) => isMine(a, county, town, municipality)))
     .map((v) => ({
       id: `vma-${v.identifier}`,
       source: 'VMA' as const,

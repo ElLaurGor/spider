@@ -204,8 +204,9 @@ export function nextWaterReminder(s: State, now = new Date()) {
 // ---- calendar helpers ----
 
 export function eventsOn(events: CalEvent[], date: Date | number) {
-  const start = startOfDay(date).getTime();
-  const end = start + 24 * 3_600_000;
+  const day = startOfDay(date);
+  const start = day.getTime();
+  const end = addDays(day, 1).getTime(); // the next midnight: 23 or 25 hours away when the clocks change
   return events.filter((e) => e.start < end && e.end > start);
 }
 
