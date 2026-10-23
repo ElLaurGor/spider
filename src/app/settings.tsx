@@ -9,7 +9,7 @@ import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme'
 import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { dayKey, pad } from '@/lib/dates';
 import { hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
-import { ACRONYM_REAL, line } from '@/lib/lines';
+import { ACRONYM_REAL, bannedLines, line } from '@/lib/lines';
 import { openHealthSettings } from '@/lib/health';
 import { guardSupported, hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
 import { POLLEN } from '@/lib/outside';
@@ -155,6 +155,7 @@ export default function SettingsScreen() {
         <SpiderSays text={preview} onPress={() => setPreview(line('spiderTap', s.savageLevel, { name: s.userName || 'boss' }))} />
         <TodayTone />
         <Toggle label="Go easy on period days" hint="no roasts on period days" value={s.easyOnPeriod} onChange={(v) => set({ easyOnPeriod: v })} />
+        <RetiredLines />
       </Card>
 
       <Card>
@@ -511,11 +512,44 @@ function TodayTone() {
   if (tone.level < chosen) {
     return (
       <T dim small>
-        Low-battery mode today: roasts are capped at level {tone.level}.
+        {state.toneEase?.day === dayKey()
+          ? `A line went too far today, so I'm at level ${tone.level} until tomorrow.`
+          : `Low-battery mode today: roasts are capped at level ${tone.level}.`}
       </T>
     );
   }
   return null;
+}
+
+/** Lines retired with "too far" (long-press a comment): each one can be let back in. */
+function RetiredLines() {
+  const { state, actions } = useStore();
+  const [open, setOpen] = useState(false);
+  const list = bannedLines(state.lineMemory?.banned ?? []);
+  if (!list.length) {
+    return (
+      <T dim small>
+        A comment went too far? Long-press it and I&apos;ll retire that line for good.
+      </T>
+    );
+  }
+  return (
+    <View style={{ gap: 6 }}>
+      <SettingRow label={`Retired lines (${list.length})`} hint="long-press a comment to retire it">
+        <Chip label={open ? 'Hide' : 'Show'} onPress={() => setOpen(!open)} />
+      </SettingRow>
+      {open
+        ? list.map((x) => (
+            <Row key={x.id} style={{ justifyContent: 'space-between', gap: 8 }}>
+              <T dim small style={{ flex: 1 }}>
+                “{x.text}”
+              </T>
+              <Chip label="Let back in" onPress={() => actions.unretireLine(x.id)} />
+            </Row>
+          ))
+        : null}
+    </View>
+  );
 }
 
 function SettingRow({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {

@@ -8,6 +8,8 @@ import { addDays, atTime, dayKey, fmtClock, fmtDuration, isDayKey, MIN, startOfW
 import { defaultState, emptyDay, hydrate, idTime, withRealDays } from '../src/lib/defaults';
 import { BASE_KEY, changedMonths, daysByMonth, fingerprint, INDEX_KEY, monthKey, olderCopy, readSaved, ReadError, ROW_LIMIT, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from '../src/lib/persist';
 import { fillLine, freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
+import { banLine, bannedLines, dayLine, lineId, lineIdFor, lineMemory, setLineMemory, unbanLine } from '../src/lib/lines';
+import { insightById, jetlagRemark, jitAllowed, lateCoffeeRemark, lateGameRemark, nearBedtime, withJitSaid } from '../src/lib/jit';
 import {
   avgMood,
   caffeineMg,
@@ -79,7 +81,7 @@ import { bestiary, lastKillDay, LORE } from '../src/lib/bestiary';
 import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
-import { gentleDay, goldenAllowed, periodDay, toneOn } from '../src/lib/tone';
+import { EASE_STEP, gentleDay, goldenAllowed, periodDay, toneOn } from '../src/lib/tone';
 import { gameLineKey, nightVerdictKey, stepsLineKey, verdictLineKey } from '../src/lib/line-context';
 import type { DayLog } from '../src/lib/types';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
@@ -154,6 +156,7 @@ for (const k of ['weakness', 'day', 'until']) known.add(k); // cluster A
 for (const k of ['done', 'budget']) known.add(k); // step 2 tone: the Gym and Game tabs
 for (const k of ['rival', 'medals']) known.add(k); // step 2b progress: the nemesis and weekly medals
 for (const k of ['hp', 'plan']) known.add(k); // step 2b boss: the weekend finisher and the recap
+known.add('finding'); // step 4 lines: just-in-time insights
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -491,6 +494,164 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
     }
   }
   assert.ok(checked > 100, `only ${checked} call sites found`);
+}
+
+// ---------- step 4 lines ----------
+// The deck: a pool list deals every line once before repeating, across app runs; retired lines never come back.
+{
+  const pools = LINES as Record<string, { mild: string[]; savage: string[] }>;
+  setLineMemory(undefined);
+  const mild = pools.waterRemind.mild.map((t) => fillLine(t, {})); // as shown ({name} filled in)
+  assert.ok(mild.length >= 2);
+  const firstRound = new Set(mild.map(() => freshLine('waterRemind', 1)));
+  assert.equal(firstRound.size, mild.length); // level 1: the mild list, every line once
+  const last = freshLine('waterRemind', 1); // the next round has started...
+  assert.ok(mild.includes(last));
+  // ...and it survives a restart: saved, loaded again, the round goes on without repeats
+  setLineMemory(undefined);
+  const half = Math.ceil(mild.length / 2);
+  const before = Array.from({ length: half }, () => freshLine('waterRemind', 1));
+  const saved = JSON.parse(JSON.stringify(lineMemory()));
+  setLineMemory(saved);
+  const after = Array.from({ length: mild.length - half }, () => freshLine('waterRemind', 1));
+  assert.equal(new Set([...before, ...after]).size, mild.length);
+  // a new round never starts with the line that ended the last one
+  for (let round = 0; round < 20; round++) {
+    const endOf = Array.from({ length: mild.length }, () => freshLine('waterRemind', 1)).at(-1);
+    assert.notEqual(freshLine('waterRemind', 1), endOf);
+    setLineMemory(undefined);
+  }
+  // old lists are forgotten after 30 days, and at most 300 are kept
+  const now = Date.now();
+  setLineMemory({ deck: { 'gymSet:s': { used: ['x'], at: now - 31 * 86_400_000 } } });
+  freshLine('taskDone', 1);
+  assert.ok(!lineMemory().deck?.['gymSet:s']);
+  setLineMemory({ deck: Object.fromEntries(Array.from({ length: 320 }, (_, i) => [`p${i}:m`, { used: [], at: now - i * 1000 }])) });
+  freshLine('taskDone', 1);
+  assert.ok(Object.keys(lineMemory().deck ?? {}).length <= 300);
+  assert.ok(lineMemory().deck?.['taskDone:m']); // the one just used is kept
+
+  // retired lines: gone from both lists; mild all retired at level 1 still never means a roast
+  setLineMemory(undefined);
+  for (const t of pools.gymSet.savage) banLine(lineId('gymSet', t));
+  const keep = { weight: '{weight}', reps: '{reps}', exercise: '{exercise}', ml: '{ml}', left: '{left}' }; // placeholders left in, to compare with the pool
+  const shown = (xs: string[]) => xs.map((t) => fillLine(t, keep));
+  for (let i = 0; i < 40; i++) assert.ok(shown(pools.gymSet.mild).includes(freshLine('gymSet', 10, keep)));
+  assert.equal(bannedLines().length, pools.gymSet.savage.length);
+  assert.ok(bannedLines().every((b) => b.key === 'gymSet' && pools.gymSet.savage.includes(b.text)));
+  for (const t of pools.gymSet.savage) unbanLine(lineId('gymSet', t));
+  assert.equal(bannedLines().length, 0);
+  for (const t of pools.waterLogged.mild) banLine(lineId('waterLogged', t));
+  for (let i = 0; i < 30; i++) assert.ok(shown(pools.waterLogged.mild).includes(freshLine('waterLogged', 1, keep))); // kind day: a repeat, not a roast
+  for (let i = 0; i < 30; i++) assert.ok(shown(pools.waterLogged.savage).includes(freshLine('waterLogged', 10, keep))); // otherwise what's left
+  assert.equal(bannedLines(['nope:1']).length, 0); // ids of lines that no longer exist are skipped
+  setLineMemory(undefined);
+
+  // a toast knows which line it shows, even with an emoji or "+10 XP" around it
+  const said = freshLine('taskDone', 10);
+  const id = lineIdFor(`✅ ${said} +10 XP`);
+  assert.ok(id?.startsWith('taskDone:'));
+  banLine(id!);
+  assert.ok(bannedLines().some((b) => fillLine(b.text, {}) === said));
+  assert.equal(lineIdFor('Restored backup from 2027-01-13 (3 photos). Welcome back.'), null); // not a pool line
+  setLineMemory(undefined);
+
+  // notifications: a fixed shuffle per day, so a day's water reminders don't repeat while the pool allows
+  const slots = mild.map((_, i) => dayLine('waterRemind', 1, '2027-01-13', i));
+  assert.equal(new Set(slots).size, mild.length);
+  assert.equal(dayLine('waterRemind', 1, '2027-01-13', 2), slots[2]); // a replan gives the slot the same line
+  assert.equal(dayLine('waterRemind', 7, '2027-01-14', 3, { name: 'X' }), dayLine('waterRemind', 7, '2027-01-14', 3, { name: 'X' }));
+  const days = new Set(Array.from({ length: 10 }, (_, i) => dayLine('waterRemind', 1, `2027-02-${10 + i}`, 0)));
+  assert.ok(days.size > 1); // other days, other first lines
+  banLine(lineId('waterRemind', pools.waterRemind.mild[0]));
+  for (let i = 0; i < 12; i++) assert.notEqual(dayLine('waterRemind', 1, '2027-01-13', i), mild[0]); // retired lines skip notifications too
+  setLineMemory(undefined);
+
+  // lint: lines seen every day have at least 4 savage variants (kind pools are the same in both and exempt)...
+  const DAILY = ['greetMorning', 'greetAfternoon', 'greetEvening', 'greetNight', 'spiderTap', 'waterLogged', 'waterRemind', 'coffeeLogged', 'foodLogged', 'gymSet', 'gymToday', 'gymRemind', 'taskDone', 'habitDone', 'habitRemind', 'moodRemind', 'questDone', 'energyLow', 'energyOk', 'energyHigh', 'windDownRemind', 'windDownDone', 'breathDone', 'sleepRemind', 'rateSleepBad', 'rateSleepOk', 'rateSleepGreat', 'sleepShort', 'sleepGood', 'verdictTragic', 'verdictMid', 'verdictGood', 'verdictGreat', 'verdictMorning', 'weatherRain', 'weatherCold', 'weatherHot', 'weatherNice', 'gameStart', 'stepsLow', 'stepsMid', 'stepsHigh', 'morningBrief', 'eveningReport', 'eveningReady'];
+  for (const k of DAILY) {
+    const pool = pools[k];
+    assert.ok(pool, k);
+    if (JSON.stringify(pool.mild) === JSON.stringify(pool.savage)) continue;
+    assert.ok(pool.savage.length >= 4, `${k}: only ${pool.savage.length} savage lines`);
+  }
+  // ...and a catchphrase turns up in at most 2 pools, so it stays a joke instead of a tic
+  for (const phrase of ['who are you and what have you done', 'houseplant', 'suspicious', 'bold', 'excuse']) {
+    const hits = Object.entries(pools).filter(([, x]) => [...x.mild, ...x.savage].some((t) => new RegExp(`\\b${phrase}`, 'i').test(t)));
+    assert.ok(hits.length <= 2, `"${phrase}" in ${hits.length} pools: ${hits.map(([k]) => k).join(', ')}`);
+  }
+}
+
+// "too far" turns the day's tone down a step (golden lines off), and only that day
+{
+  const at = new Date(2027, 0, 13, 9);
+  const t = defaultState();
+  t.toneEase = { day: '2027-01-13', steps: 1 };
+  assert.deepEqual(toneOn(t, '2027-01-13', at), { level: 10 - EASE_STEP, kind: false });
+  assert.equal(toneOn(t, '2027-01-14', at).level, 10);
+  assert.ok(!goldenAllowed(t, at));
+  t.toneEase = { day: '2027-01-13', steps: 9 };
+  assert.equal(toneOn(t, '2027-01-13', at).level, 1);
+}
+
+// just-in-time insights: only what the data shows, once a day, never on a sick day
+{
+  const blank = (extra: Partial<DayLog> = {}): DayLog => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0, ...extra });
+  const g = defaultState();
+  const fri = new Date(2027, 0, 15, 22); // Fri 15 Jan 2027, 22:00 (bedtime 23:00)
+  for (let i = 10; i >= 1; i--) {
+    const d = addDays(fri, -i);
+    const late = i % 2 === 0; // every other evening: a game until 23:30
+    const end = new Date(d);
+    end.setHours(late ? 23 : 20, 30, 0, 0);
+    g.days[dayKey(d)] = blank({ games: [{ start: end.getTime() - 3_600_000, end: end.getTime() }] });
+  }
+  // the morning after rates the night: worse after late gaming
+  for (let i = 9; i >= 0; i--) {
+    const k = dayKey(addDays(fri, -i));
+    const lateBefore = (i + 1) % 2 === 0;
+    g.days[k] = { ...(g.days[k] ?? blank()), sleepRating: lateBefore ? 2 : 4 };
+  }
+  assert.ok(insightById(g, 'late_game', fri));
+  const r = lateGameRemark(g, fri);
+  assert.ok(r && r.finding.includes('23:00'));
+  assert.equal(lateGameRemark(g, new Date(2027, 0, 15, 14)), null); // the afternoon isn't near bedtime
+  assert.equal(lateGameRemark(withJitSaid(g, 'late_game', fri), fri), null); // once a day
+  assert.ok(lateGameRemark(withJitSaid(g, 'late_game', addDays(fri, -1)), fri)); // yesterday's doesn't count
+  assert.equal(lateGameRemark(startPause(g, 'sick', 1, '2027-01-15'), fri), null); // nothing on a sick day
+  assert.ok(lateGameRemark(startPause(g, 'away', 1, '2027-01-15'), fri)); // away mode still gets it
+  assert.equal(lateGameRemark(defaultState(), fri), null); // no data, no remark
+  assert.ok(nearBedtime(g, new Date(2027, 0, 15, 21, 31)));
+  assert.ok(!nearBedtime(g, new Date(2027, 0, 15, 21, 29)));
+  assert.ok(nearBedtime(g, new Date(2027, 0, 16, 1, 30))); // after midnight
+  assert.ok(!nearBedtime(g, new Date(2027, 0, 16, 7)));
+  assert.ok(!jitAllowed(startPause(defaultState(), 'sick', 1, '2027-01-15'), 'social_jetlag', fri));
+
+  // late coffee: shorter nights after cups past the 15:00 curfew, and the caffeine left at bedtime
+  const c = defaultState();
+  for (let i = 10; i >= 1; i--) {
+    const d = addDays(fri, -i);
+    const late = i % 2 === 0;
+    const cup = new Date(d);
+    cup.setHours(late ? 17 : 9, 0, 0, 0);
+    c.days[dayKey(d)] = blank({ coffee: [{ id: `c${i}`, mg: 90, at: cup.getTime() }] });
+  }
+  for (let i = 9; i >= 0; i--) {
+    const k = dayKey(addDays(fri, -i));
+    c.days[k] = { ...(c.days[k] ?? blank()), sleepMin: (i + 1) % 2 === 0 ? 360 : 450 };
+  }
+  const cup = new Date(2027, 0, 15, 17).getTime();
+  c.days['2027-01-15'] = { ...c.days['2027-01-15'], coffee: [{ id: 'now', mg: 90, at: cup }] };
+  const rc = lateCoffeeRemark(c, cup, new Date(cup));
+  assert.ok(rc && rc.finding.includes('15:00'));
+  assert.equal(rc.mg, 40); // 90 mg six hours before 23:00, halving every 5 hours: about 39 mg, to the nearest 10
+  assert.equal(lateCoffeeRemark(c, new Date(2027, 0, 15, 10).getTime(), new Date(2027, 0, 15, 10)), null); // before the curfew
+  assert.equal(lateCoffeeRemark(withJitSaid(c, 'late_coffee', new Date(cup)), cup, new Date(cup)), null);
+
+  // the weekend heads-up: Friday from 17:00 only, and only with the data behind it
+  assert.equal(jetlagRemark(g, new Date(2027, 0, 14, 19)), null); // Thursday
+  assert.equal(jetlagRemark(g, new Date(2027, 0, 15, 16)), null); // too early
+  assert.equal(jetlagRemark(g, new Date(2027, 0, 15, 19)), null); // no sleep rhythm data: nothing to say
 }
 
 // new fields default sensibly for old saves

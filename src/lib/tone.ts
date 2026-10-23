@@ -6,6 +6,9 @@ import { addDays, dayKey } from './dates';
 import { pauseOn } from './pause';
 import type { DayLog, State } from './types';
 
+/** How far one "too far" turns the day's savage level down. */
+export const EASE_STEP = 2;
+
 /** `kind`: no roasts at all that day (level 1, mild lines only). */
 export type DayTone = { level: number; kind: boolean };
 
@@ -60,10 +63,12 @@ const predicted = (f: PeriodForecast | null | undefined, key: string) => {
  * The tone for a day. A low mood (that day's latest; with none logged yet, the day before's carries over)
  * or a sick pause make it kind. So does a period day when "go easy on period days" is on: logged, still
  * running, or (for a future day, given a forecast) predicted. Low-battery mode caps it at 5. Away mode
- * keeps the usual tone (it only stops the nagging).
+ * keeps the usual tone (it only stops the nagging). Each line called "too far" that day turns it down
+ * another step (State.toneEase).
  */
 export function toneOn(s: State, key: string, now = new Date(), forecast?: PeriodForecast | null): DayTone {
-  const set = s.settings.savageLevel;
+  const ease = s.toneEase?.day === key ? s.toneEase.steps : 0;
+  const set = Math.max(1, s.settings.savageLevel - EASE_STEP * ease);
   const d = s.days[key];
   const latest = d?.moods?.at(-1) ?? s.days[before(key)]?.moods?.at(-1);
   if ((latest && latest.level <= 2) || pauseOn(s, key)?.kind === 'sick') return { level: 1, kind: true };
