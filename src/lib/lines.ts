@@ -1277,6 +1277,15 @@ export const LINES = {
     mild: ['Last week: {boss} got away with {hp} HP left. The recap is on HQ.', '{boss} slipped away last week with {hp} HP. The recap on HQ shows where the damage came from.'],
     savage: ['Last week: {boss} escaped with {hp} HP. The recap on HQ shows exactly where it slipped through.', '{boss} walked off with {hp} HP last week. The recap is on HQ. New boss, new week.'],
   },
+  // step 4 hq
+  slLeaveNow: {
+    mild: ['Time to head out. You will make it at a calm walk.', 'Head out now and you catch it without rushing.'],
+    savage: ['Shoes on, door open, go. You will make it at a brisk walk.', 'Now is the moment. Leave and you catch it. Linger and you meet the next one.', 'Go now. Calm walk, no sprint finish needed.'],
+  },
+  slDisrupted: {
+    mild: ['SL has trouble on your line. Check the notice before you head out.'],
+    savage: ['SL is having a day on your line. Read the notice, then plan around it. Not your fault, not mine.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

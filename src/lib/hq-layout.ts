@@ -10,6 +10,7 @@ export type HqLayout = { order: string[]; hidden: string[] };
  */
 export const HQ_SECTIONS = [
   { id: 'weather', label: 'Weather' },
+  { id: 'commute', label: 'SL departures (once a stop is set)' },
   { id: 'countdowns', label: 'Countdowns' },
   { id: 'swedishDays', label: 'Red days & payday' },
   { id: 'sleep', label: 'Sleep & energy check-in' },

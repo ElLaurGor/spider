@@ -20,6 +20,7 @@ import { Bar, Btn, Card, H, Icon, Row, Screen, SpiderSays, T, useNow } from '@/c
 import { noonOf, useToday } from '@/components/use-today';
 import { OutsideAlerts } from '@/components/outside-alerts';
 import { WeatherRow } from '@/components/weather-row';
+import { SlCard } from '@/components/sl-card';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { hqVisible, type HqSectionId } from '@/lib/hq-layout';
@@ -125,6 +126,7 @@ export default function HQ() {
   // The movable cards, by id (lib/hq-layout.ts sets their order and which are hidden).
   const SECTIONS: Record<HqSectionId, () => ReactNode> = {
     weather: () => <WeatherRow />,
+    commute: () => <SlCard />,
     countdowns: () => <CountdownRow />,
     sleep: () => <SleepCheckIn />,
     top3: () => <TopThreeCard />,
