@@ -14,6 +14,7 @@ import { openHealthSettings } from '@/lib/health';
 import { guardSupported, hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
 import { POLLEN } from '@/lib/outside';
 import { findPlace } from '@/lib/weather';
+import { fetchDepartures, routesOf, searchStops, type SlStop } from '@/lib/sl';
 import { levelForXp } from '@/lib/xp';
 import { sendTestRoast } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
@@ -327,6 +328,8 @@ export default function SettingsScreen() {
         </Row>
       </Card>
 
+      <SlSettings />
+
       <Card>
         <H>Outside: pollen, air & warnings</H>
         <T dim small>
@@ -516,6 +519,113 @@ function TodayTone() {
     );
   }
   return null;
+}
+
+/** "17 (direction 1)" for a picked line that has no departure right now to name its destination. */
+const routeFallback = (key: string) => {
+  const [line, dir] = key.split(':');
+  return `${line} (direction ${dir})`;
+};
+
+/** SL departures on HQ: the stop (found with SL's journey planner), the lines to show, and the walk to the stop. */
+function SlSettings() {
+  const { state, actions, say } = useStore();
+  const sl = state.settings.sl ?? null;
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState<SlStop[] | null>(null);
+  const [routes, setRoutes] = useState<{ key: string; label: string }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = (next: Settings['sl']) => actions.updateSettings({ sl: next });
+
+  const search = async () => {
+    if (!q.trim() || busy) return;
+    setBusy(true);
+    try {
+      const found = await searchStops(q);
+      setHits(found);
+      if (!found.length) say(`No SL stop called "${q.trim()}". Try the station or stop name, like "Odenplan".`, 'bad');
+    } catch {
+      say("Couldn't reach SL to search. Try again in a minute.", 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pick = (stop: SlStop) => {
+    save({ siteId: stop.siteId, name: stop.name, routes: [], walkMin: sl?.walkMin ?? 5 });
+    setHits(null);
+    setQ('');
+    setRoutes(null);
+    say(`SL departures from ${stop.name} are on HQ now.`, 'good');
+  };
+  const loadRoutes = async () => {
+    if (!sl || busy) return;
+    setBusy(true);
+    try {
+      setRoutes(routesOf((await fetchDepartures(sl.siteId)).departures));
+    } catch {
+      say("Couldn't reach SL for the lines. Try again in a minute.", 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleRoute = (key: string) => {
+    if (!sl) return;
+    save({ ...sl, routes: sl.routes.includes(key) ? sl.routes.filter((k) => k !== key) : [...sl.routes, key] });
+  };
+  // Picked lines with nothing leaving in the next hour still show, so they can be unpicked.
+  const chips = routes ? [...routes, ...(sl?.routes ?? []).filter((k) => !routes.some((r) => r.key === k)).map((k) => ({ key: k, label: routeFallback(k) }))] : null;
+
+  return (
+    <Card>
+      <H>SL departures</H>
+      <T dim small>
+        {sl
+          ? `HQ shows when to leave for the next departures from ${sl.name}, with SL's live times and disruption notices.`
+          : 'Pick your stop to see on HQ when to leave for the next bus, metro, tram or train. Live times and disruption notices come from SL.'}
+      </T>
+      <Row>
+        <Field value={q} onChangeText={setQ} placeholder={sl ? 'Change stop…' : 'Stop, e.g. Odenplan'} onSubmitEditing={search} style={{ flex: 1 }} />
+        <Btn label="Search" kind="ghost" onPress={search} disabled={!q.trim() || busy} />
+      </Row>
+      {hits?.map((stop) => (
+        <Pressable
+          key={stop.siteId}
+          onPress={() => pick(stop)}
+          accessibilityRole="button"
+          accessibilityLabel={`Use ${stop.name}`}
+          style={({ pressed }) => [{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border }, pressed && { opacity: 0.6 }]}>
+          <T>{stop.name}</T>
+          {stop.area ? (
+            <T dim small>
+              {stop.area}
+            </T>
+          ) : null}
+        </Pressable>
+      ))}
+      {sl ? (
+        <>
+          <SettingRow label="Walk to the stop" hint="for when to leave">
+            <Stepper value={sl.walkMin} min={0} max={30} format={(v) => `${v} min`} onChange={(v) => save({ ...sl, walkMin: v })} />
+          </SettingRow>
+          <T small>Lines to show</T>
+          <T dim small>
+            {sl.routes.length ? `${sl.routes.length} picked. Only these show on HQ.` : 'Every line at the stop. Pick yours to see only those.'}
+          </T>
+          {chips ? (
+            <Row style={{ flexWrap: 'wrap' }} gap={8}>
+              {chips.map((r) => (
+                <Chip key={r.key} label={r.label} active={sl.routes.includes(r.key)} onPress={() => toggleRoute(r.key)} />
+              ))}
+            </Row>
+          ) : (
+            <Btn label="Load the lines at this stop" kind="ghost" onPress={loadRoutes} disabled={busy} />
+          )}
+          {sl.routes.length ? <Btn label="Show every line" kind="ghost" small onPress={() => save({ ...sl, routes: [] })} /> : null}
+          <Btn label="Remove the SL card" kind="ghost" onPress={() => save(null)} />
+        </>
+      ) : null}
+    </Card>
+  );
 }
 
 function SettingRow({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {

@@ -121,6 +121,8 @@ import { pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
 import { isDoomscroll } from '../src/lib/doomscroll';
 import { eventsOn } from '../src/lib/selectors';
 import { meteoTime, needsPlaceInfo, samePlace, staleNote } from '../src/lib/weather';
+// step 4 hq
+import { departureText, leaveInMin, nextDepartures, parseDepartures, parseDeviations, parseStops, plannedText, relevantDeviations, routesOf, siteIdOf, slRetryMs } from '../src/lib/sl';
 import { readinessFor } from '../src/lib/readiness';
 import { heartIn, workoutWindows } from '../src/lib/workout-heart';
 import { movementMap, stillestHour } from '../src/lib/movement';
@@ -1261,6 +1263,104 @@ void (async () => {
   console.error(e);
   process.exit(1);
 });
+
+// ---------- step 4 hq ----------
+// SL departures (sl.ts): fixtures trimmed from real answers of 2026-10-23 (Odenplan, site 9117)
+{
+  assert.equal(siteIdOf('9091001000009117'), 9117);
+  assert.equal(siteIdOf('9091001000000102'), 102);
+  assert.equal(siteIdOf('18009117'), null); // the stopId, not the global id
+  const stops = parseStops({
+    locations: [
+      { id: '9091001000009117', type: 'stop', name: 'Stockholm, Odenplan', disassembledName: 'Odenplan', parent: { name: 'Stockholm' } },
+      { id: '9091001000009117', type: 'stop', name: 'Stockholm, Odenplan (again)' },
+      { id: 'streetID:1', type: 'street', name: 'Odengatan' },
+      { id: '9091001000001141', type: 'stop', name: 'Stockholm, S:t Eriksplan' },
+    ],
+  });
+  assert.deepEqual(stops, [
+    { siteId: 9117, name: 'Odenplan', area: 'Stockholm' },
+    { siteId: 1141, name: 'Stockholm, S:t Eriksplan', area: undefined },
+  ]);
+  assert.deepEqual(parseStops({}), []);
+
+  const at = (h: number, m: number) => `2026-10-26T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`; // local, no offset, as SL sends it
+  const now = new Date(2026, 9, 26, 8, 3).getTime();
+  const dep = (line: string, id: number, dir: number, dest: string, sched: string, exp: string | undefined, state = 'EXPECTED', mode = 'METRO') => ({
+    destination: dest,
+    direction_code: dir,
+    state,
+    scheduled: sched,
+    ...(exp ? { expected: exp } : {}),
+    stop_area: { id: mode === 'BUS' ? 10501 : 1131 },
+    line: { id, designation: line, transport_mode: mode },
+  });
+  const { departures, stopDeviations } = parseDepartures({
+    departures: [
+      dep('17', 17, 1, 'Åkeshov', at(8, 14), at(8, 14)),
+      dep('17', 17, 1, 'Vällingby', at(8, 4), at(8, 4)), // leave was 5 min ago: can't make it
+      dep('4', 4, 1, 'Gullmarsplan', at(8, 20), at(8, 22), 'EXPECTED', 'BUS'),
+      dep('17', 17, 1, 'Åkeshov', at(8, 24), undefined, 'CANCELLED'),
+      dep('17', 17, 1, 'Åkeshov', at(8, 1), at(8, 2), 'DEPARTED'),
+      dep('17', 17, 2, 'Skarpnäck', at(8, 16), at(8, 16)),
+      { destination: 'Broken', line: { designation: 'X' } }, // no id, no times: skipped
+    ],
+    stop_deviations: [{ id: 1, importance_level: 6, message: 'Odenplan: the north entrance is closed', scope: { stop_areas: [{ id: 1131 }] } }],
+  });
+  assert.equal(departures.length, 6);
+  assert.deepEqual(
+    departures.map((d) => d.expected),
+    [...departures.map((d) => d.expected)].sort((a, b) => a - b),
+  ); // soonest first
+  assert.equal(departures.find((d) => d.state === 'CANCELLED')!.expected, new Date(2026, 9, 26, 8, 24).getTime()); // no expected: the timetable
+  assert.throws(() => parseDepartures({}), /format/);
+
+  assert.deepEqual(routesOf(departures), [
+    { key: '17:1', mode: 'METRO', label: '17 → Åkeshov, Vällingby' }, // destinations in the order they next leave
+    { key: '17:2', mode: 'METRO', label: '17 → Skarpnäck' },
+    { key: '4:1', mode: 'BUS', label: '4 → Gullmarsplan' },
+  ]);
+
+  const cfg = { routes: ['17:1'], walkMin: 5 };
+  const next = nextDepartures(departures, cfg, now);
+  assert.deepEqual(
+    next.map((d) => `${d.line} ${d.destination} ${d.state}`),
+    ['17 Åkeshov EXPECTED', '17 Åkeshov CANCELLED'],
+  ); // not the one that's gone, not the one she can't make, not other lines
+  assert.equal(nextDepartures(departures, { routes: [], walkMin: 0 }, now).length, 3); // every line, three at most
+  assert.equal(leaveInMin(next[0], 5, now), 6);
+  assert.equal(departureText(next[0], 5, now), 'Leave in 6 min for the 08:14 (line 17 → Åkeshov)');
+  assert.equal(departureText(next[1], 5, now), 'The 08:24 (line 17 → Åkeshov) is cancelled');
+  const bus = departures.find((d) => d.line === '4')!;
+  assert.equal(departureText(bus, 5, now), 'Leave in 14 min for the 08:22 (line 4 → Gullmarsplan) · 2 min late');
+  assert.equal(departureText(next[0], 11, now), 'Leave now for the 08:14 (line 17 → Åkeshov)');
+  assert.equal(plannedText(bus), '08:20 line 4 → Gullmarsplan');
+
+  const devs = parseDeviations([
+    {
+      deviation_case_id: 1,
+      publish: { from: '2026-10-26T07:50:00+01:00', upto: '2026-10-26T09:00:00+01:00' },
+      priority: { importance_level: 5 },
+      message_variants: [{ header: 'Försenad avgång mot Åkeshov', details: 'Signalfel.', language: 'sv' }],
+      scope: { lines: [{ id: 17 }] },
+    },
+    { deviation_case_id: 2, publish: { from: '2026-10-26T07:00:00+01:00' }, priority: { importance_level: 2 }, message_variants: [{ header: 'Avstängd hiss', language: 'sv' }], scope: { lines: [{ id: 17 }] } },
+    { deviation_case_id: 3, publish: { from: '2026-10-25T07:00:00+01:00', upto: '2026-10-25T09:00:00+01:00' }, priority: { importance_level: 7 }, message_variants: [{ header: 'Gammal störning' }], scope: { lines: [{ id: 17 }] } },
+    { deviation_case_id: 4, publish: { from: '2026-10-26T07:00:00+01:00' }, priority: { importance_level: 7 }, message_variants: [{ header: 'Buss ersätter tåg', language: 'sv' }, { header: 'Buses replace trains', language: 'en' }], scope: { lines: [{ id: 43 }] } },
+    { deviation_case_id: 5, publish: { from: '2026-10-26T08:00:00+01:00' }, priority: { importance_level: 6 }, message_variants: [{ header: 'Försenad avgång mot Åkeshov', language: 'sv' }], scope: { lines: [{ id: 17 }] } },
+  ]);
+  assert.equal(devs[3].header, 'Buses replace trains'); // English when SL wrote it
+  assert.equal(devs[1].upto, null);
+  assert.throws(() => parseDeviations({} as never), /format/);
+  const shown = relevantDeviations([...stopDeviations, ...devs], [17], [1131], now);
+  assert.deepEqual(
+    shown.map((x) => `${x.importance} ${x.header}`),
+    ['6 Odenplan: the north entrance is closed', '6 Försenad avgång mot Åkeshov'],
+  ); // 5 and 6 share a header (kept once, most important first); level 2, the ended one and line 43 aren't hers
+  assert.equal(relevantDeviations(devs, [43], [], now)[0].header, 'Buses replace trains');
+
+  assert.deepEqual([0, 1, 2, 3, 4, 9].map(slRetryMs), [60_000, 120_000, 240_000, 480_000, 900_000, 900_000]); // once a minute, then 2, 4, 8, 15 min
+}
 
 
 // respect meter: a rolling 7-day average of day scores (today excluded), silent until 3 days exist
@@ -2518,7 +2618,7 @@ void (async () => {
   // HQ layout: default order, saved orders keep their order, retired ids drop out and new ones slot in by their default neighbour
   const ids = HQ_SECTIONS.map((x) => x.id);
   assert.deepEqual(hqOrder(), ids);
-  assert.deepEqual(hqOrder({ order: ['achievements', 'gone', 'weather'], hidden: [] }).slice(0, 3), ['achievements', 'weather', 'countdowns']);
+  assert.deepEqual(hqOrder({ order: ['achievements', 'gone', 'weather'], hidden: [] }).slice(0, 3), ['achievements', 'weather', 'commute']); // the SL card sits right after weather
   const saved = hqOrder({ order: ['achievements', 'weather'], hidden: [] });
   assert.equal(saved.length, ids.length);
   assert.equal(new Set(saved).size, ids.length);

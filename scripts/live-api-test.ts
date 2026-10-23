@@ -1,9 +1,10 @@
 /// <reference types="node" />
-// Run: npm run test:live. Hits the real Open-Meteo, SMHI, Krisinformation and Livsmedelsverket APIs (needs internet). Prints what came back.
+// Run: npm run test:live. Hits the real Open-Meteo, SMHI, Krisinformation, SL and Livsmedelsverket APIs (needs internet). Prints what came back.
 import assert from 'node:assert/strict';
 
 import { foodNutrients, loadFoods, searchFoods } from '../src/lib/food-db';
 import { alertWhen, fetchAir, fetchSmhi, fetchVma, SMHI_PAGE } from '../src/lib/outside';
+import { departureText, fetchDepartures, fetchDeviations, nextDepartures, relevantDeviations, routesOf, searchStops } from '../src/lib/sl';
 import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } from '../src/lib/weather';
 
 (async () => {
@@ -61,6 +62,19 @@ import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } fr
   const vRaw = await (await fetch('https://api.krisinformation.se/v3/vmas?format=json')).json();
   console.log('VMA raw count', Array.isArray(vRaw) ? vRaw.length : typeof vRaw, Array.isArray(vRaw) && vRaw[0] ? Object.keys(vRaw[0]) : '');
   console.log('fetchVma(Stockholms län) ->', await fetchVma('Stockholms län'));
+
+  // SL: stop search gives Odenplan as site 9117, departures parse, disruptions parse. Three calls only (SL has a quota).
+  const stops = await searchStops('Odenplan');
+  console.log('SL stops for "Odenplan" ->', stops.slice(0, 3));
+  assert.equal(stops[0]?.siteId, 9117);
+  const sl = await fetchDepartures(9117);
+  const routes = routesOf(sl.departures);
+  console.log('SL departures:', sl.departures.length, '· routes:', routes.slice(0, 6).map((r) => r.label).join(' | '));
+  for (const d of nextDepartures(sl.departures, { routes: [], walkMin: 5 })) console.log('  ', departureText(d, 5));
+  assert.ok(sl.departures.length > 0 && sl.departures.every((d) => d.expected > 0 && d.line));
+  const lineIds = [...new Set(sl.departures.filter((d) => d.mode === 'METRO').map((d) => d.lineId))];
+  const devs = await fetchDeviations(lineIds);
+  console.log('SL disruptions on the metro lines:', devs.length, '· banner-worthy now:', relevantDeviations(devs, lineIds, []).map((x) => `${x.importance} ${x.header}`));
 
   // Livsmedelsverket: the food list loads, search finds plain foods, nutrients parse.
   const foods = await loadFoods();
