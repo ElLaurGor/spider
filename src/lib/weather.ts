@@ -1,5 +1,5 @@
 // Weather from Open-Meteo: free, no API key, no account.
-import { fmtTime } from './dates';
+import { dayKey, fmtTime, HOUR } from './dates';
 import { getJson } from './http';
 import type { DayWeather } from './types';
 
@@ -105,6 +105,13 @@ export async function fetchWeather(place: Place): Promise<Weather> {
     soon: (j.minutely_15?.time ?? []).map((t, i) => ({ at: meteoTime(t, j.utc_offset_seconds), mm: j.minutely_15?.precipitation[i] ?? 0 })),
     fetchedAt: Date.now(),
   };
+}
+
+/** " · updated 14:05" once fetched data is over an hour old (offline, or the app slept), so old numbers don't pass as now. */
+export function staleNote(fetchedAt: number, now = Date.now()) {
+  if (now - fetchedAt <= HOUR) return '';
+  const d = new Date(fetchedAt);
+  return ` · updated ${dayKey(d) === dayKey(now) ? '' : `${d.getDate()}/${d.getMonth() + 1} `}${fmtTime(d)}`;
 }
 
 /** WMO weather code → emoji + short label. */

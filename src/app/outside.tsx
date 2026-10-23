@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Btn, Card, H, Icon, Row, T } from '@/components/ui';
+import { Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, WEEKDAYS } from '@/lib/dates';
 import { ALERT_COLOR, ALERT_LABEL, alertWhen, aqiBand, LEVEL_LABEL, POLLEN, pollenLevel, shortDate, sourceNote, sourceOk, type Alert } from '@/lib/outside';
 import { useStore } from '@/lib/store';
+import { staleNote } from '@/lib/weather';
 
 const LEVEL_COLOR = ['#545C6E', '#33D17A', '#FFC53D', '#E23636'];
 
@@ -39,6 +40,7 @@ const dayLabel = (date: string) => {
 
 export default function OutsideScreen() {
   const { state, outside } = useStore();
+  const now = useNow(60_000);
   const place = state.settings.weather;
   const allergies = state.settings.allergies;
 
@@ -92,6 +94,7 @@ export default function OutsideScreen() {
               <Text style={[styles.big, { color: band.color }]}>{a.aqi}</Text>
               <T dim small>
                 European AQI · {band.label}
+                {staleNote(a.fetchedAt, now)}
               </T>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 2 }}>

@@ -97,7 +97,7 @@ import { allDayLocal } from '../src/lib/calendar-days';
 import { pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
 import { isDoomscroll } from '../src/lib/doomscroll';
 import { eventsOn } from '../src/lib/selectors';
-import { meteoTime, needsPlaceInfo, samePlace } from '../src/lib/weather';
+import { meteoTime, needsPlaceInfo, samePlace, staleNote } from '../src/lib/weather';
 import { readinessFor } from '../src/lib/readiness';
 import { heartIn, workoutWindows } from '../src/lib/workout-heart';
 import { movementMap, stillestHour } from '../src/lib/movement';
@@ -1882,6 +1882,12 @@ void (async () => {
   assert.ok(skipAutoBackup(61, 1)); // a wiped phone doesn't push the good backups out
   assert.ok(!skipAutoBackup(61, 62));
   assert.ok(!skipAutoBackup(null, 1)); // the first backup ever
+
+  // old weather and air data says how old it is
+  const fetched = new Date(2026, 9, 23, 14, 5).getTime();
+  assert.equal(staleNote(fetched, fetched + 30 * MIN), '');
+  assert.equal(staleNote(fetched, fetched + 90 * MIN), ' · updated 14:05');
+  assert.equal(staleNote(fetched, new Date(2026, 9, 24, 9).getTime()), ' · updated 23/10 14:05');
 }
 
 // morning readiness: sleep and resting heart rate against her own normal, plus her ratings
