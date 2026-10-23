@@ -84,8 +84,11 @@ export const LINES = {
     savage: ['Contract fulfilled. +{coins} coins. I had plans for those. Fine.', 'You actually did it. +{coins} coins. I demand a rematch.'],
   },
   contractLost: {
-    mild: ["Last week's contract wasn't reached. The {stake} coins are gone, but this week is a fresh one."],
-    savage: ['Contract missed. {stake} coins are mine now. Pleasure doing business.', "{stake} coins, gone. I'll treasure them. This week, prove me wrong."],
+    mild: ["Last week's contract didn't land. The {stake} coins stay with me. New week, new mission: the contract card has a different goal ready."],
+    savage: [
+      '{stake} coins, mine. Pleasure doing business. This week, a new mission is waiting on the contract card.',
+      "{stake} coins went to the house. Don't re-sign the same deal: there's a fresh one on the contract card.",
+    ],
   },
   contractVoided: {
     mild: ['Rough week, so the contract is off. Your {stake} coins are back. Resting counts too.'],
@@ -459,11 +462,11 @@ export const LINES = {
     savage: ['🕷️ Still here. Still judging.', '🕷️ Still here. Still counting.'],
   },
   comeback: {
-    mild: ['We miss you! Open S.P.I.D.E.R. to check your day.'],
+    mild: ['Today is a clean page. Open S.P.I.D.E.R. and pick one small thing.', 'Welcome back whenever you like. One glass of water is a whole mission today.'],
     savage: [
-      "You haven't opened me in days. I'm not clingy, I'm just tracking you.",
-      'Hello? Did you replace me with a paper calendar? Rude.',
-      'It has been days. Your habits have unionized and gone on strike.',
+      'New mission, should you choose to accept it: open me and log one glass. That is the whole mission.',
+      'Plot twist: today counts. Open me, pick one small thing, and the comeback bonus is yours.',
+      "The web is still here and so is your gaming bank. One small thing today and we're back in business.",
     ],
   },
   levelUp: {
@@ -1434,9 +1437,38 @@ export const LINES = {
     mild: ['Time to head out. You will make it at a calm walk.', 'Head out now and you catch it without rushing.'],
     savage: ['Shoes on, door open, go. You will make it at a brisk walk.', 'Now is the moment. Leave and you catch it. Linger and you meet the next one.', 'Go now. Calm walk, no sprint finish needed.'],
   },
-  slDisrupted: {
-    mild: ['SL has trouble on your line. Check the notice before you head out.'],
-    savage: ['SL is having a day on your line. Read the notice, then plan around it. Not your fault, not mine.'],
+  // step 4 plans
+  ifThenCue: {
+    mild: ['You said {when}: {then}. {happened} Now is a good moment.', '{happened} You planned {when}: {then}.'],
+    savage: ['You said {when}. {happened} {then}. Go.', 'Plan check: {when}, you would {then}. {happened} So?', '{happened} That was your cue for {then}. I am watching the cue work.'],
+  },
+  ifThenDone: {
+    mild: ['Done, right on cue. That makes {n} on cue so far.', 'On cue: {n} so far. The habit is learning its trigger.'],
+    savage: ['On cue. {n} times now. The cue is doing the heavy lifting.', 'Right on cue. {n} so far. Soon you will not need me for this one.'],
+  },
+  ifThenRetired: {
+    mild: ['{habit}: {n} times on cue. Its clock reminder retires: the cue does that job now.'],
+    savage: ['{habit}: {n} times on cue. The clock reminder is fired. Your cue took its job.'],
+  },
+  planBRain: {
+    mild: ['Rain at {time}. Plan B: {then}.', 'Wet at {time}. Your plan B is ready: {then}.'],
+    savage: ['Rain at {time}. You said plan B: {then}. The weather does not get a vote.', 'Rain at {time}. Plan B: {then}. No umbrella needed.'],
+  },
+  planBDone: {
+    mild: ['Plan B done: {minutes} min. The rain never stood a chance.'],
+    savage: ['Plan B: {minutes} min, done indoors. The rain lost.', '{minutes} min of plan B. The weather tried. You did not care.'],
+  },
+  comebackWorkout: {
+    mild: ['Welcome back! First workout since {day}: +{min} min gaming and a free crit, {dmg} damage on the boss.'],
+    savage: ['Look who is back. +{min} min gaming and a free {dmg}-damage crit on the boss. New mission starts now.', 'The comeback is on. +{min} min and a guaranteed crit for {dmg}. {day} is history.'],
+  },
+  rangeWeekMin: {
+    mild: ["{habit}: {done}. That's the week's goal. Anything more is extra."],
+    savage: ['{habit}: {done}. Goal reached. The rest of the week is a bonus round.'],
+  },
+  rangeWeekTop: {
+    mild: ['{habit}: {done}, the top of the range. +{xp} XP.'],
+    savage: ['{habit}: {done}. Top of the range. +{xp} XP. Show-off.'],
   },
 } satisfies Record<string, Pool>;
 

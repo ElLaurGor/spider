@@ -19,7 +19,7 @@ import { addDays, atTime, dayKey, fmtDuration, fmtTime, isDayKey, MIN, startOfDa
 import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, missingHealthAccess, readHealth, type HealthData, type HealthStatus } from './health';
 import { withGoals } from './goals';
-import { habitsDone, habitsFor } from './habits';
+import { habitsDone, habitsFor, RANGE_TOP_XP, rangeText, rangeWeek } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { banLine, fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, lineMemory, onLineMemory, poolFor, setLineMemory, unbanLine, type LineKey } from './lines';
 import { jetlagRemark, lateCoffeeRemark, lateGameRemark, withJitSaid } from './jit';
@@ -51,7 +51,7 @@ import { respectFor } from './respect';
 import { rivalTalk } from './rival-talk';
 import { withNights } from './sleep';
 import { isSnow, seasonOn, winterOf } from './seasons';
-import { catchFly as catchPendingFly, caughtCount, FLIES, rollCritters, withoutCrit } from './critters';
+import { catchFly as catchPendingFly, caughtCount, critDamage, FLIES, rollCritters, withoutCrit } from './critters';
 import { unlockPages } from './diary';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, spansBetween, startFocusGuard, stopFocusGuard, unlocksBetween, usageBetween } from './screentime';
 import { nightPhone, nightWindow } from './night';
@@ -112,6 +112,9 @@ import { goldenAllowed } from './tone';
 // step 2b: weekly medals and the ghost of last week
 import { medalList, settleMedals } from './medals';
 import { withoutOldXpHours, withXpHour } from './xp-timeline';
+// step 4: if-then plans, the comeback bonus, weekly range habits
+import { COMEBACK, missedGymBefore } from './comeback';
+import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, type CuePrompt } from './if-then';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /** A button on a toast (cluster G: "Catch it!" on a fly). */
@@ -578,7 +581,26 @@ function startWorkout(s: State, msgs: Msg[]): State {
   if (dayOf(s, key).workoutCounted) return s;
   const next = bump(patchDay(s, key, (d) => ({ ...d, workoutCounted: true })), 'workouts');
   msgs.push({ text: L(next, 'gymStarted'), tone: 'epic' });
-  return reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' });
+  return comebackBonus(reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' }), msgs, key);
+}
+
+/**
+ * The first workout after a missed planned gym day (comeback.ts): XP and as many coins, bonus gaming minutes
+ * and a guaranteed crit on the boss. Undoing the workout takes it all back (undoWorkout).
+ */
+function comebackBonus(s: State, msgs: Msg[], key = dayKey()): State {
+  const missed = missedGymBefore(s);
+  if (!missed || dayOf(s, key).comeback) return s;
+  const dmg = critDamage(XP.workout);
+  const next = patchDay(reward(s, msgs, COMEBACK.xp, COMEBACK.min, key, { ref: 'comeback' }), key, (d) => ({
+    ...d,
+    comeback: missed,
+    critKeys: [...new Set([...(d.critKeys ?? []), 'comeback'])],
+    critDamage: (d.critDamage ?? 0) + dmg,
+    critBy: { ...d.critBy, comeback: { id: 'comeback', dmg } },
+  }));
+  msgs.push({ text: L(next, 'comebackWorkout', { day: WEEKDAYS_LONG[new Date(`${missed}T12:00`).getDay()], min: COMEBACK.min, dmg }), tone: 'epic' });
+  return next;
 }
 
 /**
@@ -590,6 +612,10 @@ function undoWorkout(s: State, msgs: Msg[], key = dayKey()): State {
   if (!d.workoutCounted || trainedOn(d)) return s;
   let next = bump(patchDay(s, key, (x) => ({ ...x, workoutCounted: false })), 'workouts', -1);
   next = unreward(next, key, 'workout', XP.workout, workoutBonusMin(next));
+  if (d.comeback) {
+    next = unreward(next, key, 'comeback', COMEBACK.xp, COMEBACK.min);
+    next = patchDay(next, key, (x) => ({ ...withoutCrit(x, 'comeback'), comeback: undefined }));
+  }
   if (!d.questsAllDone) {
     for (const q of ['workout', 'train_minutes']) {
       if (!(dayOf(next, key).questsDone ?? []).includes(q)) continue;
@@ -733,6 +759,8 @@ function useStoreValue() {
 
   // ----- toasts -----
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // An if-then cue that just went off in the app (if-then.ts), shown with a Done button (CuePromptHost).
+  const [cuePrompt, setCuePrompt] = useState<(CuePrompt & { text: string }) | null>(null);
   const toastId = useRef(0);
   const say = useCallback((text: string, tone: Tone = 'info', action?: ToastAction) => {
     haptic(tone);
@@ -960,11 +988,15 @@ function useStoreValue() {
       const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(fn(rolled, msgs), msgs), msgs), msgs), msgs);
       // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
       const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
+      // If-then cues that just happened in the app (if-then.ts): noted on the day, and the latest one prompts.
+      const cued = checkCues(prev, scored);
       // Silk Track tiers wait for the next ordinary action after body or photo logging (no fanfare there).
       // The hour's running XP total is noted too, for the ghost of last week (xp-timeline.ts).
-      const next = withXpHour(quiet ? checkDiary(scored, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(scored, msgs), msgs), msgs), msgs), msgs));
+      const next = withXpHour(quiet ? checkDiary(cued.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(cued.state, msgs), msgs), msgs), msgs), msgs));
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone, m.action));
+      const cue = cued.prompts.at(-1);
+      if (cue) setCuePrompt({ ...cue, text: L(next, 'ifThenCue', cueVars(cue.plan)) });
       // Earned bonus minutes mid-session move the gaming alerts (the session's own day, past midnight too).
       const playKey = next.activeGame ? dayKey(next.activeGame.start) : null;
       if (playKey && dayOf(next, playKey).bonusGameMin !== dayOf(prev, playKey).bonusGameMin) {
@@ -979,6 +1011,10 @@ function useStoreValue() {
   const [calStatus, setCalStatus] = useState<CalStatus>(calendarSupported ? 'unknown' : 'unsupported');
   const [calendars, setCalendars] = useState<CalInfo[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
+  const eventsRef = useRef<CalEvent[]>([]);
+  useEffect(() => {
+    eventsRef.current = events;
+  }, [events]);
 
   const refreshCalendar = useCallback(async (ask = false) => {
     try {
@@ -1589,7 +1625,8 @@ function useStoreValue() {
       },
 
       // --- timed training (Maskiner / Kondition / Fria vikter) ---
-      addActivity(kind: ActivityKind, minutes: number) {
+      /** `planB`: logged from a rainy day's plan B (if-then.ts), which gets its own line. */
+      addActivity(kind: ActivityKind, minutes: number, planB = false) {
         run((s, msgs) => {
           const key = dayKey();
           const id = uid();
@@ -1598,7 +1635,8 @@ function useStoreValue() {
             activities: [...activitiesOf(d), { id, kind, minutes, at: Date.now() }],
           }));
           next = startWorkout(next, msgs);
-          msgs.push({ text: L(next, 'activityLogged', { activity: activityInfo(kind).label, minutes }), tone: 'good' });
+          const line = planB ? L(next, 'planBDone', { minutes }) : L(next, 'activityLogged', { activity: activityInfo(kind).label, minutes });
+          msgs.push({ text: line, tone: 'good' });
           return reward(next, msgs, activityXp(minutes), 0, key, { ref: `a:${id}` });
         });
       },
@@ -1721,7 +1759,7 @@ function useStoreValue() {
           if (firstOfDay) {
             next = bump(next, 'workouts');
             msgs.push({ text: `${L(next, 'gymStarted')}`, tone: 'epic', ...(isPR ? {} : { action: undo }) });
-            next = reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' });
+            next = comebackBonus(reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' }), msgs, key);
           }
           // Each part is recorded so deleting the set takes back exactly it (and the record, if it was one).
           next = reward(next, msgs, XP.set, 0, key, { ref: `s:${setId}` });
@@ -1998,11 +2036,39 @@ function useStoreValue() {
           const habit = s.habits.find((h) => h.id === id);
           if (!habit) return s;
           const done = habitsDone(s, key);
-          if (done.includes(id)) return unreward(patchDay(s, key, (d) => withoutCrit({ ...d, habits: done.filter((x) => x !== id) }, id)), key, `h:${id}`, XP.habit);
+          const week = weekKeyOf();
+          if (done.includes(id)) {
+            let next = unreward(patchDay(s, key, (d) => withoutCrit({ ...d, habits: done.filter((x) => x !== id) }, id)), key, `h:${id}`, XP.habit);
+            // The top-of-range bonus goes with the check that earned it (and can be earned again).
+            if (s.rangeTop?.[id] === week && dayOf(next, key).xpBy?.[`rt:${id}`] != null) {
+              next = unreward(next, key, `rt:${id}`, RANGE_TOP_XP);
+              next = { ...next, rangeTop: Object.fromEntries(Object.entries(next.rangeTop ?? {}).filter(([k]) => k !== id)) };
+            }
+            return next;
+          }
 
+          const name = `${habit.emoji} ${habit.name}`;
           let next = patchDay(s, key, (d) => ({ ...d, habits: [...done, id] }));
-          msgs.push({ text: L(next, 'habitDone', { habit: `${habit.emoji} ${habit.name}` }), tone: 'good' });
+          msgs.push({ text: L(next, 'habitDone', { habit: name }), tone: 'good' });
           next = reward(next, msgs, XP.habit, 0, key, { ref: `h:${id}` });
+          // If-then: done soon after its cue counts as on cue, once a day (a total). At ON_CUE_RETIRE the clock reminder retires.
+          const doneKey = `done:${id}`;
+          if (habit.plan && dayOf(next, key).cues?.[doneKey] == null && onCueNow(next, habit, new Date(), eventsRef.current)) {
+            const n = (habit.plan.onCue ?? 0) + 1;
+            next = patchDay(next, key, (d) => ({ ...d, cues: { ...d.cues, [doneKey]: Date.now() } }));
+            next = { ...next, habits: next.habits.map((h) => (h.id === id && h.plan ? { ...h, plan: { ...h.plan, onCue: n } } : h)) };
+            msgs.push({ text: L(next, n === ON_CUE_RETIRE ? 'ifThenRetired' : 'ifThenDone', { n, habit: name }), tone: 'good' });
+          }
+          // A weekly range: its low end is the week's win; the top end pays a small bonus, once a week.
+          const w = rangeWeek(next, habit);
+          if (w && w.target > 0) {
+            const vars = { habit: name, done: rangeText(w), xp: RANGE_TOP_XP };
+            if (w.done >= w.max && next.rangeTop?.[id] !== week) {
+              next = { ...next, rangeTop: { ...next.rangeTop, [id]: week } };
+              msgs.push({ text: L(next, 'rangeWeekTop', vars), tone: 'epic' });
+              next = reward(next, msgs, RANGE_TOP_XP, 0, key, { ref: `rt:${id}` });
+            } else if (w.done === w.target) msgs.push({ text: L(next, 'rangeWeekMin', vars), tone: 'good' });
+          }
           const due = habitsFor(next);
           const nowDone = habitsDone(next, key);
           if (!dayOf(next, key).habitsAllDone && due.length > 0 && due.every((h) => nowDone.includes(h.id))) {
@@ -2493,6 +2559,21 @@ function useStoreValue() {
       sub.remove();
     };
   }, [ready, applyReminder]);
+  // ----- if-then prompts (if-then.ts): Done checks the habit (or, for a gym plan, opens Gym); plan B logs the workout -----
+  const cueDone = useCallback(() => {
+    const p = cuePrompt;
+    setCuePrompt(null);
+    if (!p) return;
+    if (!p.habit) goTo('/gym');
+    else if (!habitsDone(stateRef.current).includes(p.habit.id)) actions.toggleHabit(p.habit.id);
+  }, [cuePrompt, actions]);
+  const cueLater = useCallback(() => setCuePrompt(null), []);
+  const planB = planBToday(state, weather);
+  const planBDone = useCallback(() => {
+    const b = planBToday(stateRef.current, weather);
+    if (b) actions.addActivity('free_weights', b.minutes, true);
+  }, [actions, weather]);
+
   const getState = useCallback(() => stateRef.current, []);
   const addSeen = useCallback((seen: Record<string, number>) => run((s) => ({ ...s, seenAlerts: { ...seen, ...s.seenAlerts } })), [run]);
   useBackgroundSync({ ready, state, getState, addSeen });
@@ -2558,6 +2639,8 @@ function useStoreValue() {
     saveNow,
     toast: toasts[0] ?? null,
     dismissToast,
+    cue: { prompt: cuePrompt, done: cueDone, later: cueLater },
+    planB: { today: planB, done: planBDone },
     tick,
     outside: {
       air,

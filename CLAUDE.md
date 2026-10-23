@@ -43,6 +43,14 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - Ghost of last week: `xp-timeline.ts` (`DayLog.xpHours`). Weekly medals: `medals.ts`, paid once per week at rollover, thresholds scale down for rough days. Weekly nemesis: `nemesisOf` in `league.ts`.
   - Monthly Silk Track: `silk-track.ts`. Its tiers come from the month's `xpEarned`, an `EDITIONS` table has one edition per calendar month, and its rewards are cosmetics, never XP.
   - All of these are per-week or per-month counts. Nothing here may become a streak.
+- Step 4 layers:
+  - Lines: `freshLine` deals each pool list like a deck across runs (`State.lineMemory`). Notifications use `dayLine` via `sayOn(…, day, n)`. Long-press a toast to retire a line (`retireLine`, banned for good, softens today's tone via `toneEase`). Daily pools keep at least 4 savage lines, and a catchphrase may appear in at most 2 pools (tested).
+  - Toasts after one-tap logs carry `{ undo }`, which calls `actions.undo`.
+  - Just-in-time insights (`jit.ts`) fire once a day per kind, only when the pattern really is in the data, never on sick days.
+  - If-then plans (`if-then.ts`, `Habit.plan`/`WorkoutDay.plan`): in-app cues via `checkCues` in `run()`, clock and meeting cues under the `ifthen-` prefix. After 10 on-cue completions (a total) the clock reminder retires.
+  - Comeback bonus (`comeback.ts`): the first workout after a missed planned gym day (paused days don't count).
+  - Range habits (`Habit.perWeek`): due only on days done or needed to reach the low end (`habits.ts`). Reminders only when the slack is gone.
+  - SL departures (`sl.ts`, `sl-card.tsx`, `settings.sl`): keyless SL APIs, the card polls itself (≤1/min, foreground and visible), and timetable data is never shown as live.
 - Scores and recaps judge only `countedDay`s (`day-filters.ts`): something was logged and the day wasn't rough (paused, low mood, period). Rough days are listed as rest, never as misses; recaps start at `firstDataDay`. Mood and protein are shown but never graded.
 
 ## Before calling a change done

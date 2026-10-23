@@ -4,7 +4,8 @@ import { Platform } from 'react-native';
 import { C } from '@/constants/theme';
 
 import { addDays, atTime, dayKey, fmtDuration, fmtTime, MIN } from './dates';
-import { habitsDone, isScheduled } from './habits';
+import { habitsDone, isScheduled, rangeRemindOn } from './habits';
+import { cueReminders, cueVars, reminderRetired } from './if-then';
 import { dayLine, line, type LineKey } from './lines';
 import * as Notifications from './local-notifications';
 import { cycleInfo, isPredictedPeriod } from './body';
@@ -45,7 +46,7 @@ import { upcomingDays } from './swedish-days';
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
 // Notifications re-planned on every app change; gaming/rest alerts are managed separately.
-const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-'];
+const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-', 'ifthen-'];
 const MOOD_HOURS = [13, 20];
 const GAME_IDS = ['game-warn', 'game-over', 'game-way-over'];
 const REST_ID = 'rest-done';
@@ -67,6 +68,8 @@ const LINKS: [prefix: string, href: Href][] = [
   [REST_ID, '/gym'],
   ['mood-', '/mood'],
   ['habit-', '/plan'],
+  ['ifthen-gym-', '/gym'],
+  ['ifthen-', '/plan'],
   ['countdown-', '/plan'],
   ['report-', '/report'],
   ['league-', '/league'],
@@ -332,13 +335,36 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     if (st.notify.habits && !paused) {
       const done = habitsDone(s, key);
       for (const h of s.habits) {
-        if (h.remindHour == null || !isScheduled(h, date) || (d === 0 && done.includes(h.id))) continue;
+        if (h.remindHour == null || (d === 0 && done.includes(h.id))) continue;
+        // A weekly range habit only when the low end is down to one spare day; a plan done on cue 10 times retires it.
+        if (!(h.perWeek ? rangeRemindOn(s, h, date) : isScheduled(h, date)) || reminderRetired(h)) continue;
         jobs.push(
           scheduleAt(`habit-${h.id}-${key}`, atTime(now, d, h.remindHour), `📌 ${h.emoji} ${h.name}`, sayOn(s, tone, 'habitRemind', { habit: h.name }, key), CH.remind, {
             category: CATEGORY.habit,
             data: { habitId: h.id, day: key },
           }),
         );
+      }
+    }
+
+    // If-then plans with a clock time (if-then.ts): a time, a meeting ending, after the last set, rain at gym time.
+    if (st.notify.habits || st.notify.gym) {
+      for (const r of cueReminders(s, d, now, events, weather)) {
+        const habitPlan = r.habit?.plan;
+        if (r.habit && habitPlan) {
+          if (!st.notify.habits) continue;
+          const h = r.habit;
+          jobs.push(
+            scheduleAt(r.id, r.at, `🔗 ${h.emoji} ${h.name}`, sayOn(s, tone, 'ifThenCue', cueVars(habitPlan), key), CH.remind, {
+              category: CATEGORY.habit,
+              data: { habitId: h.id, day: r.key },
+            }),
+          );
+        } else if (r.gym?.plan && st.notify.gym) {
+          const p = r.gym.plan;
+          const body = r.planB ? sayOn(s, tone, 'planBRain', { time: fmtTime(atTime(date, 0, st.gymHour, st.gymMinute)), then: p.then.trim() }, key) : sayOn(s, tone, 'ifThenCue', cueVars(p), key);
+          jobs.push(scheduleAt(r.id, r.at, `🏋️ ${r.gym.name} day`, body, CH.gym));
+        }
       }
     }
 
