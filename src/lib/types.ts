@@ -312,6 +312,10 @@ export type State = {
   // step 2b
   medals?: Record<string, Partial<Record<string, MedalTier>>>; // week key (its Monday) -> medal id -> tier won that week (lib/medals.ts)
   medalsSince?: string; // first week that earns medals (the week they arrived), so old weeks aren't paid out
+  // step 4
+  lineMemory?: { deck?: Record<string, { used: string[]; prev?: string[]; at: number }>; banned?: string[] }; // lines.ts: each pool list's deck (no repeats across runs) and lines retired as "too far"
+  toneEase?: { day: string; steps: number }; // tone.ts: "too far" turned that day's tone down this many steps
+  jitSaid?: Record<string, string>; // just-in-time insights (jit.ts): kind -> the day it was last said (once a day each)
 };
 
 export type MedalTier = 'bronze' | 'silver' | 'gold';

@@ -32,7 +32,7 @@ export const LINES = {
     mild: ["Good evening, {name}. Let's wrap up the day.", 'Evening, {name}. Time to wind down.'],
     savage: [
       "Evening, {name}. Let's review the damage.",
-      'Good evening. The day is almost over. Your excuses, sadly, are not.',
+      'Good evening. The day is almost over. The to-do list, sadly, is not.',
       "Evening, {name}. Gaming time is near. Have you earned it? Don't answer. I have data.",
       'Evening report incoming. Brace yourself, {name}.',
     ],
@@ -42,7 +42,7 @@ export const LINES = {
     savage: [
       "It's late, {name}. Even I'm winding down, and I'm software.",
       'Go to sleep, {name}. Your future self is already filing a complaint.',
-      'Still awake? Bold strategy. Tomorrow-you will hate this.',
+      'Still awake? Tomorrow-you is already drafting a complaint.',
       "Nothing productive has ever happened at this hour. Except me. Go to bed.",
     ],
   },
@@ -54,7 +54,7 @@ export const LINES = {
     ],
     savage: [
       "Stop poking me. I'm a highly advanced AI, not bubble wrap.",
-      'You tapped me. Bold of you to poke something smarter than you.',
+      'You tapped me. Poking the spider. Brave, and noted.',
       "I'm busy calculating how many glasses of water you owe me.",
       "Tony Stark built J.A.R.V.I.S. in a cave. You can't even build a habit.",
       "Poke me again and I'm scheduling leg day for every day.",
@@ -66,12 +66,17 @@ export const LINES = {
       "Error 404: {name}'s discipline not found.",
     ],
   },
+  // A line called "too far" on a toast: retired for good, and today goes softer.
+  lineRetired: {
+    mild: ["Got it. That one's retired, and I'll go easier today."],
+    savage: ["Noted. That line is retired for good, and I'll dial it down today. Even I have limits, apparently."],
+  },
   // Weekly contract (contracts.ts). A voided contract (rough week) is kind in both pools.
   contractSigned: {
     mild: ['Contract signed: {goal}. {stake} coins at stake. You can do this, {name}.'],
     savage: [
       "Contract signed: {goal}. {stake} coins say you can. I've already spent them in my head.",
-      '{stake} coins on "{goal}". Bold. I love a bet I expect to win.',
+      '{stake} coins on "{goal}". Signed. I love a bet I expect to win.',
     ],
   },
   contractWon: {
@@ -102,11 +107,11 @@ export const LINES = {
   },
   seasonSolstice: {
     mild: ['Darkest day of the year, {name}. From tomorrow the light comes back. 🌑'],
-    savage: ['Shortest day of the year. Your excuses should be short too.', "Winter solstice. It can't get any darker than this. Promise."],
+    savage: ['Shortest day of the year. Keep the to-do list short too, then finish it.', "Winter solstice. It can't get any darker than this. Promise."],
   },
   firstSnow: {
     mild: ['❄️ First snow of the winter today! Dress warm, {name}.'],
-    savage: ['❄️ First snow of the winter. Nature is doing your leg day for you: shovelling.', '❄️ It snows today. Your excuse to skip the walk just got prettier.'],
+    savage: ['❄️ First snow of the winter. Nature is doing your leg day for you: shovelling.', '❄️ It snows today. Skipping the walk just got prettier. Still a skip.'],
   },
   // Tap lines by respect tier (the 7-day average day score), 0 = lowest. Low tiers stay playful.
   respect0: {
@@ -120,7 +125,7 @@ export const LINES = {
   },
   respect1: {
     mild: ['A few good days lately. More of those, please.', "Getting there, {name}. Keep going."],
-    savage: ["You've had a couple of good days. I'm suspicious.", 'Respect pending. Results required.', "I'm watching. Mostly hoping. Partly judging."],
+    savage: ["You've had a couple of good days. I'm keeping an eye on this.", 'Respect pending. Results required.', "I'm watching. Mostly hoping. Partly judging."],
   },
   respect2: {
     mild: ['Solid week, {name}.', "You're doing fine. Better than fine, some days."],
@@ -180,7 +185,7 @@ export const LINES = {
     mild: ['Water goal reached! Amazing work, {name}.'],
     savage: [
       "Water goal reached. I'm genuinely shocked. Recalibrating my expectations.",
-      "Goal hit. You're officially more hydrated than a houseplant. Barely.",
+      'Goal hit. Hydrated on purpose, for once. Barely, but it counts.',
       "Hydration Overlord. Don't let it go to your head. Let it go to your kidneys.",
     ],
   },
@@ -204,7 +209,7 @@ export const LINES = {
     mild: ["Today's plan: {workout}. You've got this.", '{workout} day. Log it when you are done.'],
     savage: [
       '{workout} today. The couch has been notified of your departure.',
-      '{workout} is on the plan. Your excuses have been pre-rejected.',
+      '{workout} is on the plan. Every reason not to go has been pre-rejected.',
       "{workout} day. The weights won't lift themselves. I checked.",
       "Pack your bag. And no, 'I'm tired' is not a training split.",
     ],
@@ -286,7 +291,7 @@ export const LINES = {
   proteinGoal: {
     mild: ['Protein goal reached!'],
     savage: [
-      'Protein goal hit. Logged, tracked, done. No more excuses.',
+      'Protein goal hit. Logged, tracked, done. I have nothing to add.',
       'Protein goal reached. Protein Goblin mode: activated.',
     ],
   },
@@ -310,8 +315,13 @@ export const LINES = {
     mild: ["Heads up: you've already used today's gaming budget."],
     savage: [
       'Already over budget and starting again? A choice. A bad one.',
-      "Over budget and pressing Start. Bold. I'm noting this in your permanent record.",
+      "Over budget and pressing Start anyway. I'm noting this in your permanent record.",
     ],
+  },
+  // Just-in-time insight (jit.ts): a game started near bedtime, with the owner's own late-gaming finding.
+  jitLateGame: {
+    mild: ['🎮 From your own data: {finding} Maybe a short one tonight.', '🎮 Heads-up from your logs: {finding}'],
+    savage: ['🎮 Your data, not my opinion: {finding}', '🎮 Bedtime is close. {finding} I am only the messenger.', '🎮 {finding} Your logs said it, not me. Play accordingly.'],
   },
   gameWarn: {
     mild: ['15 minutes of gaming left. Wrap up soon!'],
@@ -346,7 +356,7 @@ export const LINES = {
   gameStopGood: {
     mild: ['Session ended. Nice self-control!'],
     savage: [
-      'You stopped within budget. Who are you and what have you done with {name}?',
+      'You stopped within budget. Self-control, live and unscripted.',
       "Logged off on time. I'm… impressed? Gross. Moving on.",
       'Within budget. Self-control unlocked. Frame this moment.',
     ],
@@ -367,7 +377,7 @@ export const LINES = {
     mild: ['Session updated. {xp} XP back.'],
     savage: [
       'Rewriting history? Fine. {xp} XP back. I saw nothing.',
-      'Shorter than the timer said, huh. {xp} XP refunded. Suspiciously.',
+      'Shorter than the timer said, huh. {xp} XP refunded. I will allow it. This once.',
       '{xp} XP back. If that was really a forgotten timer, I apologize. If not, I know.',
     ],
   },
@@ -423,6 +433,7 @@ export const LINES = {
       'Morning. {events}. {workout}. The first glass of water is on you.',
       "Wake up, {name}. {events}. {workout}. Let's pretend you're ready.",
       'Rise and grind. Or just rise. {events}. {workout}.',
+      'Morning, {name}. {events}. {workout}. Water before scrolling. That is the deal.',
     ],
   },
   eveningReport: {
@@ -431,11 +442,17 @@ export const LINES = {
       "Evening report: {summary}. I've seen better. I've also seen worse. Mostly from you.",
       'Daily verdict: {summary}. Tomorrow we try harder. Mostly you.',
       "Report card: {summary}. I'll let you decide if that's a pass.",
+      'Evening report: {summary}. The numbers do not lie. They sometimes exaggerate.',
     ],
   },
   eveningReady: {
     mild: ['Your report card is ready.'],
-    savage: ['Your report card is ready. Open S.P.I.D.E.R. if you dare.', 'Report card ready. I graded. You read.'],
+    savage: [
+      'Your report card is ready. Open S.P.I.D.E.R. if you dare.',
+      'Report card ready. I graded. You read.',
+      'Report card is in. Read it before I start reading it out loud.',
+      'Your daily grade is ready. No peeking through your fingers.',
+    ],
   },
   comebackTitle: {
     mild: ['🕷️ Still here.'],
@@ -481,6 +498,11 @@ export const LINES = {
       'Caffeine at this hour? See you at 3 AM, staring at the ceiling.',
     ],
   },
+  // Just-in-time insight (jit.ts): after the curfew, the owner's own late-coffee finding and the caffeine left at bedtime.
+  jitLateCoffee: {
+    mild: ['☕ From your own data: {finding} About {mg} mg will still be in you at bedtime.'],
+    savage: ['☕ {finding} Roughly {mg} mg will still be awake at bedtime. You may not get a choice.', '☕ Your logs say: {finding} About {mg} mg tucks in with you tonight.'],
+  },
   coffeeOver: {
     mild: ["That's {n} coffees ({mg} mg). Over your limit of {limit}. Maybe switch to water?"],
     savage: [
@@ -495,6 +517,7 @@ export const LINES = {
       "Vibe check. How's the human doing?",
       "Emotional status report due. I'm not asking because I care. (I care a little.)",
       'Feelings check-in. Takes 3 seconds. Even you have 3 seconds.',
+      'Quick vibe check. One tap, then back to whatever you were avoiding.',
     ],
   },
   moodGreat: {
@@ -536,8 +559,9 @@ export const LINES = {
     mild: ['{steps} steps so far. A short walk would help!'],
     savage: [
       '{steps} steps. Your watch thinks it is broken. It is not. You are just stationary.',
-      '{steps} steps today. Even a houseplant gets moved more often.',
-      'Step count: {steps}. Bold of you to own legs and not use them.',
+      '{steps} steps today. Your shoes are starting to feel decorative.',
+      'Step count: {steps}. The step counter is getting bored.',
+      '{steps} steps so far. A ten-minute walk fixes a surprising amount.',
     ],
   },
   stepsEarly: {
@@ -546,19 +570,39 @@ export const LINES = {
   },
   stepsMid: {
     mild: ['{steps} steps. Over halfway there!'],
-    savage: ['{steps} steps. Halfway. Like most of your projects.', '{steps} steps. Respectable. Barely. Keep walking.'],
+    savage: [
+      '{steps} steps. Halfway. Like most of your projects.',
+      '{steps} steps. Respectable. Barely. Keep walking.',
+      '{steps} steps. A short evening walk finishes the job.',
+      '{steps} steps. Halfway there. The other half is just more of the same.',
+    ],
   },
   stepsHigh: {
     mild: ['{steps} steps. Goal done. Nice!'],
-    savage: ['{steps} steps. Your legs deserve a raise.', '{steps} steps. Who is this athletic stranger?'],
+    savage: [
+      '{steps} steps. Your legs deserve a raise.',
+      '{steps} steps. Who is this athletic stranger?',
+      '{steps} steps. Your watch is proud. I am acknowledging it.',
+      '{steps} steps. You out-walked the step goal. Show-off.',
+    ],
   },
   sleepShort: {
     mild: ['Only {sleep} of sleep last night. Try to get to bed earlier tonight.'],
-    savage: ['{sleep} of sleep. Rough night. Coffee will try to help. So will water.', '{sleep} of sleep. Zombie mode: activated. Early night tonight?'],
+    savage: [
+      '{sleep} of sleep. Rough night. Coffee will try to help. So will water.',
+      '{sleep} of sleep. Zombie mode: activated. Early night tonight?',
+      '{sleep} of sleep. Short night. Keep today simple and bedtime early.',
+      '{sleep} of sleep. Short one. Water first, big decisions later.',
+    ],
   },
   sleepGood: {
     mild: ['{sleep} of sleep. Well rested!'],
-    savage: ['{sleep} of sleep. Fully charged. No excuses today.', '{sleep} of sleep. Rested and still procrastinating? We will see.'],
+    savage: [
+      '{sleep} of sleep. Fully charged. Today has no loading screen.',
+      '{sleep} of sleep. Rested and still procrastinating? We will see.',
+      '{sleep} of sleep. Rested. Now spend it wisely.',
+      '{sleep} of sleep. Charged. The top 3 are waiting.',
+    ],
   },
   // Progress photos are body tracking: neutral in both pools.
   progressPhoto: {
@@ -575,6 +619,7 @@ export const LINES = {
       '{habit} done. Look at you, following through. Weird.',
       '{habit}: checked. Your future self just nodded approvingly.',
       '{habit} done. I had money on you skipping it.',
+      '{habit}: done. The list just got shorter and I got quieter.',
     ],
   },
   habitAllDone: {
@@ -583,11 +628,21 @@ export const LINES = {
   },
   habitRemind: {
     mild: ['Reminder: {habit}.'],
-    savage: ['{habit}. Today. Not "later". Today.', '{habit} is still waiting. It is getting lonely.', '{habit} is still on the list. I am watching you.'],
+    savage: [
+      '{habit}. Today. Not "later". Today.',
+      '{habit} is still waiting. It is getting lonely.',
+      '{habit} is still on the list. I am watching you.',
+      '{habit}. It takes less time than reading this reminder twice.',
+    ],
   },
   questDone: {
     mild: ['Quest complete: {quest}! +{xp} XP'],
-    savage: ['Quest complete: {quest}. +{xp} XP. The bards will sing of this. Quietly.', '{quest}: done. +{xp} XP. Achievement hunter energy.'],
+    savage: [
+      'Quest complete: {quest}. +{xp} XP. The bards will sing of this. Quietly.',
+      '{quest}: done. +{xp} XP. Achievement hunter energy.',
+      '{quest}: complete. +{xp} XP. Somewhere a boss just flinched.',
+      'Quest down: {quest}. +{xp} XP. Next.',
+    ],
   },
   questsAllDone: {
     mild: ['All 3 daily quests done! +30 XP and +15 min gaming.'],
@@ -612,7 +667,7 @@ export const LINES = {
   },
   taunt_dehydration: {
     mild: ['{boss} hates water. Water-goal days hit it 50% harder.'],
-    savage: ["{boss} has heard about your water bottle. He's not worried.", '{boss} is drier than your excuses.', '{boss} rules the desert. Drown him.'],
+    savage: ["{boss} has heard about your water bottle. He's not worried.", '{boss} is drier than a forgotten water bottle.', '{boss} rules the desert. Drown him.'],
   },
   taunt_leg_day: {
     mild: ['{boss} never trains. Your training days hit it 50% harder.'],
@@ -655,7 +710,7 @@ export const LINES = {
   },
   reportBad: {
     mild: ['Rough week. Pick one thing to improve next week.'],
-    savage: ['This week was a draft. A bad one. Next week, we rewrite it.', 'I have seen houseplants with better weekly stats.'],
+    savage: ['This week was a draft. A bad one. Next week, we rewrite it.', 'This week ran on fumes. Next week, fill the tank first.'],
   },
   reportReady: {
     mild: ['Your weekly report card is ready.'],
@@ -663,19 +718,39 @@ export const LINES = {
   },
   weatherRain: {
     mild: ['{forecast}. Bring an umbrella.'],
-    savage: ['{forecast}. Your umbrella called. It is tired of being forgotten.', '{forecast}. Perfect excuse to skip the walk. Denied.'],
+    savage: [
+      '{forecast}. Your umbrella called. It is tired of being forgotten.',
+      '{forecast}. Perfect weather to skip the walk. Denied.',
+      '{forecast}. Rain jacket on, walk still happens.',
+      '{forecast}. Wet outside. Indoor workouts exist.',
+    ],
   },
   weatherCold: {
     mild: ['{forecast}. Dress warm!'],
-    savage: ['{forecast}. Wear a jacket. You are not as tough as you think.', '{forecast}. Cold outside, so gym inside. No excuses.'],
+    savage: [
+      '{forecast}. Wear a jacket. You are not as tough as you think.',
+      '{forecast}. Cold outside, so gym inside. Problem solved.',
+      '{forecast}. Cold. Hot drink, warm jacket, walk anyway.',
+      '{forecast}. Chilly. The gym has heating. Just saying.',
+    ],
   },
   weatherHot: {
     mild: ['{forecast}. Stay hydrated!'],
-    savage: ['{forecast}. Hot. Drink water or become a raisin.', '{forecast}. Your water goal just became non-negotiable.'],
+    savage: [
+      '{forecast}. Hot. Drink water or become a raisin.',
+      '{forecast}. Your water goal just became non-negotiable.',
+      '{forecast}. Hot one. The water bottle comes with you today.',
+      '{forecast}. Heat today. Shade, water, and fewer heroics.',
+    ],
   },
   weatherNice: {
     mild: ['{forecast}. Nice day for a walk.'],
-    savage: ['{forecast}. Great weather. Wasted on you if you stay inside.', '{forecast}. Touch grass today. Literally.'],
+    savage: [
+      '{forecast}. Great weather. Wasted on you if you stay inside.',
+      '{forecast}. Touch grass today. Literally.',
+      '{forecast}. The weather did its part. Your turn.',
+      '{forecast}. A walk today is basically free.',
+    ],
   },
   backupRemind: {
     mild: ['It has been a while since your last backup. Back up your data?'],
@@ -695,7 +770,7 @@ export const LINES = {
   activityLogged: {
     mild: ['{activity}: {minutes} min logged. Nice work!'],
     savage: [
-      '{minutes} min of {activity}. Your excuses filed a complaint. Denied.',
+      '{minutes} min of {activity}. The sofa filed a complaint. Denied.',
       '{activity}, {minutes} min. The couch is in mourning.',
       '{minutes} minutes of {activity}. Look at you, being a whole athlete.',
       '{activity} logged. {minutes} min. I expected less. Pleasantly surprised.',
@@ -714,19 +789,36 @@ export const LINES = {
     savage: [
       'Bad sleep. Coffee will not fix it, but it will try. Bed early tonight.',
       'A rough night. Go easy on yourself today and aim for an early night.',
+      'Rough night. Smaller plan today, earlier lights-out tonight.',
+      'Bad night noted. Be gentle with today. The quests will wait.',
     ],
   },
   rateSleepOk: {
     mild: ['An OK night. Thanks for rating it.'],
-    savage: ['Mid sleep for a mid day? Let us aim higher tonight.', 'OK sleep. Not a disaster. Not a win either.'],
+    savage: [
+      'Mid sleep for a mid day? Let us aim higher tonight.',
+      'OK sleep. Not a disaster. Not a win either.',
+      'An OK night. Not a headline, not a disaster.',
+      'Decent sleep. Tonight, try the bedtime you keep promising.',
+    ],
   },
   rateSleepGreat: {
     mild: ['Great sleep! Make the most of today.'],
-    savage: ['Great sleep. Fully charged. That means no excuses today.', 'You slept great. I expect greatness. Or at least water.'],
+    savage: [
+      'Great sleep. Fully charged. Today gets the good version of you.',
+      'You slept great. I expect greatness. Or at least water.',
+      'Great night. Use it on something that matters.',
+      'Slept well. The bar for today just went up. Slightly.',
+    ],
   },
   sleepRemind: {
     mild: ['How did you sleep? Rate it in S.P.I.D.E.R.'],
-    savage: ['Rate your sleep. Be honest. I have your watch data.', 'Morning. How was the night? One tap. Go.'],
+    savage: [
+      'Rate your sleep. Be honest. I have your watch data.',
+      'Morning. How was the night? One tap. Go.',
+      'Morning. Rate the night before the day buries the memory.',
+      'How was the night? One tap now beats a guess later.',
+    ],
   },
   // Periods: never roasted, kind in both pools.
   periodLogged: {
@@ -803,31 +895,66 @@ export const LINES = {
   },
   energyLow: {
     mild: ['Low battery. Low-battery mode on: one quest, gentler roasts, just your top 3.'],
-    savage: ['Low battery. Fine. One quest, gentler roasts, top 3 only. I am being nice. Do not get used to it.'],
+    savage: [
+      'Low battery. Fine. One quest, gentler roasts, top 3 only. I am being nice. Do not get used to it.',
+      'Low battery. One quest, softer roasts, top 3 only. Rest is part of the plan.',
+      'Running low. Fine. Today we do the minimum and call it strategy.',
+      'Battery low. I am lowering my expectations to match. Temporarily.',
+    ],
   },
   energyOk: {
     mild: ['Normal energy. Normal day. Let us go.'],
-    savage: ['Average energy. Average expectations. Surprise me.'],
+    savage: [
+      'Average energy. Average expectations. Surprise me.',
+      'Normal battery. Normal plan. No dramatic comebacks required.',
+      'Energy: fine. Fine is enough to drink water and finish one thing.',
+      'Average battery. The quests are beatable at this level. Go.',
+    ],
   },
   energyHigh: {
     mild: ['Full battery! Make the most of it.'],
-    savage: ['Full battery. No excuses are available today. Zero.', 'Fully charged. Today the quests fear YOU.'],
+    savage: [
+      'Full battery. Today is out of reasons to wait.',
+      'Fully charged. Today the quests fear YOU.',
+      'Full battery. The top 3 will not know what hit them.',
+      'Fully charged. Spend it on the hard task first.',
+    ],
   },
   windDownDone: {
     mild: ['Wind-down done. Sleep well! +5 XP'],
-    savage: ['Wind-down complete. +5 XP. Now actually sleep. Not "one more game".'],
+    savage: [
+      'Wind-down complete. +5 XP. Now actually sleep. Not "one more game".',
+      'Wind-down done. +5 XP. The phone goes to its bed, you go to yours.',
+      'Routine complete. +5 XP. Tomorrow-you says thanks in advance.',
+      'Wind-down ticked. +5 XP. If you open a game now, I will know.',
+    ],
   },
   windDownRemind: {
     mild: ['Time to wind down for the night.'],
-    savage: ['Wind-down time. Screens away. Yes, including this one, after you tick the box.', 'Bedtime routine. Your future self is begging you.'],
+    savage: [
+      'Wind-down time. Screens away. Yes, including this one, after you tick the box.',
+      'Bedtime routine. Your future self is begging you.',
+      'Wind-down time. The list can wait until tomorrow. Your sleep cannot.',
+      'Screens down, lights low. Yes, the game will still exist tomorrow.',
+    ],
+  },
+  // Just-in-time insight (jit.ts): Friday evening, the weekend sleep drift.
+  jitJetlag: {
+    mild: ['🛫 Weekend heads-up: {finding} A bedtime near your usual one keeps Monday easier.'],
+    savage: ['🛫 Weekend heads-up: {finding} Book the flight back before Sunday night.', '🛫 {finding} Your data. Your weekend. Your Monday.'],
   },
   breathDone: {
     mild: ['Nicely done. Breathing: complete.'],
-    savage: ['You breathed on purpose. Look at you. Calm and everything.'],
+    savage: [
+      'You breathed on purpose. Look at you. Calm and everything.',
+      'Breathing session done. Calm achieved. Briefly.',
+      'Done. Slower breathing, same you, fewer tabs open in your head.',
+      'You stopped for a minute on purpose. That counts.',
+    ],
   },
   screenChill: {
     mild: ['{time} on your phone today. Healthy-ish!'],
-    savage: ['{time} of phone today. Reasonable. Suspiciously reasonable.', 'Only {time} on the phone? Who are you and where is your TikTok?'],
+    savage: ['{time} of phone today. Reasonable. Almost like you have hobbies.', 'Only {time} on the phone? Who are you and where is your TikTok?'],
   },
   screenHeavy: {
     mild: ['{time} on your phone today. Maybe take a break?'],
@@ -877,23 +1004,48 @@ export const LINES = {
   },
   verdictTragic: {
     mild: ['Slow start today. Every bit counts!'],
-    savage: ['Verdict: tragic, but salvageable.', 'Verdict: the day is a draft. A rough one.'],
+    savage: [
+      'Verdict: tragic, but salvageable.',
+      'Verdict: the day is a draft. A rough one.',
+      'Verdict: rough so far. One glass of water and one task changes it.',
+      'Verdict: the day needs a plot twist. Be the plot twist.',
+    ],
   },
   verdictMid: {
     mild: ["You're getting there. Keep going!"],
-    savage: ['Verdict: mid. Painfully mid.', 'Verdict: you exist. Bare minimum achieved.'],
+    savage: [
+      'Verdict: mid. Painfully mid.',
+      'Verdict: you exist. Bare minimum achieved.',
+      'Verdict: mid. One more good move tips it.',
+      'Verdict: lukewarm. Like coffee left on the desk.',
+    ],
   },
   verdictGood: {
     mild: ['Great day so far!'],
-    savage: ["Verdict: respectable. Don't get cocky.", 'Verdict: decent. I hate that I said that.'],
+    savage: [
+      "Verdict: respectable. Don't get cocky.",
+      'Verdict: decent. I hate that I said that.',
+      'Verdict: solid. Keep the momentum, skip the victory lap.',
+      'Verdict: good. I am running out of complaints.',
+    ],
   },
   verdictGreat: {
     mild: ['Outstanding! Everything on track.'],
-    savage: ['Verdict: suspiciously productive. Are you okay?', 'Verdict: elite. Who replaced you?'],
+    savage: [
+      'Verdict: genuinely productive. Write down what worked.',
+      'Verdict: elite. Who replaced you?',
+      'Verdict: excellent. Screenshot this before it ends.',
+      'Verdict: great. Go to bed on time and make it official.',
+    ],
   },
   verdictMorning: {
     mild: ["The day's just getting started. Plenty of time."],
-    savage: ['Verdict pending. The day has barely loaded.', 'Too early for a verdict. Not too early for water.'],
+    savage: [
+      'Verdict pending. The day has barely loaded.',
+      'Too early for a verdict. Not too early for water.',
+      'Verdict: loading. Feed it some water.',
+      'No verdict yet. The day is still warming up. So are you.',
+    ],
   },
   // A low-mood, sick, away or period day: no verdict at all. Kind in both pools.
   verdictKind: {
@@ -915,7 +1067,7 @@ export const LINES = {
   },
   nightGreat: {
     mild: ['An outstanding day. Sleep well, you earned it.'],
-    savage: ['Verdict: suspiciously productive. Are you okay?', 'Verdict: elite. Who replaced you?'],
+    savage: ['Verdict: a day worth repeating. Same again tomorrow?', 'Verdict: elite. Who replaced you?'],
   },
 
   // ---- cluster D: insights ----
@@ -990,7 +1142,7 @@ export const LINES = {
     mild: ['{boss} rules the Lazy Syndicate. Every boss weakness hurts it, but it has a lot of HP.'],
     savage: [
       '{boss} has entered the chat. Eight lieutenants down, one throne left. Every weakness counts.',
-      '{boss} sits on a throne built from your old excuses. Knock it over.',
+      '{boss} sits on a throne built from skipped plans. Knock it over.',
     ],
   },
   finalBossArrives: {
@@ -1064,7 +1216,7 @@ export const LINES = {
     mild: ['Glad midsommar, {name}! 🌼 The lightest days of the year.', 'Midsommar! Get outside while the sun refuses to set.'],
     savage: [
       'Midsommar, {name}. The sun stays up all night. So do you, but for worse reasons.',
-      "It's the lightest day of the year. Your excuse for staying inside just evaporated.",
+      "It's the lightest day of the year. Staying inside just lost its last argument.",
       'Glad midsommar. Dance around the pole, not around your step goal.',
     ],
   },
@@ -1122,7 +1274,7 @@ export const LINES = {
   callbackPR: {
     mild: ['Yesterday: a new record on {exercise}, {weight} kg. Nicely done, {name}!'],
     savage: [
-      'Yesterday: {exercise} at {weight} kg. A new record. Who are you and what have you done with {name}?',
+      'Yesterday: {exercise} at {weight} kg. A new record. Today it is the number to beat.',
       '{weight} kg on {exercise} yesterday. A record. I had to double-check my sensors.',
     ],
   },
@@ -1130,7 +1282,7 @@ export const LINES = {
     mild: ['Every quest done yesterday. Great work, {name}!'],
     savage: [
       "Every quest done yesterday. I'm recalibrating my expectations. Upwards. Reluctantly.",
-      "All quests cleared yesterday. Suspicious. Do it again so I know it wasn't a glitch.",
+      "All quests cleared yesterday. Do it again so I know it wasn't a glitch.",
     ],
   },
   callbackLateGame: {
@@ -1144,13 +1296,13 @@ export const LINES = {
   callbackWin: {
     mild: ['Yesterday went well: {water} L of water and everything on track. Nice, {name}!'],
     savage: [
-      'Yesterday: {water} L of water and everything on track. Who are you and what have you done with {name}?',
+      'Yesterday: {water} L of water and everything on track. Encore, please.',
       'Yesterday was annoyingly good. {water} L of water. I had nothing to roast. I hated it.',
     ],
   },
   callbackDry: {
     mild: ['Only {water} L of water yesterday. A glass now gets today started right.'],
-    savage: ['Yesterday: {water} L of water. Houseplants have filed a complaint on your behalf.', '{water} L yesterday. Camels are concerned. Drink something.'],
+    savage: ['Yesterday: {water} L of water. Your water bottle has filed a complaint.', '{water} L yesterday. Camels are concerned. Drink something.'],
   },
   callbackSlow: {
     mild: ['Yesterday was a slow one. Today the bar is low. You can clear it.'],
@@ -1292,16 +1444,127 @@ export type LineKey = keyof typeof LINES;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
-/** The savage or the mild list of a pool; the savage level (1–10) sets the odds. */
-function pickList(key: LineKey, savageLevel: number) {
+// ---------- line memory: no repeats across app runs, and lines retired as "too far" ----------
+
+/** 32-bit FNV-1a in base 36: short, stable ids for line texts. */
+function hash(text: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** A line's id: its pool plus a hash of its text. Editing a line's text makes it a new line. */
+export const lineId = (key: string, text: string) => `${key}:${hash(text)}`;
+
+/**
+ * What's remembered about lines, saved in State.lineMemory. `deck`: per pool list ("waterLogged:s"), the
+ * lines picked since that list last went all the way round (`used`), the end of the round before (`prev`,
+ * so a new round doesn't open with what was just said), and when the list was last used. `banned`: lines
+ * called "too far" on a toast, never picked again.
+ */
+export type LineMemory = { deck?: Record<string, { used: string[]; prev?: string[]; at: number }>; banned?: string[] };
+
+const DECK_DAYS = 30; // a pool list unused this long forgets where it was
+const DECK_MAX = 300; // pool lists remembered at most (the least recently used go first)
+
+let memory: LineMemory = {};
+let banned = new Set<string>();
+const memoryListeners = new Set<() => void>();
+
+/** Loads the saved memory (on launch, restore, reset). Picks between changes go through the module. */
+export function setLineMemory(m: LineMemory | undefined) {
+  memory = m ?? {};
+  banned = new Set(memory.banned ?? []);
+}
+/** The memory as it is now, for saving. */
+export const lineMemory = () => memory;
+/** Called after every change to the memory (a pick, a ban). Returns the unsubscribe. */
+export function onLineMemory(fn: () => void) {
+  memoryListeners.add(fn);
+  return () => {
+    memoryListeners.delete(fn);
+  };
+}
+function changeMemory(next: LineMemory) {
+  setLineMemory(next);
+  memoryListeners.forEach((fn) => fn());
+}
+
+/** Never picks this line again. */
+export function banLine(id: string) {
+  if (banned.has(id)) return;
+  changeMemory({ ...memory, banned: [...(memory.banned ?? []), id] });
+}
+export function unbanLine(id: string) {
+  if (!banned.has(id)) return;
+  changeMemory({ ...memory, banned: (memory.banned ?? []).filter((x) => x !== id) });
+}
+/** Retired lines (State.lineMemory.banned), with their text. Ids whose line no longer exists are left out. */
+export function bannedLines(ids: string[] = memory.banned ?? []): { id: string; key: LineKey; text: string }[] {
+  const want = new Set(ids);
+  const out: { id: string; key: LineKey; text: string }[] = [];
+  if (!want.size) return out;
+  for (const key of Object.keys(LINES) as LineKey[]) {
+    const pool: Pool = LINES[key];
+    for (const text of new Set([...pool.mild, ...pool.savage])) {
+      const id = lineId(key, text);
+      if (want.has(id)) out.push({ id, key, text });
+    }
+  }
+  return out;
+}
+
+/** Recently produced lines (filled in) with their ids, so a toast can tell which line it shows. */
+const produced: { text: string; id: string }[] = [];
+const PRODUCED_MAX = 40;
+function produce(key: LineKey, template: string, vars: Record<string, string | number>) {
+  const text = fillLine(template, vars);
+  produced.push({ text, id: lineId(key, template) });
+  if (produced.length > PRODUCED_MAX) produced.shift();
+  return text;
+}
+/** The id of the line a toast shows (it may add an emoji or "+10 XP" around it), or null if it isn't one. */
+export function lineIdFor(toastText: string): string | null {
+  for (let i = produced.length - 1; i >= 0; i--) {
+    const p = produced[i];
+    if (p.text.length >= 8 && toastText.includes(p.text)) return p.id;
+  }
+  return null;
+}
+
+/**
+ * The savage or the mild list of a pool, without retired lines; the savage level (1–10) sets the odds.
+ * Mild lines all retired: the remaining savage ones, except at level 1 (a kind day never gets a roast),
+ * and with nothing left at all, the mild lines anyway (a repeat beats silence).
+ */
+function pickList(key: LineKey, savageLevel: number, rand: () => number = Math.random) {
   const pool: Pool = LINES[key];
   const savageChance = (clamp(savageLevel, 1, 10) - 1) / 9;
-  const savage = pool.savage.length > 0 && (pool.mild.length === 0 || Math.random() < savageChance);
-  return { list: savage ? pool.savage : pool.mild, id: `${key}:${savage ? 's' : 'm'}` };
+  const kept = (xs: string[]) => (banned.size ? xs.filter((t) => !banned.has(lineId(key, t))) : xs);
+  const mild = kept(pool.mild);
+  const savage = kept(pool.savage);
+  const useSavage = savage.length > 0 && ((mild.length === 0 && savageChance > 0) || (mild.length > 0 && rand() < savageChance));
+  const list = useSavage ? savage : mild.length ? mild : pool.mild.length ? pool.mild : pool.savage;
+  return { list, id: `${key}:${useSavage ? 's' : 'm'}` };
 }
 
 export const fillLine = (text: string, vars: Record<string, string | number>) =>
   text.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+
+/** A small seeded random generator (mulberry32), for picks that must come out the same every time. */
+function seeded(seed: string) {
+  let a = parseInt(hash(seed), 36) >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 /** A whole pool, for native code that picks its own line later. Keeps `{keep}` placeholders for it to fill. */
 export function poolFor(key: LineKey, savageLevel: number, vars: Record<string, string | number>, keep: string[] = []) {
@@ -1311,23 +1574,69 @@ export function poolFor(key: LineKey, savageLevel: number, vars: Record<string, 
   return list.map((t) => fillLine(t, { ...kept, ...vars }));
 }
 
-/** A random line. Notifications use this: they're redrawn on every change, so they mustn't use up freshLine's memory. */
+/** A random line, for one-off texts outside the app's own screens (a background task, a snoozed reminder). */
 export function line(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}) {
   const { list } = pickList(key, savageLevel);
   return fillLine(list[Math.floor(Math.random() * list.length)], vars);
 }
 
-const recent = new Map<string, number[]>(); // pool id -> indexes picked lately, this app run
+/**
+ * The n-th line from a pool on one planned day, for notifications. A fixed shuffle per day (`day` is the
+ * seed): a day's reminders from one pool (ten water reminders, say) don't repeat while the pool allows, and
+ * a replan gives the same slot the same line. Replans happen every few minutes, so they never touch the deck.
+ */
+export function dayLine(key: LineKey, savageLevel: number, day: string, n: number, vars: Record<string, string | number> = {}) {
+  const rand = seeded(`${day}|${key}`);
+  const seen: Record<string, number> = {};
+  let pick: ReturnType<typeof pickList> | null = null;
+  let k = 0;
+  for (let i = 0; i <= n; i++) {
+    pick = pickList(key, savageLevel, rand); // mild or savage, slot by slot
+    k = seen[pick.id] ?? 0;
+    seen[pick.id] = k + 1;
+  }
+  if (!pick) return '';
+  const order = pick.list.map((_, i) => i);
+  const shuffle = seeded(`${day}|${pick.id}`);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(shuffle() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return fillLine(pick.list[order[k % order.length]], vars);
+}
 
-/** Like line(), but skips the lines it picked most recently from the same pool (half the pool's size). */
+/** Remembers a pick in the list's deck. Lists unused for a month, and the least recently used past DECK_MAX, are dropped. */
+function remember(listId: string, used: string[], prev: string[], now = Date.now()) {
+  const deck: NonNullable<LineMemory['deck']> = {};
+  const entries = Object.entries(memory.deck ?? {}).filter(([k, e]) => k !== listId && e.at > now - DECK_DAYS * 86_400_000);
+  for (const [k, e] of entries.sort((a, b) => b[1].at - a[1].at).slice(0, DECK_MAX - 1)) deck[k] = e;
+  deck[listId] = prev.length ? { used, prev, at: now } : { used, at: now };
+  changeMemory({ ...memory, deck });
+}
+
+/**
+ * A line for the app's own screens and toasts. Each pool list deals its lines like a deck, across app runs
+ * (State.lineMemory): every line comes up once before any comes up again, and no line comes back within
+ * half the list's length, not even across the start of a new round. Retired lines never come up.
+ */
 export function freshLine(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}) {
   const { list, id } = pickList(key, savageLevel);
-  const seen = recent.get(id) ?? [];
-  const choices = list.map((_, i) => i).filter((i) => !seen.includes(i));
+  const ids = list.map((t) => lineId(key, t));
+  const entry = memory.deck?.[id];
+  const gap = Math.floor(list.length / 2);
+  let used = (entry?.used ?? []).filter((x) => ids.includes(x));
+  let prev = (entry?.prev ?? []).filter((x) => ids.includes(x));
+  if (used.length >= new Set(ids).size) {
+    prev = used.slice(-gap); // a new round: the end of this one stays out of reach for a while
+    used = [];
+  }
+  const near = new Set([...used, ...prev.slice(used.length)]); // said this round, or just before it began
+  const all = list.map((_, i) => i);
+  const fresh = all.filter((i) => !near.has(ids[i]));
+  const choices = fresh.length ? fresh : all.filter((i) => !used.includes(ids[i]));
   const i = choices[Math.floor(Math.random() * choices.length)] ?? 0;
-  const keep = Math.floor(list.length / 2);
-  recent.set(id, keep ? [...seen, i].slice(-keep) : []);
-  return fillLine(list[i], vars);
+  remember(id, [...used, ids[i]], prev);
+  return produce(key, list[i], vars);
 }
 
 /**

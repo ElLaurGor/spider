@@ -5,11 +5,11 @@ import { C } from '@/constants/theme';
 
 import { addDays, atTime, dayKey, fmtDuration, fmtTime, MIN } from './dates';
 import { habitsDone, isScheduled } from './habits';
-import { line, type LineKey } from './lines';
+import { dayLine, line, type LineKey } from './lines';
 import * as Notifications from './local-notifications';
 import { cycleInfo, isPredictedPeriod } from './body';
 import { standings } from './league';
-import { pausedOn } from './pause';
+import { pausedOn, pauseOn } from './pause';
 import { immortalTask } from './memory';
 import { nextDate } from './countdowns';
 import {
@@ -37,6 +37,7 @@ import { forecastText, type Weather } from './weather';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outside';
 import { bossFinisher } from './boss-plan';
 import { bossFor, questsFor } from './quests';
+import { insightById } from './jit';
 import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
 import { periodDay, toneOn, type DayTone } from './tone';
 import { upcomingDays } from './swedish-days';
@@ -175,9 +176,23 @@ async function scheduleAt(
 
 const say = (s: State, key: LineKey, vars: Record<string, string | number> = {}) =>
   line(key, effectiveSavage(s), { name: s.settings.userName || 'boss', ...vars });
-/** A line in the tone of the day it goes out on, not today's (a period or a low mood carries over into it). */
-const sayOn = (s: State, tone: DayTone, key: LineKey, vars: Record<string, string | number> = {}) =>
-  line(key, tone.level, { name: s.settings.userName || 'boss', ...vars });
+// While a replan runs: how many lines each pool has given each planned day so far ("day|pool" -> count).
+let planned: Map<string, number> | null = null;
+
+/**
+ * A line in the tone of the day it goes out on, not today's (a period or a low mood carries over into it).
+ * Given its `day`, it's that day's n-th line from the pool in a fixed per-day shuffle (dayLine): ten water
+ * reminders don't repeat a line while the pool has enough, and every replan gives a slot the same line.
+ * `n` is the slot's own index where slots can be skipped (water, mood); otherwise they're counted in order.
+ */
+function sayOn(s: State, tone: DayTone, key: LineKey, vars: Record<string, string | number> = {}, day?: string, n?: number) {
+  const all = { name: s.settings.userName || 'boss', ...vars };
+  if (!day) return line(key, tone.level, all);
+  const slot = `${day}|${key}`;
+  const i = n ?? planned?.get(slot) ?? 0;
+  if (n == null) planned?.set(slot, i + 1);
+  return dayLine(key, tone.level, day, i, all);
+}
 
 function daySummary(s: State, now: Date) {
   const d = dayOf(s, dayKey(now));
@@ -231,12 +246,14 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   const { settings: st } = s;
   const now = new Date();
   const jobs: Promise<void>[] = [];
+  planned = new Map();
   // A snoozed water reminder is pointless once the goal is hit or water reminders are off.
   if (!st.notify.water || waterMl(dayOf(s, dayKey(now))) >= waterGoalFor(s, dayKey(now))) {
     jobs.push(Notifications.cancelScheduledNotificationAsync(SNOOZE_ID).catch(() => {}));
   }
 
   const cycle = cycleInfo(s, now);
+  const windDown = st.notify.windDown ? (insightById(s, 'wind_down', now)?.text ?? null) : null; // looked up once per replan
   for (let d = 0; d < DAYS_AHEAD; d++) {
     const date = addDays(now, d);
     const key = dayKey(date);
@@ -249,22 +266,22 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
 
     const waterGoal = waterGoalFor(s, key);
     if (st.notify.water && !paused && !(d === 0 && waterMl(log) >= waterGoal)) {
-      for (const t of waterSlots(s)) {
+      waterSlots(s).forEach((t, i) => {
         const when = atTime(now, d, Math.floor(t / 60), t % 60);
-        if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
+        if (st.respectMeetings && inMeeting(events, when.getTime())) return;
         const progress = d === 0 ? ` (${waterMl(log)}/${waterGoal} ml)` : '';
-        jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', sayOn(s, tone, 'waterRemind') + progress, CH.remind, { category: CATEGORY.water }));
-      }
+        jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', sayOn(s, tone, 'waterRemind', {}, key, i) + progress, CH.remind, { category: CATEGORY.water }));
+      });
     }
 
     if (st.notify.gym && plan && !paused && !trainedOn(log)) {
       const gymAt = atTime(now, d, st.gymHour, st.gymMinute).getTime();
-      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name });
+      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name }, key);
       jobs.push(scheduleAt(`gym-${key}-pre`, gymAt - 30 * MIN, `🏋️ ${plan.name} day`, pre, CH.gym));
       const shameAt = Math.min(gymAt + 3 * 60 * MIN, atTime(now, d, st.sleepHour).getTime() - 30 * MIN);
       // No shaming on a kind day (low mood, sick, period) or in low-battery mode.
       if (shameAt > gymAt && !tone.kind && !(d === 0 && lowBattery(log))) {
-        jobs.push(scheduleAt(`gym-${key}-shame`, shameAt, '🕷️ S.P.I.D.E.R. noticed something', sayOn(s, tone, 'gymShame', { workout: plan.name }), CH.gym));
+        jobs.push(scheduleAt(`gym-${key}-shame`, shameAt, '🕷️ S.P.I.D.E.R. noticed something', sayOn(s, tone, 'gymShame', { workout: plan.name }, key), CH.gym));
       }
     }
 
@@ -274,19 +291,19 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const wkText = plan ? `${plan.name} day` : 'Rest day';
       const forecast = weather?.days.find((f) => f.date === key);
       const sv = upcomingDays(date, 2).map((n) => `${n.emoji} ${n.text}`).join(' ');
-      const body = sayOn(s, tone, 'morningBrief', { events: evText, workout: wkText }) + (forecast ? ` ${forecastText(forecast)}.` : '') + (sv ? ` ${sv}` : '');
+      const body = sayOn(s, tone, 'morningBrief', { events: evText, workout: wkText }, key) + (forecast ? ` ${forecastText(forecast)}.` : '') + (sv ? ` ${sv}` : '');
       jobs.push(scheduleAt(`morning-${key}`, atTime(now, d, st.wakeHour), `☀️ Good morning, ${st.userName || 'boss'}`, body, CH.remind));
     }
 
     if (st.notify.mood) {
       const lastMood = moodsOf(log).at(-1)?.at ?? 0;
-      for (const h of MOOD_HOURS) {
+      for (const [i, h] of MOOD_HOURS.entries()) {
         if (h <= st.wakeHour || h >= st.sleepHour) continue;
         const when = atTime(now, d, h);
         // Skip a check-in if one was logged in the 4 hours before it.
         if (d === 0 && when.getTime() - lastMood < 4 * 60 * MIN) continue;
         if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
-        jobs.push(scheduleAt(`mood-${key}-${h}`, when, '🫀 Vibe check', sayOn(s, tone, 'moodRemind'), CH.remind, { category: CATEGORY.mood }));
+        jobs.push(scheduleAt(`mood-${key}-${h}`, when, '🫀 Vibe check', sayOn(s, tone, 'moodRemind', {}, key, i), CH.remind, { category: CATEGORY.mood }));
       }
     }
 
@@ -299,17 +316,17 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       if (worst && worst.level >= st.pollenAlertLevel) {
         const info = pollenInfo(worst.t);
         jobs.push(
-          scheduleAt(`pollen-${key}`, atTime(now, d, st.wakeHour, 20), `${info.emoji} ${info.label.split(' ')[0]} pollen: ${LEVEL_LABEL[worst.level]}`, sayOn(s, tone, 'pollenHigh', { pollen: info.label.split(' ')[0], level: LEVEL_LABEL[worst.level] }), CH.remind),
+          scheduleAt(`pollen-${key}`, atTime(now, d, st.wakeHour, 20), `${info.emoji} ${info.label.split(' ')[0]} pollen: ${LEVEL_LABEL[worst.level]}`, sayOn(s, tone, 'pollenHigh', { pollen: info.label.split(' ')[0], level: LEVEL_LABEL[worst.level] }, key), CH.remind),
         );
       }
     }
     if (airDay && st.notify.air && airDay.aqi >= st.aqiAlert) {
       const band = aqiBand(airDay.aqi).label;
-      jobs.push(scheduleAt(`air-${key}`, atTime(now, d, st.wakeHour, 25), `😷 Air quality: ${band}`, sayOn(s, tone, 'airPoor', { aqi: airDay.aqi, band }), CH.remind));
+      jobs.push(scheduleAt(`air-${key}`, atTime(now, d, st.wakeHour, 25), `😷 Air quality: ${band}`, sayOn(s, tone, 'airPoor', { aqi: airDay.aqi, band }, key), CH.remind));
     }
 
     if (st.notify.sleep && !(d === 0 && log.sleepRating != null)) {
-      jobs.push(scheduleAt(`sleep-${key}`, atTime(now, d, st.wakeHour + 1), '😴 How did you sleep?', sayOn(s, tone, 'sleepRemind'), CH.remind));
+      jobs.push(scheduleAt(`sleep-${key}`, atTime(now, d, st.wakeHour + 1), '😴 How did you sleep?', sayOn(s, tone, 'sleepRemind', {}, key), CH.remind));
     }
 
     if (st.notify.habits && !paused) {
@@ -317,7 +334,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       for (const h of s.habits) {
         if (h.remindHour == null || !isScheduled(h, date) || (d === 0 && done.includes(h.id))) continue;
         jobs.push(
-          scheduleAt(`habit-${h.id}-${key}`, atTime(now, d, h.remindHour), `📌 ${h.emoji} ${h.name}`, sayOn(s, tone, 'habitRemind', { habit: h.name }), CH.remind, {
+          scheduleAt(`habit-${h.id}-${key}`, atTime(now, d, h.remindHour), `📌 ${h.emoji} ${h.name}`, sayOn(s, tone, 'habitRemind', { habit: h.name }, key), CH.remind, {
             category: CATEGORY.habit,
             data: { habitId: h.id, day: key },
           }),
@@ -330,20 +347,23 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     if (moveHour != null && !paused && !period && date.getDay() >= 1 && date.getDay() <= 5 && moveHour > st.wakeHour && moveHour < st.sleepHour) {
       const when = atTime(now, d, moveHour, 5);
       if (!(d === 0 && lowBattery(log)) && !(st.respectMeetings && inMeeting(events, when.getTime()))) {
-        jobs.push(scheduleAt(`move-${key}`, when, '🚶 Move break', sayOn(s, tone, 'moveNudge'), CH.remind));
+        jobs.push(scheduleAt(`move-${key}`, when, '🚶 Move break', sayOn(s, tone, 'moveNudge', {}, key), CH.remind));
       }
     }
 
     if (st.notify.windDown && !(d === 0 && log.windDownDone)) {
-      jobs.push(scheduleAt(`winddown-${key}`, atTime(now, d, st.sleepHour - 1), '🌙 Wind-down time', sayOn(s, tone, 'windDownRemind'), CH.remind));
+      // With the owner's own wind-down finding, when the data has one (never on a sick day).
+      const finding = windDown && pauseOn(s, key)?.kind !== 'sick' ? windDown : null;
+      const body = sayOn(s, tone, 'windDownRemind', {}, key) + (finding ? ` 📊 ${finding}` : '');
+      jobs.push(scheduleAt(`winddown-${key}`, atTime(now, d, st.sleepHour - 1), '🌙 Wind-down time', body, CH.remind));
     }
 
     // Not on paused days; on a kind day, no running joke about the task that won't die.
     if (st.notify.evening && !paused) {
       const zombie = tone.kind ? null : immortalTask(s, atTime(now, d, st.sleepHour - 2, 30).getTime());
       const body =
-        (d === 0 ? sayOn(s, tone, 'eveningReport', { summary: daySummary(s, now) }) : sayOn(s, tone, 'eveningReady')) +
-        (zombie ? ` ${sayOn(s, tone, 'immortalTask', { task: zombie.task.title, days: zombie.days })}` : '');
+        (d === 0 ? sayOn(s, tone, 'eveningReport', { summary: daySummary(s, now) }, key) : sayOn(s, tone, 'eveningReady', {}, key)) +
+        (zombie ? ` ${sayOn(s, tone, 'immortalTask', { task: zombie.task.title, days: zombie.days }, key)}` : '');
       jobs.push(scheduleAt(`evening-${key}`, atTime(now, d, st.sleepHour - 2, 30), '📋 Daily report card', body, CH.remind));
     }
   }
@@ -353,7 +373,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   const reportAt = atTime(now, daysToSunday, 19);
   const sunday = reportAt.getTime() > now.getTime() ? reportAt : atTime(now, daysToSunday + 7, 19);
   if (st.notify.report) {
-    jobs.push(scheduleAt(`report-${dayKey(sunday)}`, sunday, '📊 Weekly report card', sayOn(s, toneOn(s, dayKey(sunday), now, cycle), 'reportReady'), CH.remind));
+    jobs.push(scheduleAt(`report-${dayKey(sunday)}`, sunday, '📊 Weekly report card', sayOn(s, toneOn(s, dayKey(sunday), now, cycle), 'reportReady', {}, dayKey(sunday)), CH.remind));
   }
   const firstDay = Object.keys(s.days).sort()[0];
   const lastSafe = s.lastBackupAt ?? (firstDay ? new Date(`${firstDay}T12:00`).getTime() : now.getTime());
@@ -372,8 +392,8 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const day = nextDate(c, now);
       const vars = { title: `${c.emoji} ${c.title}` };
       const eve = toneOn(s, dayKey(addDays(day, -1)), now, cycle);
-      jobs.push(scheduleAt(`countdown-${c.id}-eve`, atTime(day, -1, 18), `${c.emoji} Tomorrow: ${c.title}`, sayOn(s, eve, 'countdownTomorrow', vars), CH.remind));
-      jobs.push(scheduleAt(`countdown-${c.id}-day`, atTime(day, 0, st.wakeHour), `${c.emoji} Today: ${c.title}`, sayOn(s, toneOn(s, dayKey(day), now, cycle), 'countdownToday', vars), CH.remind));
+      jobs.push(scheduleAt(`countdown-${c.id}-eve`, atTime(day, -1, 18), `${c.emoji} Tomorrow: ${c.title}`, sayOn(s, eve, 'countdownTomorrow', vars, dayKey(addDays(day, -1))), CH.remind));
+      jobs.push(scheduleAt(`countdown-${c.id}-day`, atTime(day, 0, st.wakeHour), `${c.emoji} Today: ${c.title}`, sayOn(s, toneOn(s, dayKey(day), now, cycle), 'countdownToday', vars, dayKey(day)), CH.remind));
     }
   }
 
@@ -392,7 +412,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     const at = atTime(now, 0, 15);
     const fin = at.getTime() > now.getTime() ? bossFinisher(s, now) : null;
     if (fin) {
-      const body = sayOn(s, toneOn(s, dayKey(now), now, cycle), 'bossFinisher', { boss: fin.boss, hp: fin.hp, plan: fin.plan });
+      const body = sayOn(s, toneOn(s, dayKey(now), now, cycle), 'bossFinisher', { boss: fin.boss, hp: fin.hp, plan: fin.plan }, dayKey(now));
       jobs.push(scheduleAt(`weekendboss-${dayKey(at)}`, at, `🏁 ${fin.emoji} ${fin.boss} is almost down`, body, CH.remind));
     }
   }
@@ -400,7 +420,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   // Monthly Wrapped on the 1st at 10:00, for the month that just ended.
   if (st.notify.wrapped) {
     const { at, month } = wrappedReminder(now);
-    jobs.push(scheduleAt(`wrapped-${dayKey(at)}`, at, `🎁 ${month} Wrapped`, sayOn(s, toneOn(s, dayKey(at), now, cycle), 'wrappedReady', { month }), CH.remind));
+    jobs.push(scheduleAt(`wrapped-${dayKey(at)}`, at, `🎁 ${month} Wrapped`, sayOn(s, toneOn(s, dayKey(at), now, cycle), 'wrappedReady', { month }, dayKey(at)), CH.remind));
   }
 
   // Pushed forward every time the app is used, so these only fire if it's ignored. Not while sick or away,
@@ -410,11 +430,12 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const at = atTime(now, days, 18);
       const tone = toneOn(s, dayKey(at), now, cycle);
       if (pausedOn(s, dayKey(at)) || tone.kind) continue;
-      const title = days === 3 ? '🕷️ Hello?' : sayOn(s, tone, 'comebackTitle');
-      jobs.push(scheduleAt(id, at, title, sayOn(s, tone, 'comeback'), CH.remind));
+      const title = days === 3 ? '🕷️ Hello?' : sayOn(s, tone, 'comebackTitle', {}, dayKey(at));
+      jobs.push(scheduleAt(id, at, title, sayOn(s, tone, 'comeback', {}, dayKey(at)), CH.remind));
     }
   }
 
+  planned = null;
   jobs.push(updateStatusLine(s, events).catch((e) => console.warn('[spider] status line failed', e)));
   await Promise.all(jobs);
 }

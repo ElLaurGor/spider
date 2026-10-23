@@ -21,7 +21,8 @@ import { connectHealth, healthStatus, healthSupported, missingHealthAccess, read
 import { withGoals } from './goals';
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
-import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, poolFor, type LineKey } from './lines';
+import { banLine, fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, lineMemory, onLineMemory, poolFor, setLineMemory, unbanLine, type LineKey } from './lines';
+import { jetlagRemark, lateCoffeeRemark, lateGameRemark, withJitSaid } from './jit';
 import { IMMORTAL_DAYS, taskAgeDays, tomorrowKey } from './memory';
 import { moodInfo } from './mood';
 import {
@@ -114,7 +115,9 @@ import { withoutOldXpHours, withXpHour } from './xp-timeline';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /** A button on a toast (cluster G: "Catch it!" on a fly). */
-export type ToastAction = 'catchFly';
+/** What a toast's Undo takes back: one entry just logged with one tap (it lasts as long as the toast). */
+export type UndoRef = { kind: 'water' | 'coffee' | 'food' | 'set' | 'task'; id: string; day: string };
+export type ToastAction = 'catchFly' | { undo: UndoRef };
 export type Toast = { id: number; text: string; tone: Tone; action?: ToastAction };
 type Msg = { text: string; tone: Tone; action?: ToastAction };
 
@@ -868,6 +871,7 @@ function useStoreValue() {
         await moveToV2(got.raw, next);
       }
       loaded.current = true;
+      setLineMemory(next.lineMemory);
       if (got.source === 'v2' && next.days !== got.saved.days) commit(next);
       else {
         stateRef.current = next;
@@ -887,11 +891,31 @@ function useStoreValue() {
     return () => clearTimeout(t);
   }, [load]);
 
+  // Line picks change lines.ts's memory (each pool's deck), during renders too. It's saved with the state a
+  // moment later, without a re-render: nothing on screen shows it, and re-rendering would only pick again.
+  const lineSave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () =>
+      onLineMemory(() => {
+        if (lineSave.current) return;
+        lineSave.current = setTimeout(() => {
+          lineSave.current = null;
+          const mem = lineMemory();
+          if (!loaded.current || stateRef.current.lineMemory === mem) return;
+          stateRef.current = { ...stateRef.current, lineMemory: mem };
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          saveTimer.current = setTimeout(save, 400);
+        }, 1500);
+      }),
+    [save],
+  );
+
   /** A state picked on the recovery screen replaces whatever couldn't be read, and the app opens. */
   const adopt = useCallback(
     (s: State) => {
       Object.assign(disk.current, freshDisk(), { allowShrink: true });
       loaded.current = true;
+      setLineMemory(s.lineMemory);
       setFailure(null);
       setReady(true);
       commit(s);
@@ -1285,6 +1309,22 @@ function useStoreValue() {
   }, [ready, state.onboarded, placeKey, refreshOutside]);
   const shownAlerts = activeAlerts([...vmaAlerts, ...smhiAlerts]);
 
+  // ----- Friday evening: the weekend sleep drift from the owner's own data, once (just-in-time insight) -----
+  useEffect(() => {
+    if (!ready || !state.onboarded) return;
+    const check = () => {
+      const jit = jetlagRemark(stateRef.current);
+      if (!jit) return;
+      run((s, msgs) => {
+        msgs.push({ text: L(s, 'jitJetlag', { finding: jit.finding }), tone: 'info' });
+        return withJitSaid(s, 'social_jetlag');
+      });
+    };
+    check();
+    const every = setInterval(check, 10 * 60_000);
+    return () => clearInterval(every);
+  }, [ready, state.onboarded, tick, run]);
+
   // ----- day start: fix today's quests -----
   useEffect(() => {
     if (!ready || !state.onboarded || dayOf(state).quests) return;
@@ -1403,17 +1443,19 @@ function useStoreValue() {
           const d = dayOf(next, key);
           const total = waterMl(d);
           const goal = waterGoalFor(next, key);
+          const undo: ToastAction = { undo: { kind: 'water', id, day: key } };
           if (!d.waterGoalHit && total >= goal) {
             next = patchDay(next, key, (x) => ({ ...x, waterGoalHit: true }));
             msgs.push({
               text: `${L(next, 'waterGoal')} +${XP.waterGoal} XP · +${BONUS_MIN.waterGoal} min gaming`,
               tone: 'epic',
+              action: undo,
             });
             // The glass is undoable; the goal it reached stays reached.
             next = reward(reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` }), msgs, XP.waterGoal, BONUS_MIN.waterGoal, key);
             return hasPerk(next, 'hydro_glands') ? perkCoins(next, msgs, 25, '💧 Hydro Glands') : next;
           }
-          msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, goal - total) }), tone: 'good' });
+          msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, goal - total) }), tone: 'good', action: undo });
           return reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` });
         });
       },
@@ -1450,12 +1492,13 @@ function useStoreValue() {
           let next = patchDay(s, key, (d) => ({ ...d, food: [...d.food, { id, ...food, at: Date.now() }] }));
           const d = dayOf(next, key);
           next = reward(next, msgs, XP.food, 0, key, { ref: `f:${id}` });
+          const undo: ToastAction = { undo: { kind: 'food', id, day: key } };
           if (!d.proteinGoalHit && s.settings.proteinGoal > 0 && proteinOf(d) >= s.settings.proteinGoal) {
             next = patchDay(next, key, (x) => ({ ...x, proteinGoalHit: true }));
-            msgs.push({ text: `${L(next, 'proteinGoal')} +${XP.proteinGoal} XP`, tone: 'epic' });
+            msgs.push({ text: `${L(next, 'proteinGoal')} +${XP.proteinGoal} XP`, tone: 'epic', action: undo });
             return reward(next, msgs, XP.proteinGoal, 0, key);
           }
-          msgs.push({ text: L(next, food.photo ? 'mealPhoto' : 'foodLogged'), tone: 'good' });
+          msgs.push({ text: L(next, food.photo ? 'mealPhoto' : 'foodLogged'), tone: 'good', action: undo });
           return next;
         });
       },
@@ -1515,12 +1558,18 @@ function useStoreValue() {
           const key = dayKey();
           const { caffeinePerCupMg, coffeeLimit, coffeeCutoffHour } = s.settings;
           const when = at ?? Date.now();
-          const next = patchDay(s, key, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: caffeinePerCupMg, at: when }] }));
+          const id = uid();
+          let next = patchDay(s, key, (d) => ({ ...d, coffee: [...coffeeOf(d), { id, mg: caffeinePerCupMg, at: when }] }));
           const d = dayOf(next, key);
           const vars = { n: coffeeOf(d).length, mg: caffeineMg(d), limit: coffeeLimit, cutoff: coffeeCutoffHour };
-          if (vars.n > coffeeLimit) msgs.push({ text: L(next, 'coffeeOver', vars), tone: 'bad' });
-          else if (new Date(when).getHours() >= coffeeCutoffHour) msgs.push({ text: L(next, 'coffeeLate', vars), tone: 'bad' });
-          else msgs.push({ text: L(next, 'coffeeLogged', vars), tone: 'info' });
+          // After the curfew, the owner's own data on what late coffee costs (once a day, never on a sick day).
+          const jit = lateCoffeeRemark(next, when);
+          const extra = jit ? ` ${L(next, 'jitLateCoffee', { finding: jit.finding, mg: jit.mg })}` : '';
+          if (jit) next = withJitSaid(next, 'late_coffee');
+          const action: ToastAction = { undo: { kind: 'coffee', id, day: key } };
+          if (vars.n > coffeeLimit) msgs.push({ text: L(next, 'coffeeOver', vars) + extra, tone: 'bad', action });
+          else if (new Date(when).getHours() >= coffeeCutoffHour) msgs.push({ text: L(next, 'coffeeLate', vars) + extra, tone: 'bad', action });
+          else msgs.push({ text: L(next, 'coffeeLogged', vars), tone: 'info', action });
           return next;
         });
       },
@@ -1668,19 +1717,20 @@ function useStoreValue() {
           if (prevBest === undefined || weight > prevBest) next = { ...next, prs: { ...next.prs, [id]: weight } };
           const isPR = prevBest !== undefined && weight > prevBest;
 
+          const undo: ToastAction = { undo: { kind: 'set', id: setId, day: key } };
           if (firstOfDay) {
             next = bump(next, 'workouts');
-            msgs.push({ text: `${L(next, 'gymStarted')}`, tone: 'epic' });
+            msgs.push({ text: `${L(next, 'gymStarted')}`, tone: 'epic', ...(isPR ? {} : { action: undo }) });
             next = reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' });
           }
           // Each part is recorded so deleting the set takes back exactly it (and the record, if it was one).
           next = reward(next, msgs, XP.set, 0, key, { ref: `s:${setId}` });
           if (isPR) {
             next = bump(next, 'prs');
-            msgs.push({ text: `🔥 ${L(next, 'gymPR', { exercise: name, weight })} +${XP.pr} XP`, tone: 'epic' });
+            msgs.push({ text: `🔥 ${L(next, 'gymPR', { exercise: name, weight })} +${XP.pr} XP`, tone: 'epic', action: undo });
             next = reward(next, msgs, XP.pr, 0, key, { ref: `pr:${setId}` });
           } else if (!firstOfDay) {
-            msgs.push({ text: L(next, 'gymSet', { weight, reps, exercise: name }), tone: 'good' });
+            msgs.push({ text: L(next, 'gymSet', { weight, reps, exercise: name }), tone: 'good', action: undo });
           }
           if (s.settings.restSeconds > 0) next = { ...next, restEndsAt: Date.now() + s.settings.restSeconds * 1000 };
           return next;
@@ -1739,12 +1789,16 @@ function useStoreValue() {
         const remainingMin = gamingBudgetMin(s0) - gamingUsedMs(s0) / MIN;
         const next = run((s, msgs) => {
           const named = name ? `${L(s, 'gameNamed', { game: name })} ` : '';
+          // Near bedtime, the owner's own data on late gaming (once a day, never on a sick day).
+          const jit = lateGameRemark(s);
+          const extra = jit ? ` ${L(s, 'jitLateGame', { finding: jit.finding })}` : '';
           msgs.push(
             remainingMin > 0
-              ? { text: named + L(s, 'gameStart', { left: fmtDuration(remainingMin * MIN) }), tone: 'info' }
-              : { text: named + L(s, 'gameStartOver'), tone: 'bad' },
+              ? { text: named + L(s, 'gameStart', { left: fmtDuration(remainingMin * MIN) }) + extra, tone: 'info' }
+              : { text: named + L(s, 'gameStartOver') + extra, tone: 'bad' },
           );
-          return { ...s, activeGame: { start: Date.now(), game: name } };
+          const started = { ...s, activeGame: { start: Date.now(), game: name } };
+          return jit ? withJitSaid(started, 'late_game') : started;
         });
         void scheduleGameAlerts(next, remainingMin);
       },
@@ -1845,14 +1899,15 @@ function useStoreValue() {
               // Done again after being unchecked: it goes back to the day it was first done, for its XP only.
               const key = dayKey(first);
               const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: true, doneAt: first } : t));
-              msgs.push({ text: `✅ Back to done. It counts for ${dayName(key)}, when you finished it.`, tone: 'info' });
+              msgs.push({ text: `✅ Back to done. It counts for ${dayName(key)}, when you finished it.`, tone: 'info', action: { undo: { kind: 'task', id, day: key } } });
               return reward(record(bump({ ...s, tasks }, 'tasksDone'), key, first), msgs, XP.task, 0, key);
             }
             const now = Date.now();
             const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: true, doneAt: now, firstDoneAt: t.firstDoneAt ?? now } : t));
             const age = taskAgeDays(task);
-            if (age >= IMMORTAL_DAYS) msgs.push({ text: L(s, 'immortalSlain', { task: task.title, days: age }), tone: 'epic' });
-            else msgs.push({ text: L(s, 'taskDone'), tone: 'good' });
+            const undo: ToastAction = { undo: { kind: 'task', id, day: today } };
+            if (age >= IMMORTAL_DAYS) msgs.push({ text: L(s, 'immortalSlain', { task: task.title, days: age }), tone: 'epic', action: undo });
+            else msgs.push({ text: L(s, 'taskDone'), tone: 'good', action: undo });
             return reward(record(bump({ ...s, tasks }, 'tasksDone'), today, now), msgs, XP.task, BONUS_MIN.task, today, { ref: `t:${id}` });
           }
           // Unchecked: it comes off the day it was done (contracts, the boss weakness), with what it paid.
@@ -1865,6 +1920,48 @@ function useStoreValue() {
 
       deleteTask(id: string) {
         run((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
+      },
+
+      /**
+       * A toast's Undo: takes back the one entry it announced, with exactly what that entry was paid
+       * (unreward). Only today's entries, only while they're still there.
+       */
+      undo(ref: UndoRef) {
+        const s = stateRef.current;
+        if (ref.day !== dayKey()) return;
+        const d = dayOf(s, ref.day);
+        if (ref.kind === 'water') {
+          if (!d.water.some((w) => w.id === ref.id)) return;
+          run((x, msgs) => {
+            const next = patchDay(x, ref.day, (y) => withoutCrit({ ...y, water: y.water.filter((w) => w.id !== ref.id) }, ref.id));
+            msgs.push({ text: 'Undone. I saw that, though.', tone: 'info' });
+            return unreward(next, ref.day, `w:${ref.id}`, XP.water);
+          });
+        } else if (ref.kind === 'coffee') {
+          if (coffeeOf(d).some((c) => c.id === ref.id)) actions.removeCoffee(ref.id, ref.day);
+        } else if (ref.kind === 'food') {
+          if (d.food.some((f) => f.id === ref.id)) actions.removeFood(ref.id, ref.day);
+        } else if (ref.kind === 'set') {
+          if (d.sets.some((x) => x.id === ref.id)) actions.removeSet(ref.id);
+        } else if (s.tasks.find((t) => t.id === ref.id)?.done) actions.toggleTask(ref.id);
+      },
+
+      /** "Too far" on a toast: that line is retired for good, and today's tone goes down a step. */
+      retireLine(id: string) {
+        banLine(id);
+        run((s, msgs) => {
+          const key = dayKey();
+          const steps = s.toneEase?.day === key ? s.toneEase.steps + 1 : 1;
+          const next = { ...s, toneEase: { day: key, steps }, lineMemory: lineMemory() };
+          msgs.push({ text: L(next, 'lineRetired'), tone: 'info' });
+          return next;
+        });
+      },
+
+      /** Settings: lets a retired line come back. */
+      unretireLine(id: string) {
+        unbanLine(id);
+        commit({ ...stateRef.current, lineMemory: lineMemory() });
       },
 
       /** Tonight's picks for tomorrow's top 3 (the evening debrief). */
@@ -2336,7 +2433,9 @@ function useStoreValue() {
         if (!result) return;
         await cancelEverything();
         disk.current.allowShrink = true; // a backup may hold fewer days than the phone
-        commit(restored(result.state));
+        const back = restored(result.state);
+        setLineMemory(back.lineMemory);
+        commit(back);
         say(`Restored backup from ${new Date(result.createdAt).toLocaleString('sv-SE').slice(0, 16)} (${result.photos} photos). Welcome back.`, 'epic');
       },
 
@@ -2344,6 +2443,7 @@ function useStoreValue() {
         await cancelEverything();
         deleteAllPhotos();
         disk.current.allowShrink = true;
+        setLineMemory(undefined);
         commit(defaultState());
       },
     }),
