@@ -5,6 +5,7 @@ import { Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { fillLine, GOLDEN, GOLDEN_CHANCE } from '@/lib/lines';
+import { MEDAL_EMOJI, medalTotals } from '@/lib/medals';
 import { hallOfFame, type Rec } from '@/lib/records';
 import { useStore } from '@/lib/store';
 import { BADGE_NOTE, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
@@ -15,6 +16,7 @@ export default function RecordsScreen() {
   const { fame, shame } = hallOfFame(state, { unlocked: themeIds.filter((id) => themeUnlocked(id, level, state)).length, total: themeIds.length });
   const found = state.goldenFound ?? {};
   const golden = GOLDEN.filter((g) => found[g.id]).sort((a, b) => found[b.id] - found[a.id]);
+  const medals = medalTotals(state);
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
       <Card accent={C.yellow}>
@@ -30,6 +32,23 @@ export default function RecordsScreen() {
           <RecordRow key={r.label} r={r} />
         ))}
       </Card>
+      {medals.weeks > 0 ? (
+        <Card>
+          <H>🏅 Weekly medals</H>
+          <Row style={{ justifyContent: 'space-around' }}>
+            {(['gold', 'silver', 'bronze'] as const).map((t) => (
+              <View key={t} style={{ alignItems: 'center' }}>
+                <Text style={{ fontSize: 26 }}>{MEDAL_EMOJI[t]}</Text>
+                <Text style={styles.value}>{medals[t]}</Text>
+              </View>
+            ))}
+          </Row>
+          <T dim small>
+            Won over {medals.weeks} week{medals.weeks === 1 ? '' : 's'}. Totals only: a week without one takes nothing away.
+          </T>
+        </Card>
+      ) : null}
+
       <Card accent={C.purple}>
         <H right={<T dim small>{`${Object.keys(state.secrets).length}/${SECRET_ACHIEVEMENTS.length}`}</T>}>🔓 Secret achievements</H>
         <T dim small>

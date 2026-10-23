@@ -1,16 +1,18 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, WEEKDAYS_LONG } from '@/lib/dates';
 import { PITY_AFTER } from '@/lib/economy';
-import { standings, TIERS } from '@/lib/league';
+import { nemesisOf, standings, TIERS } from '@/lib/league';
 import { chestShelf, GOLD_SCORE, SHELF_MAX } from '@/lib/loot';
 import { topToday } from '@/lib/memory';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import { gentleDay, toneOn } from '@/lib/tone';
+import { ghostOf, ghostText } from '@/lib/xp-timeline';
 
 /** "Open loot chest" + the reveal: the shelf of chests earned by finishing all daily quests, oldest first. */
 export function ChestButton() {
@@ -70,15 +72,36 @@ export function ChestButton() {
   );
 }
 
-/** Compact league standing for HQ. */
+/**
+ * This week's nemesis next to you: who, the gap, and (unless today is a kind day) a taunt that's picked again
+ * only when the lead changes hands. Null without a league.
+ */
+export function useNemesis() {
+  const { state, quip } = useStore();
+  const nem = nemesisOf(state);
+  const table = standings(state);
+  const me = table.find((r) => r.me);
+  const row = nem ? table.find((r) => r.id === nem.id) : undefined;
+  const ahead = !!row && !!me && row.xp > me.xp;
+  const today = dayKey();
+  const quiet = toneOn(state, today).kind || gentleDay(state, today);
+  const name = nem ? `${nem.emoji} ${nem.name}` : '';
+  const taunt = useMemo(() => (name && !quiet ? quip(ahead ? 'nemesisAhead' : 'nemesisBehind', { rival: name }) : null), [quip, ahead, name, quiet]);
+  if (!nem || !row || !me) return null;
+  return { id: nem.id, name, gap: Math.abs(row.xp - me.xp), ahead, taunt };
+}
+
+/** Compact league standing for HQ, with the week's nemesis and the ghost of last week. */
 export function LeagueCard() {
   const { state } = useStore();
+  const nemesis = useNemesis();
   if (!state.league) return null;
   const tier = TIERS[state.league.tier];
   const table = standings(state);
   const rank = table.findIndex((r) => r.me) + 1;
   const me = table[rank - 1];
   const above = rank > 1 ? table[rank - 2] : null;
+  const ghost = ghostOf(state);
   return (
     <Pressable onPress={() => router.push('/league')}>
       <Card>
@@ -96,6 +119,18 @@ export function LeagueCard() {
             </T>
           </View>
         </Row>
+        {nemesis ? (
+          <T small>
+            😈 Nemesis: {nemesis.name} · {nemesis.gap === 0 ? 'level with you' : `${nemesis.gap} XP ${nemesis.ahead ? 'ahead of you' : 'behind you'}`}
+            {nemesis.taunt ? <Text style={{ color: C.dim }}>{`
+${nemesis.taunt}`}</Text> : null}
+          </T>
+        ) : null}
+        {ghost ? (
+          <T dim small>
+            {ghostText(ghost)}
+          </T>
+        ) : null}
       </Card>
     </Pressable>
   );

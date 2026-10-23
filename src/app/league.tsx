@@ -1,15 +1,25 @@
-import { Fragment } from 'react';
+import { Fragment, useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { useNemesis } from '@/components/hq-extras';
 import { Card, H, Row, SpiderSays, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { addDays } from '@/lib/dates';
-import { DEMOTE, PROMOTE, standings, TIERS } from '@/lib/league';
+import { addDays, dayKey } from '@/lib/dates';
+import { DEMOTE, NEMESIS_PRIZE, PROMOTE, standings, TIERS } from '@/lib/league';
 import { useStore } from '@/lib/store';
+import { gentleDay, toneOn } from '@/lib/tone';
+import { ghostOf, ghostText } from '@/lib/xp-timeline';
 
 export default function LeagueScreen() {
-  const { state } = useStore();
+  const { state, quip } = useStore();
   const now = useNow(60_000);
+  const nemesis = useNemesis();
+  const ghost = ghostOf(state, new Date(now));
+  const ghostAhead = !!ghost && ghost.now >= ghost.then;
+  const today = dayKey(now);
+  const quiet = toneOn(state, today).kind || gentleDay(state, today);
+  const hasGhost = !!ghost;
+  const ghostLine = useMemo(() => (hasGhost && !quiet ? quip(ghostAhead ? 'ghostAhead' : 'ghostBehind') : null), [quip, hasGhost, ghostAhead, quiet]);
   const league = state.league;
   if (!league) {
     return (
@@ -50,7 +60,10 @@ export default function LeagueScreen() {
               <Row style={[styles.row, r.me && styles.me]}>
                 <Text style={styles.rank}>{rank}</Text>
                 <Text style={{ fontSize: 20 }}>{r.emoji}</Text>
-                <T style={[{ flex: 1 }, r.me && { fontWeight: '800' }]}>{r.me ? `${r.name} (you)` : r.name}</T>
+                <T style={[{ flex: 1 }, r.me && { fontWeight: '800' }]}>
+                  {r.me ? `${r.name} (you)` : r.name}
+                  {r.id === nemesis?.id ? <Text style={{ color: C.red }}> 😈 nemesis</Text> : null}
+                </T>
                 <Text style={styles.xp}>{r.xp}</Text>
               </Row>
             </Fragment>
@@ -60,6 +73,40 @@ export default function LeagueScreen() {
           Rivals earn XP through the day, like you. Prizes: #1 300 🪙, #2 200 🪙, #3 100 🪙.
         </T>
       </Card>
+
+      {nemesis ? (
+        <Card accent={C.red}>
+          <H>😈 This week&apos;s nemesis</H>
+          <T>
+            {nemesis.name} · {nemesis.gap === 0 ? 'level with you' : `${nemesis.gap} XP ${nemesis.ahead ? 'ahead of you' : 'behind you'}`}
+          </T>
+          {nemesis.taunt ? (
+            <T dim small>
+              {nemesis.taunt}
+            </T>
+          ) : null}
+          <T dim small>
+            Picked to finish just above what you earned last week. Finish ahead of them by Sunday for +{NEMESIS_PRIZE} 🪙. Fall short and nothing happens: next week brings a new one.
+          </T>
+        </Card>
+      ) : null}
+
+      {ghost ? (
+        <Card>
+          <H>👻 Ghost of last week</H>
+          <T>{ghostText(ghost)}</T>
+          {ghostLine ? (
+            <T dim small>
+              {ghostLine}
+            </T>
+          ) : null}
+          <T dim small>
+            {ghost.exact
+              ? 'You against your own XP at the same point last week. Weekly totals only.'
+              : `Last ${ghost.weekday} has no hour-by-hour record yet, so its whole day stands in. From next week it's exact to the hour.`}
+          </T>
+        </Card>
+      ) : null}
 
       {league.history.length > 0 ? (
         <Card>

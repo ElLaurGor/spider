@@ -8,6 +8,7 @@ import { CountdownRow } from '@/components/countdowns-card';
 import { SwedishDaysRow } from '@/components/swedish-year';
 import { DebriefCard, TopThreeCard } from '@/components/debrief-cards';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
+import { MedalsCard } from '@/components/medals-card';
 import { PauseBanner } from '@/components/pause-card';
 import { ProgressChips } from '@/components/progress-chips';
 import { QuestsCard } from '@/components/quests-card';
@@ -26,6 +27,7 @@ import { cycleInfo, sleepInfo } from '@/lib/body';
 import { shownTitle } from '@/lib/cosmetics';
 import { nextStage, stageFor } from '@/lib/evolution';
 import { insightOfTheDay } from '@/lib/insights';
+import { ledgerOn } from '@/lib/ledger';
 import { verdictLineKey } from '@/lib/line-context';
 import { immortalTask, yesterdayHighlight } from '@/lib/memory';
 import { moodInfo } from '@/lib/mood';
@@ -160,6 +162,9 @@ export default function HQ() {
             🏆 {unlocked}/{ACHIEVEMENTS.length}
           </T>
         </Row>
+        <T dim small mono>
+          {ledgerLine(ledgerOn(state, todayKey))}
+        </T>
         <T small style={{ color: C.yellow }}>
           {verdict}
         </T>
@@ -185,6 +190,7 @@ export default function HQ() {
       </>
     ),
     league: () => <LeagueCard />,
+    medals: () => <MedalsCard />,
     contract: () => <ContractCard />,
     insight: () =>
       insight ? (
@@ -412,6 +418,10 @@ export default function HQ() {
     </Screen>
   );
 }
+
+/** Today's XP account: earned, plus what gaming penalties and undos took, when they took anything. */
+const ledgerLine = (l: { earned: number; lost: number; undone: number }) =>
+  `XP today: +${l.earned}${l.lost ? ` · −${l.lost} gaming` : ''}${l.undone ? ` · −${l.undone} undone` : ''}`;
 
 function Tile({
   icon,

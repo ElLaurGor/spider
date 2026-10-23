@@ -3,7 +3,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Bar, Card, H, Icon, Row, SpiderSays, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { addDays, WEEKDAYS_LONG } from '@/lib/dates';
+import { addDays, dayKey, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
+import { ledgerOn } from '@/lib/ledger';
 import { gradeOf, weekReport, type Grade } from '@/lib/report';
 import { useStore } from '@/lib/store';
 
@@ -79,6 +80,8 @@ export default function ReportScreen() {
         })}
       </Card>
 
+      <XpLedger monday={r.monday} />
+
       {r.best ? (
         <Card>
           <H>Highlights</H>
@@ -97,6 +100,40 @@ export default function ReportScreen() {
         </Card>
       ) : null}
     </ScrollView>
+  );
+}
+
+/** The week's XP account, day by day: earned, lost to gaming penalties, taken back by undos. */
+function XpLedger({ monday }: { monday: Date }) {
+  const { state } = useStore();
+  const today = dayKey();
+  const rows = Array.from({ length: 7 }, (_, i) => addDays(monday, i))
+    .filter((d) => dayKey(d) <= today)
+    .map((d) => ({ d, ...ledgerOn(state, dayKey(d)) }));
+  if (!rows.length) return null;
+  const sum = (k: 'earned' | 'lost' | 'undone') => rows.reduce((a, x) => a + x[k], 0);
+  return (
+    <Card>
+      <H right={<T dim small mono>{`+${sum('earned')}`}</T>}>XP ledger</H>
+      {rows.map((x) => (
+        <Row key={dayKey(x.d)} style={{ justifyContent: 'space-between' }}>
+          <T small style={{ width: 44 }}>
+            {WEEKDAYS[x.d.getDay()]}
+          </T>
+          <T small mono style={{ flex: 1 }}>
+            +{x.earned}
+          </T>
+          <T dim small mono>
+            {x.lost ? `−${x.lost} gaming` : ''}
+            {x.lost && x.undone ? ' · ' : ''}
+            {x.undone ? `−${x.undone} undone` : ''}
+          </T>
+        </Row>
+      ))}
+      <T dim small>
+        Earned is what hits the boss and the league. Gaming penalties come off your total only; undone is XP taken back when an entry was deleted.
+      </T>
+    </Card>
   );
 }
 
