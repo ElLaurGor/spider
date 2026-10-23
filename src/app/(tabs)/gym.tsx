@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 
 import { ActivityCard } from '@/components/activity-card';
 import { EntryEditor } from '@/components/entry-editor';
+import { IfThenEditor } from '@/components/if-then-editor';
 import { ProgressPhotos } from '@/components/progress-photos';
 import { Big, Btn, Card, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { WatchCard } from '@/components/watch-card';
@@ -14,10 +15,11 @@ import { WorkoutHeartCard } from '@/components/workout-heart';
 import { C } from '@/constants/theme';
 import { fmtClock, WEEK_ORDER, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { changeOver, fmtChange, latest } from '@/lib/body-log';
+import { planText } from '@/lib/if-then';
 import { dayOf, lastSession, prFor, trainMinutes, workoutFor, workoutsThisWeek } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { gentleDay, toneOn } from '@/lib/tone';
-import type { SetEntry, Weekday } from '@/lib/types';
+import type { IfThen, SetEntry, Weekday } from '@/lib/types';
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -47,6 +49,8 @@ export default function Gym() {
   return (
     <Screen title="GYM" subtitle={`${WEEKDAYS_LONG[now.getDay()]} · ${plan ? `${plan.name} day` : 'Rest day'}`}>
       <GymSpider workout={plan?.name ?? null} minutes={trainMinutes(today)} sets={today.sets.length} />
+
+      <PlanBCard />
 
       <ActivityCard />
 
@@ -228,12 +232,29 @@ function ExerciseCard({ name }: { name: string }) {
   );
 }
 
+/** A rainy gym day with a plan B (if-then.ts): one tap logs it instead. */
+function PlanBCard() {
+  const { planB } = useStore();
+  const b = planB.today;
+  if (!b) return null;
+  return (
+    <Card accent={C.blue}>
+      <H>🌧️ Plan B</H>
+      <T>
+        Rain at {b.time}. Your plan B: {b.then}.
+      </T>
+      <Btn label={`Done: log ${b.minutes} min`} icon="check" onPress={planB.done} />
+    </Card>
+  );
+}
+
 function PlanEditor() {
   const { state, actions } = useStore();
   const [editing, setEditing] = useState<Weekday | null>(null);
   const [name, setName] = useState('');
   const [exText, setExText] = useState('');
   const [rest, setRest] = useState(false);
+  const [ifThen, setIfThen] = useState<IfThen | null>(null);
 
   const open = (d: Weekday) => {
     const w = state.plan[d];
@@ -241,6 +262,7 @@ function PlanEditor() {
     setName(w?.name ?? '');
     setExText(w?.exercises.join('\n') ?? '');
     setRest(!w);
+    setIfThen(w?.plan ?? null);
   };
 
   const save = () => {
@@ -249,7 +271,8 @@ function PlanEditor() {
       .split(/[\n,]/)
       .map((x) => x.trim())
       .filter(Boolean);
-    actions.setPlanDay(editing, rest ? null : { name: name.trim() || 'Workout', exercises });
+    const plan = ifThen && ifThen.then.trim() ? ifThen : null;
+    actions.setPlanDay(editing, rest ? null : { name: name.trim() || 'Workout', exercises, plan });
     setEditing(null);
   };
 
@@ -280,6 +303,7 @@ function PlanEditor() {
                     multiline
                     style={{ minHeight: 110, textAlignVertical: 'top' }}
                   />
+                  <IfThenEditor value={ifThen} onChange={setIfThen} gym placeholder="I will… (e.g. go straight to the gym)" />
                 </>
               ) : null}
               <Row>
@@ -297,6 +321,7 @@ function PlanEditor() {
               {w ? (
                 <T dim small>
                   {w.exercises.join(' · ')}
+                  {w.plan ? `${w.exercises.length ? ' · ' : ''}🔗 ${planText(w.plan)}` : ''}
                 </T>
               ) : null}
             </View>

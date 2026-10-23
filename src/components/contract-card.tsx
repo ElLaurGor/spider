@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 import { Bar, Btn, Card, Chip, H, Row, T } from '@/components/ui';
 import { C } from '@/constants/theme';
-import { canSign, CONTRACT_GOALS, contractProgress, DIFFICULTIES, difficultyOk, goalOf, payoutOf, STAKES, targetFor, type Difficulty } from '@/lib/contracts';
+import { canSign, CONTRACT_GOALS, contractProgress, DIFFICULTIES, difficultyOk, goalOf, newMission, payoutOf, STAKES, targetFor, type Difficulty } from '@/lib/contracts';
 import { weekKeyOf } from '@/lib/league';
 import { contractBonus } from '@/lib/perks';
 import { useStore } from '@/lib/store';
@@ -11,8 +11,10 @@ import type { ContractGoal } from '@/lib/types';
 /** HQ card: this week's contract, or (Monday to Wednesday) the form to sign one. */
 export function ContractCard() {
   const { state, actions } = useStore();
-  const goals = CONTRACT_GOALS.filter((g) => g.available(state));
-  const [goal, setGoal] = useState<ContractGoal>(goals[0]?.id ?? 'train');
+  // After a lost contract a different goal comes first (a new mission), and last week's goes last.
+  const mission = newMission(state);
+  const goals = CONTRACT_GOALS.filter((g) => g.available(state)).sort((a, b) => Number(a.id === mission?.lost) - Number(b.id === mission?.lost));
+  const [goal, setGoal] = useState<ContractGoal>(mission?.goal ?? goals[0]?.id ?? 'train');
   const [stake, setStake] = useState(STAKES[0]);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const c = state.contract?.week === weekKeyOf() ? state.contract : null;
@@ -53,6 +55,11 @@ export function ContractCard() {
       <T dim small>
         Stake coins on a goal for the rest of this week. Reach it and get double back. A rough week (low mood or period days) voids it and refunds you.
       </T>
+      {mission ? (
+        <T small style={{ color: C.yellow }}>
+          New week, new mission: {goalOf(mission.goal).title(goalOf(mission.goal).target).toLowerCase()} is the closest to done already. Last week&apos;s goal can rest.
+        </T>
+      ) : null}
       <Row gap={6} style={{ flexWrap: 'wrap' }}>
         {goals.map((g) => (
           <Chip key={g.id} label={g.title(g.target)} active={goal === g.id} color={C.yellow} onPress={() => setGoal(g.id)} />

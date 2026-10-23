@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
 
 import { AutoUpdate, noteTouch } from "@/components/auto-update";
+import { CuePromptHost } from "@/components/cue-prompt";
 import { Recovery } from "@/components/recovery";
 import { ShareInbox } from "@/components/share-inbox";
 import { ToastHost } from "@/components/toast";
@@ -287,6 +288,7 @@ export default function RootLayout() {
             </Stack>
           </View>
           <ToastHost />
+          <CuePromptHost />
           <AutoUpdate />
           <ShareInbox />
         </ThemeProvider>
