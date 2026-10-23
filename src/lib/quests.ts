@@ -106,20 +106,6 @@ const QUESTS: QuestDef[] = [
       return { title: 'Complete all your habits', progress: due.filter((h) => done.includes(h.id)).length, target: due.length };
     },
   },
-  {
-    id: 'progress_photo',
-    xp: 10,
-    available: (s, date) => {
-      const last = s.progressPhotos[s.progressPhotos.length - 1];
-      return !last || date.getTime() - last.at > 6 * 86_400_000;
-    },
-    build: (s, _d, date) => ({
-      title: 'Take a progress photo',
-      progress: s.progressPhotos.some((p) => dayKey(p.at) === dayKey(date)) ? 1 : 0,
-      target: 1,
-    }),
-  },
-
   // ---- reduced days (sick, away, low battery): one gentle quest instead of three ----
   { id: 'checkin', xp: 8, reduced: true, available: () => true, build: (_s, d) => ({ title: 'Check in once: how are you doing?', progress: moodsOf(d).length, target: 1 }) },
   { id: 'sip', xp: 5, reduced: true, available: () => true, build: (_s, d) => ({ title: 'Drink one glass of water', progress: d.water.length, target: 1 }) },
@@ -408,7 +394,8 @@ export const rageWeaknessOf = (id: string, week: string) => {
   return others[hash(`${week}:rage`) % others.length].id;
 };
 
-export function bossFor(s: State, date: Date | number = new Date()) {
+/** `now`: paused days after it don't shrink the boss yet (a pause planned for later can't make today's fight easier). */
+export function bossFor(s: State, date: Date | number = new Date(), now: Date | number = Date.now()) {
   const monday = startOfWeek(date);
   const key = dayKey(monday);
   const final = s.finalBossWeek === key;
@@ -421,7 +408,8 @@ export function bossFor(s: State, date: Date | number = new Date()) {
   const weakness = final ? ANY_WEAKNESS : WEAKNESS[base.id as (typeof BOSSES)[number]['id']];
   const rage = final ? null : rageWeaknessOf(base.id, key);
   const days = Array.from({ length: 7 }, (_, i) => dayKey(addDays(monday, i)));
-  const paused = days.filter((k) => pausedOn(s, k)).length;
+  const upTo = dayKey(now);
+  const paused = days.filter((k) => k <= upTo && pausedOn(s, k)).length;
 
   // Sized to beat your usual week; a brand-new player gets a starter boss instead. Paused days shrink it.
   let healed = 0;

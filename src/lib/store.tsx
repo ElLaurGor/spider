@@ -1649,9 +1649,9 @@ function useStoreValue() {
 
       endPause() {
         run((s, msgs) => {
-          if (!pauseOn(s)) return s;
           const next = pauseEnded(s);
-          msgs.push({ text: L(next, 'pauseOff'), tone: 'info' });
+          if (next === s) return s;
+          msgs.push({ text: `${L(next, 'pauseOff')} Today stays easy; it all counts again from tomorrow.`, tone: 'info' });
           return next;
         });
       },

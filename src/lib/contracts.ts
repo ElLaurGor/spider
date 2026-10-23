@@ -1,8 +1,9 @@
 // Weekly contract: early in the week, stake coins on a weekly goal. Reach it and the stake comes back
-// double; miss it and S.P.I.D.E.R. keeps the coins, unless the week was a rough one (low mood or
-// period days), then the stake comes back. Goals are counts within the week, never streaks.
+// double; miss it and S.P.I.D.E.R. keeps the coins, unless the week was a rough one (low mood, period,
+// sick or away days), then the stake comes back. Goals are counts within the week, never streaks.
 import { addDays, dayKey, startOfDay, startOfWeek } from './dates';
 import { dayOf, gamingBudgetMin, gamingUsedMs, moodsOf, onPeriod, trainedOn, waterGoalMet } from './selectors';
+import { pausedOn } from './pause';
 import type { Contract, ContractGoal, State } from './types';
 
 type GoalDef = {
@@ -101,10 +102,13 @@ export function contractProgress(s: State, c: Contract, now = new Date()) {
   return daysOf(c, now).reduce((a, d) => a + goal.count(s, d.key, d.final, c.signedAt ?? 0), 0);
 }
 
-/** A rough week voids a missed contract: a low mood (1–2) or a period day while it ran. Back-dated ones count too: a rough day is a rough day. */
+/**
+ * A rough week voids a missed contract: a low mood (1–2), a period day, or a sick or away day while it ran.
+ * Back-dated moods count too: a rough day is a rough day.
+ */
 export function roughWeek(s: State, c: Contract, now = new Date()) {
   return daysOf(c, now).some(({ key }) => {
     const d = dayOf(s, key);
-    return onPeriod(d) || moodsOf(d).some((m) => m.level <= 2);
+    return pausedOn(s, key) || onPeriod(d) || moodsOf(d).some((m) => m.level <= 2);
   });
 }

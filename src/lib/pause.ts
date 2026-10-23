@@ -60,11 +60,20 @@ export function startPause(s: State, kind: Pause['kind'], days: number, today = 
   return { ...s, pauses: [...rest, { from: current?.from ?? today, to, kind }] };
 }
 
-/** Ends the pause covering today: today and later count normally again. */
-export function endPause(s: State, today = dayKey()): State {
+/**
+ * Ends the pause covering today from tomorrow on. Today stays paused: it already got the one gentle quest
+ * and the smaller boss, and taking that back after the fact (or handing a chest out for it) isn't fair
+ * either way. `endedAt` tells the screens it's over.
+ */
+export function endPause(s: State, today = dayKey(), now = Date.now()): State {
   const current = pauseOn(s, today);
-  if (!current) return s;
-  const yesterday = dayKey(addDays(noonOf(today), -1));
+  if (!current || current.endedAt) return s;
   const others = pausesOf(s).filter((p) => p !== current);
-  return { ...s, pauses: current.from > yesterday ? others : [...others, { ...current, to: yesterday }] };
+  return { ...s, pauses: [...others, { ...current, to: today, endedAt: now }] };
 }
+
+/** A pause that still lies ahead of you (today's, unless "I'm back" was tapped). */
+export const activePause = (s: State, key = dayKey()) => {
+  const p = pauseOn(s, key);
+  return p && !p.endedAt ? p : null;
+};

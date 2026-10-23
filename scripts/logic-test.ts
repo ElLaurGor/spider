@@ -257,7 +257,8 @@ assert.equal(effectiveSavage(m), 10);
   const mild = new Set(LINES.spiderTap.mild.map((t) => fillLine(t, {})));
   for (let i = 0; i < 1000; i++) assert.ok(mild.has(line('spiderTap', effectiveSavage(sick))), 'a roast slipped through sick mode');
   assert.equal(effectiveSavage(startPause(defaultState(), 'away', 3)), 10);
-  assert.equal(effectiveSavage(endPause(sick)), 10);
+  assert.equal(effectiveSavage(endPause(sick)), 1, "I'm back: today stays easy");
+  assert.equal(effectiveSavage(endPause(sick), addDays(new Date(), 1)), 10, 'from tomorrow the roasts are back');
 }
 // a low mood late last night keeps the roasts paused until today's first check-in
 {
@@ -1255,8 +1256,11 @@ void (async () => {
   assert.equal(ps.pauses?.[0].to, '2027-03-16');
   assert.equal(startPause(ps, 'sick', 2, '2027-03-20'), ps, "March's 7 days are used up");
   ps = endPause(ps, '2027-03-12');
-  assert.ok(pausedOn(ps, '2027-03-11') && !pausedOn(ps, '2027-03-12'));
-  assert.equal(endPause(startPause(defaultState(), 'sick', 2, '2027-03-10'), '2027-03-10').pauses?.length, 0);
+  assert.ok(pausedOn(ps, '2027-03-12') && !pausedOn(ps, '2027-03-13'), "I'm back: today stays paused, tomorrow counts");
+  assert.ok(ps.pauses?.[0].endedAt);
+  assert.equal(endPause(ps, '2027-03-12'), ps, 'ending twice does nothing');
+  const sameDay = endPause(startPause(defaultState(), 'sick', 2, '2027-03-10'), '2027-03-10');
+  assert.ok(pausedOn(sameDay, '2027-03-10') && !pausedOn(sameDay, '2027-03-11'), 'the loophole: ending on the first day keeps it');
   // across a month boundary each month has its own cap
   assert.equal(startPause(defaultState(), 'away', 4, '2027-03-30').pauses?.[0].to, '2027-04-02');
 
@@ -1269,7 +1273,9 @@ void (async () => {
   assert.equal(paceOf(pz, monday), 100);
   pz.pauses.push({ from: mk(0), to: mk(1), kind: 'away' });
   assert.equal(pausedInWeek(pz, monday), 2);
-  assert.equal(bossFor(pz, monday).maxHp, 550); // 750 x 5/7 = 536 -> 550
+  assert.equal(bossFor(pz, monday, addDays(monday, 6)).maxHp, 550); // 750 x 5/7 = 536 -> 550
+  assert.equal(bossFor(pz, monday, addDays(monday, -1)).maxHp, 750, 'paused days still ahead: no shrink yet');
+  assert.equal(bossFor(pz, monday, monday).maxHp, 650, 'Monday paused so far: 750 x 6/7 = 643 -> 650');
   pz.days[mk(0)] = { ...empty(), quests: ['water_goal', 'meals', 'mood'] };
   assert.equal(questsFor(pz, addDays(monday, 0)).length, 1);
   const lgA = defaultState();
@@ -1436,6 +1442,15 @@ void (async () => {
   wsp.settings.adaptiveWater = false;
   for (let i = 1; i <= 4; i++) wsp.days[gk(10 - i)] = { ...empty(), water: [{ id: 'w', ml: 2000, at: 0 }], goals: { water: 2000, steps: 8000, gaming: 120, protein: 120, workout: null, habits: [] } };
   assert.equal(areaScores(wsp, addDays(gMon, 10))?.water, 1, 'each day met the goal it had');
+  // a sick or away day makes it a rough week: a missed contract gives the stake back
+  const rw = defaultState();
+  const rwc = { week: gk(0), from: gk(0), goal: 'train' as const, target: 3, stake: 100, status: 'open' as const };
+  assert.ok(!roughWeek(rw, rwc, addDays(gMon, 6)));
+  rw.pauses = [{ from: gk(2), to: gk(2), kind: 'away' }];
+  assert.ok(roughWeek(rw, rwc, addDays(gMon, 6)));
+  // the progress-photo quest is gone (body tracking stays neutral)
+  for (let i = 0; i < 30; i++) assert.ok(!pickQuests(defaultState(), addDays(gMon, i)).includes('progress_photo'));
+
   // red days off count in this week's planned workouts
   const red = defaultState();
   red.settings.redDaysOff = true;

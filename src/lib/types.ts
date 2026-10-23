@@ -318,4 +318,4 @@ export type Experiment = {
 
 // cluster A
 /** Sick or away, from and to inclusive (day keys). */
-export type Pause = { from: string; to: string; kind: 'sick' | 'away' };
+export type Pause = { from: string; to: string; kind: 'sick' | 'away'; endedAt?: number }; // endedAt: "I'm back" was tapped on `to` (today stays easy)

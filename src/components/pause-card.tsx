@@ -4,17 +4,17 @@ import { Text } from 'react-native';
 import { Btn, Card, H, Row, Stepper, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { dayKey, WEEKDAYS_LONG } from '@/lib/dates';
-import { PAUSE_DAYS_PER_MONTH, pausedDaysInMonth, pauseOn } from '@/lib/pause';
+import { activePause, PAUSE_DAYS_PER_MONTH, pausedDaysInMonth, pauseOn } from '@/lib/pause';
 import { useStore } from '@/lib/store';
 import type { Pause } from '@/lib/types';
 
 const untilText = (p: Pause) => (p.to === dayKey() ? 'tonight' : WEEKDAYS_LONG[new Date(`${p.to}T12:00`).getDay()]);
 const LOOK = { sick: { emoji: '🤒', label: 'Sick mode' }, away: { emoji: '🏖️', label: 'Away mode' } } as const;
 
-/** HQ: shown only while a sick/away pause covers today. */
+/** HQ: shown only while a sick/away pause covers today (and not once "I'm back" was tapped). */
 export function PauseBanner() {
   const { state, actions } = useStore();
-  const p = pauseOn(state);
+  const p = activePause(state);
   if (!p) return null;
   return (
     <Card accent={C.cyan}>
@@ -36,7 +36,8 @@ export function PauseBanner() {
 export function PauseCard() {
   const { state, actions } = useStore();
   const [days, setDays] = useState(3);
-  const p = pauseOn(state);
+  const p = activePause(state);
+  const ended = pauseOn(state)?.endedAt != null;
   const used = pausedDaysInMonth(state);
   return (
     <Card>
@@ -52,6 +53,10 @@ export function PauseCard() {
           </T>
           <Btn label="End it" kind="ghost" small onPress={actions.endPause} />
         </Row>
+      ) : ended ? (
+        <T dim small>
+          Welcome back. Today stays easy; from tomorrow everything counts again.
+        </T>
       ) : null}
       <Row>
         <T style={{ flex: 1 }}>Days, from today</T>
