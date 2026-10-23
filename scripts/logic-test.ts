@@ -79,6 +79,7 @@ import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFo
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 import { actionFromButton, SILENT_BUTTONS, tapKey } from '../src/lib/reminder-actions';
 import { mergeSeen as mergeSeenLists } from '../src/lib/outside';
+import { DEFAULT_WIDGET_COLORS, forToday, snapshotOf, widgetLines, withTap } from '../src/lib/widget-data';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -2069,6 +2070,35 @@ void (async () => {
   const merged = mergeSeenLists({ 'a:YELLOW': now - 25 * day, old: now - 31 * day }, { 'a:YELLOW': now - day, 'b:VMA': now }, now);
   assert.deepEqual(merged, { 'a:YELLOW': now - day, 'b:VMA': now }); // triage's "still active" refresh carries over
   assert.deepEqual(mergeSeenLists({}, {}, now), {});
+}
+
+// home-screen widget (APK 1.5.0): today's numbers, zero on a new day, its own taps shown at once
+{
+  const at = new Date(2027, 0, 13, 15).getTime();
+  const key = dayKey(at);
+  const s0 = defaultState();
+  const s = {
+    ...s0,
+    settings: { ...s0.settings, glassMl: 250, coffeeLimit: 4, gamingBudgetMin: 90 },
+    days: { [key]: { ...emptyDay(), water: [{ id: 'w', ml: 750, at }], coffee: [{ id: 'c', mg: 80, at }] } },
+  };
+  const snap = snapshotOf(s, DEFAULT_WIDGET_COLORS, at);
+  assert.equal(snap.day, key);
+  assert.equal(snap.waterMl, 750);
+  assert.equal(snap.coffees, 1);
+  assert.equal(snap.gameLeftMin, 90);
+  assert.deepEqual(widgetLines(snap), { water: `0.8 / ${(snap.goalMl / 1000).toFixed(1).replace(/\.0$/, '')} L`, coffee: '1 / 4', game: '1h 30m left' });
+  const tapped = withTap(snap, 'glass', at);
+  assert.equal(tapped.waterMl, 1000);
+  assert.equal(withTap(snap, 'coffee', at).coffees, 2);
+  // the next morning: yesterday's numbers don't carry over; the gaming budget is unknown until the app runs
+  const tomorrow = new Date(2027, 0, 14, 8).getTime();
+  const next = forToday(snap, tomorrow);
+  assert.deepEqual([next.day, next.waterMl, next.coffees, next.gameLeftMin], ['2027-01-14', 0, 0, null]);
+  assert.equal(widgetLines(next).game, '–');
+  assert.equal(withTap(snap, 'glass', tomorrow).waterMl, 250); // a tap after midnight starts the new day
+  assert.equal(widgetLines({ ...snap, gameLeftMin: -75 }).game, '1h 15m over');
+  assert.equal(widgetLines({ ...snap, gaming: true }).game, 'playing');
 }
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.

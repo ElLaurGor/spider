@@ -3,6 +3,8 @@
 // store or the theme: a headless start should stay small.
 import { setUpWarningsCheck } from './lib/bg-alerts';
 import { setUpSilentButtons } from './lib/silent-buttons';
+import { setUpWidgets } from './widgets';
 
 void setUpSilentButtons();
 setUpWarningsCheck();
+setUpWidgets();

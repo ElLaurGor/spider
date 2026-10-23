@@ -5,11 +5,13 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
 import { C } from '@/constants/theme';
+import { pushWidget } from '@/widgets';
 
 import { addToSeenLedger, readSeenLedger } from './bg-alerts';
 import { writeBgConfig } from './bg-config';
 import { effectiveSavage } from './selectors';
 import type { State } from './types';
+import { snapshotOf } from './widget-data';
 
 type Sync = {
   ready: boolean;
@@ -56,4 +58,14 @@ export function useBackgroundSync({ ready, state, getState, addSeen }: Sync) {
     });
     return () => sub.remove();
   }, [ready, getState, addSeen]);
+
+  // The home-screen widget's numbers, redrawn when they change. Colors come from the theme as it is now: a
+  // theme switch reloads the app, which pushes again.
+  const widget = JSON.stringify(
+    snapshotOf(state, { bg: C.bg, card: C.card2, text: C.text, dim: C.dim, accent: C.red, water: C.blue, coffee: C.yellow, game: C.purple }),
+  );
+  useEffect(() => {
+    if (!ready) return;
+    pushWidget(JSON.parse(widget)).catch((e) => console.warn('[spider] widget update failed', e));
+  }, [ready, widget]);
 }
