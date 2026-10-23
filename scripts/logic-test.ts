@@ -77,6 +77,7 @@ import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
+import { actionFromButton, SILENT_BUTTONS, tapKey } from '../src/lib/reminder-actions';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -2038,6 +2039,26 @@ void (async () => {
   assert.equal(w(new Date(2026, 10, 1, 8)), '2026-11-01 10:00 October'); // Sun 1 Nov before 10:00: still October's
   assert.equal(w(new Date(2026, 10, 1, 11)), '2026-12-01 10:00 November');
   assert.equal(w(new Date(2026, 11, 20, 12)), '2027-01-01 10:00 December');
+}
+
+// reminder buttons (APK 1.5.0): one action per button, with the day it's about; one key per tap
+{
+  const at = new Date(2027, 0, 13, 0, 10).getTime(); // just after midnight
+  assert.deepEqual(actionFromButton('water_glass', {}, at), { kind: 'glass', day: '2027-01-13', at });
+  assert.deepEqual(actionFromButton('water_snooze', undefined, at), { kind: 'snooze' });
+  assert.deepEqual(actionFromButton('focus_start', null, at), { kind: 'focus' });
+  // "Done" on last night's reminder ticks the reminder's day, not the new one
+  assert.deepEqual(actionFromButton('habit_done', { habitId: 'h1', day: '2027-01-12' }, at), { kind: 'habit', habitId: 'h1', day: '2027-01-12', at });
+  assert.deepEqual(actionFromButton('habit_done', { habitId: 'h1' }, at), { kind: 'habit', habitId: 'h1', day: '2027-01-13', at });
+  assert.deepEqual(actionFromButton('habit_done', { habitId: 'h1', day: 'junk' }, at), { kind: 'habit', habitId: 'h1', day: '2027-01-13', at });
+  assert.equal(actionFromButton('habit_done', {}, at), null); // no habit id: nothing to tick
+  assert.deepEqual(actionFromButton('mood_2', {}, at), { kind: 'mood', level: 2, day: '2027-01-13', at });
+  assert.equal(actionFromButton('mood_9', {}, at), null);
+  assert.equal(actionFromButton('expo.modules.notifications.actions.DEFAULT', {}, at), null);
+  assert.ok(!SILENT_BUTTONS.has('focus_start')); // opens the app
+  for (const b of ['water_glass', 'water_snooze', 'habit_done', 'mood_4', 'mood_3', 'mood_2']) assert.ok(SILENT_BUTTONS.has(b), b);
+  assert.equal(tapKey('water-2027-01-13-600', 'water_glass', 123), 'water-2027-01-13-600|water_glass|123');
+  assert.notEqual(tapKey('a', 'water_glass', 1), tapKey('a', 'water_glass', 2)); // the next day's reminder is a new tap
 }
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.
