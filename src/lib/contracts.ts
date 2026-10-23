@@ -1,8 +1,9 @@
 // Weekly contract: early in the week, stake coins on a weekly goal. Reach it and the stake comes back
-// double; miss it and S.P.I.D.E.R. keeps the coins, unless the week was a rough one (low mood or
-// period days), then the stake comes back. Goals are counts within the week, never streaks.
+// double; miss it and S.P.I.D.E.R. keeps the coins, unless the week was a rough one (low mood, period,
+// sick or away days), then the stake comes back. Goals are counts within the week, never streaks.
 import { addDays, dayKey, startOfDay, startOfWeek } from './dates';
-import { dayOf, gamingBudgetMin, gamingUsedMs, liveWaterMl, moodsOf, onPeriod, trainedOn, waterGoalFor } from './selectors';
+import { dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, moodsOf, onPeriod, trainedOn, waterGoalMet } from './selectors';
+import { pausedOn } from './pause';
 import type { Contract, ContractGoal, State } from './types';
 
 type GoalDef = {
@@ -21,7 +22,7 @@ export const CONTRACT_GOALS: GoalDef[] = [
     target: 5,
     title: (n) => `Hit your water goal on ${n} days`,
     available: () => true,
-    count: (s, k) => (liveWaterMl(dayOf(s, k)) >= waterGoalFor(s, k) ? 1 : 0),
+    count: (s, k) => (waterGoalMet(s, dayOf(s, k), k) ? 1 : 0),
   },
   {
     id: 'steps',
@@ -50,7 +51,7 @@ export const CONTRACT_GOALS: GoalDef[] = [
     target: 8,
     title: (n) => `Finish ${n} tasks`,
     available: (s) => s.tasks.some((t) => !t.done),
-    count: (s, k, _f, since) => s.tasks.filter((t) => t.done && t.doneAt && t.doneAt >= since && dayKey(t.doneAt) === k).length,
+    count: (s, k, _f, since) => doneTasksOn(s, k).filter((t) => t.at >= since).length,
   },
 ];
 
@@ -101,10 +102,13 @@ export function contractProgress(s: State, c: Contract, now = new Date()) {
   return daysOf(c, now).reduce((a, d) => a + goal.count(s, d.key, d.final, c.signedAt ?? 0), 0);
 }
 
-/** A rough week voids a missed contract: a low mood (1–2) or a period day while it ran. Back-dated ones count too: a rough day is a rough day. */
+/**
+ * A rough week voids a missed contract: a low mood (1–2), a period day, or a sick or away day while it ran.
+ * Back-dated moods count too: a rough day is a rough day.
+ */
 export function roughWeek(s: State, c: Contract, now = new Date()) {
   return daysOf(c, now).some(({ key }) => {
     const d = dayOf(s, key);
-    return onPeriod(d) || moodsOf(d).some((m) => m.level <= 2);
+    return pausedOn(s, key) || onPeriod(d) || moodsOf(d).some((m) => m.level <= 2);
   });
 }

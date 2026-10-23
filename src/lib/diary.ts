@@ -5,7 +5,7 @@
 import { addDays, dayKey, fmtDuration, MIN } from './dates';
 import { habitsDone } from './habits';
 import { fillLine } from './lines';
-import { dayOf, gamingBudgetMin, gamingUsedMs, moodsOf, trainMinutes, trainedOn, waterGoalFor, waterMl } from './selectors';
+import { dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, moodsOf, trainMinutes, trainedOn, waterGoalFor, waterMl } from './selectors';
 import { gentleDay } from './tone';
 import type { DayLog, DiaryPage, State } from './types';
 
@@ -62,7 +62,7 @@ function factsOf(s: State, key: string, d: DayLog, kind: boolean, seed: string):
       [`Today {name} trained: ${d.sets.length ? `${d.sets.length} sets` : `${min} minutes`}, logged with care.`],
     );
   }
-  const tasks = s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === key).length;
+  const tasks = doneTasksOn(s, key).length;
   if (tasks > 0) {
     say(
       'tasks',

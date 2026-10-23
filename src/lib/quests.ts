@@ -4,15 +4,18 @@ import { addDays, dayKey, startOfWeek } from './dates';
 import { habitsDone, habitsFor } from './habits';
 import {
   dayOf,
+  doneTasksOn,
   gamingBudgetMin,
   gamingUsedMs,
-  liveWaterMl,
   lowBattery,
   moodsOf,
+  proteinGoalOn,
   proteinOf,
+  stepGoalOn,
   trainedOn,
   trainMinutes,
   waterGoalFor,
+  waterGoalMet,
   waterMl,
   workoutFor,
 } from './selectors';
@@ -36,12 +39,13 @@ type QuestDef = {
   id: string;
   xp: number;
   season?: SeasonId; // only during that season, and then one of the day's three is always seasonal
+  reduced?: boolean; // only ever the one quest of a reduced day (GENTLE), never in the normal draw
   available: (s: State, date: Date) => boolean;
   build: (s: State, d: DayLog, date: Date) => { title: string; progress: number; target: number };
 };
 
 const before = (d: DayLog, hour: number) => d.water.filter((w) => new Date(w.at).getHours() < hour).length;
-const tasksDoneOn = (s: State, date: Date) => s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === dayKey(date)).length;
+const tasksDoneOn = (s: State, date: Date) => doneTasksOn(s, dayKey(date)).length;
 const hasSteps = (s: State) => Object.values(s.days).some((d) => d.steps != null);
 // Only entries whose time can't be edited afterwards, logged on the day itself.
 const loggedBefore8 = (d: DayLog) => [...d.water, ...d.sets, ...(d.moods ?? [])].some((x) => !('late' in x && x.late) && new Date(x.at).getHours() < 8);
@@ -58,8 +62,8 @@ const QUESTS: QuestDef[] = [
   {
     id: 'protein',
     xp: 10,
-    available: (s) => s.settings.proteinGoal > 0,
-    build: (s, d) => ({ title: `Eat ${s.settings.proteinGoal} g protein`, progress: proteinOf(d), target: s.settings.proteinGoal }),
+    available: (s, date) => proteinGoalOn(s, dayKey(date)) > 0,
+    build: (s, d, date) => ({ title: `Eat ${proteinGoalOn(s, dayKey(date))} g protein`, progress: proteinOf(d), target: proteinGoalOn(s, dayKey(date)) }),
   },
   { id: 'meals', xp: 8, available: () => true, build: (_s, d) => ({ title: 'Log 3 meals', progress: d.food.length, target: 3 }) },
   {
@@ -73,7 +77,7 @@ const QUESTS: QuestDef[] = [
     id: 'steps',
     xp: 15,
     available: (s) => Object.values(s.days).some((d) => d.steps != null),
-    build: (s, d) => ({ title: `Walk ${s.settings.stepGoal.toLocaleString('sv-SE')} steps`, progress: d.steps ?? 0, target: s.settings.stepGoal }),
+    build: (s, d, date) => ({ title: `Walk ${stepGoalOn(s, dayKey(date)).toLocaleString('sv-SE')} steps`, progress: d.steps ?? 0, target: stepGoalOn(s, dayKey(date)) }),
   },
   {
     id: 'steps_hard',
@@ -91,7 +95,8 @@ const QUESTS: QuestDef[] = [
       target: 3,
     }),
   },
-  { id: 'bonus_time', xp: 10, available: () => true, build: (_s, d) => ({ title: 'Earn 30 bonus gaming minutes', progress: d.bonusGameMin, target: 30 }) },
+  // earned minutes only: bought ones (shop) and chest prizes don't count
+  { id: 'bonus_time', xp: 10, available: () => true, build: (_s, d) => ({ title: 'Earn 30 bonus gaming minutes', progress: d.bonusEarnedMin ?? d.bonusGameMin, target: 30 }) },
   { id: 'mood', xp: 8, available: () => true, build: (_s, d) => ({ title: 'Check in your mood twice', progress: moodsOf(d).length, target: 2 }) },
   {
     id: 'habits',
@@ -103,19 +108,9 @@ const QUESTS: QuestDef[] = [
       return { title: 'Complete all your habits', progress: due.filter((h) => done.includes(h.id)).length, target: due.length };
     },
   },
-  {
-    id: 'progress_photo',
-    xp: 10,
-    available: (s, date) => {
-      const last = s.progressPhotos[s.progressPhotos.length - 1];
-      return !last || date.getTime() - last.at > 6 * 86_400_000;
-    },
-    build: (s, _d, date) => ({
-      title: 'Take a progress photo',
-      progress: s.progressPhotos.some((p) => dayKey(p.at) === dayKey(date)) ? 1 : 0,
-      target: 1,
-    }),
-  },
+  // ---- reduced days (sick, away, low battery): one gentle quest instead of three ----
+  { id: 'checkin', xp: 8, reduced: true, available: () => true, build: (_s, d) => ({ title: 'Check in once: how are you doing?', progress: moodsOf(d).length, target: 1 }) },
+  { id: 'sip', xp: 5, reduced: true, available: () => true, build: (_s, d) => ({ title: 'Drink one glass of water', progress: d.water.length, target: 1 }) },
 
   // ---- seasonal (seasons.ts) ----
   { id: 'hw_potion', xp: 15, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Brew the potion: 4 glasses of water before 15:00', progress: before(d, 15), target: 4 }) },
@@ -175,7 +170,7 @@ const QUESTS: QuestDef[] = [
     xp: 20,
     season: 'midsommar',
     available: (s) => !hasSteps(s),
-    build: (s, d) => ({ title: '🌼 Midsommar sun: hit your water goal', progress: waterMl(d), target: s.settings.waterGoalMl }),
+    build: (s, d, date) => ({ title: '🌼 Midsommar sun: hit your water goal', progress: waterMl(d), target: waterGoalFor(s, dayKey(date)) }),
   },
   {
     id: 'nyar_close',
@@ -200,7 +195,7 @@ const hash = (str: string) => {
 export function pickQuestsWithFocus(s: State, date = new Date()) {
   const key = dayKey(date);
   const season = seasonOn(date)?.id;
-  const pool = QUESTS.filter((q) => (!q.season || q.season === season) && q.available(s, date));
+  const pool = QUESTS.filter((q) => !q.reduced && (!q.season || q.season === season) && q.available(s, date));
   const ranked = (qs: QuestDef[]) => qs.map((q) => ({ id: q.id, r: hash(`${key}:${q.id}`) })).sort((a, b) => a.r - b.r);
   const seasonal = ranked(pool.filter((q) => q.season)).slice(0, 1);
   const rest = ranked(pool.filter((q) => !q.season));
@@ -217,6 +212,9 @@ export function pickQuestsWithFocus(s: State, date = new Date()) {
 
 export const pickQuests = (s: State, date = new Date()) => pickQuestsWithFocus(s, date).ids;
 
+/** The XP a quest pays (0 for an id that's gone). */
+export const questXpOf = (id: string) => QUESTS.find((q) => q.id === id)?.xp ?? 0;
+
 /** Coins for swapping one of the day's quests (once a day). */
 export const QUEST_REROLL_COST = 40;
 
@@ -231,18 +229,46 @@ export function rerollFor(s: State, id: string, date = new Date()): string | nul
   if (!picked?.includes(id) || d.questRerolled || (d.questsDone ?? []).includes(id)) return null;
   const def = QUESTS.find((q) => q.id === id);
   if (!def || def.season || def.build(s, d, date).progress > 0) return null;
-  const next = QUESTS.filter((q) => !q.season && !picked.includes(q.id) && q.available(s, date))
+  const next = QUESTS.filter((q) => !q.season && !q.reduced && !picked.includes(q.id) && q.available(s, date))
     .map((q) => ({ q, r: hash(`${key}:${q.id}`) }))
     .sort((a, b) => a.r - b.r)
     .find(({ q }) => q.build(s, d, date).progress === 0);
   return next?.q.id ?? null;
 }
 
-export function questsFor(s: State, date = new Date()): Quest[] {
+/** Gentlest first: what a reduced day asks for. A seasonal one keeps the season's flavour without asking for more. */
+const GENTLE = ['hw_seance', 'checkin', 'sip'];
+
+/**
+ * A reduced day's one quest: the gentlest that fits the date and isn't already met (so going easy never
+ * hands out an instant chest), or the gentlest at all when every one is.
+ */
+export function gentleQuestFor(s: State, date = new Date()): string {
   const d = dayOf(s, dayKey(date));
+  const season = seasonOn(date)?.id;
+  const fits = GENTLE.map((id) => QUESTS.find((q) => q.id === id)!).filter((q) => (!q.season || q.season === season) && q.available(s, date));
+  const open = fits.find((q) => {
+    const b = q.build(s, d, date);
+    return b.progress < b.target;
+  });
+  return (open ?? fits[0]).id;
+}
+
+/**
+ * Low-battery mode and sick/away days ask for one gentle quest. A day whose quests were all done before it
+ * turned reduced keeps them (the count is frozen once they're done).
+ */
+export function reducedDay(s: State, key = dayKey()) {
+  const d = dayOf(s, key);
+  if (d.questReduced) return true;
+  return (lowBattery(d) || pausedOn(s, key)) && !d.questsAllDone;
+}
+
+export function questsFor(s: State, date = new Date()): Quest[] {
+  const key = dayKey(date);
+  const d = dayOf(s, key);
   const picked = d.quests ?? pickQuests(s, date);
-  // Low-battery mode and sick/away days: just one quest.
-  const ids = lowBattery(d) || pausedOn(s, dayKey(date)) ? picked.slice(0, 1) : picked;
+  const ids = reducedDay(s, key) ? [d.questReduced ?? gentleQuestFor(s, date)] : picked;
   return ids.flatMap((id) => {
     const def = QUESTS.find((q) => q.id === id);
     if (!def) return [];
@@ -260,7 +286,7 @@ export const BOSSES = [
   { id: 'snooze', name: 'The Snooze Button', emoji: '⏰' },
   { id: 'dehydration', name: 'Captain Dehydration', emoji: '🏜️' },
   { id: 'leg_day', name: 'Sir Skips-Leg-Day', emoji: '🦵' },
-  { id: 'sugar_baron', name: 'The Sugar Baron', emoji: '🍩' },
+  { id: 'sugar_baron', name: 'The Shortcut Baron', emoji: '🎩' }, // id kept from its old name: saved wins point at it
   { id: 'binge', name: 'The Binge Necromancer', emoji: '📺' },
 ] as const;
 
@@ -269,8 +295,26 @@ export const weekKey = (date: Date | number = new Date()) => dayKey(startOfWeek(
 /** The Lazy Syndicate's ruler: the week after all 8 bosses have fallen at least once. Every weakness hurts it. */
 export const FINAL_BOSS = { id: 'couch_king', name: 'The Couch King', emoji: '👑' } as const;
 export type BossId = (typeof BOSSES)[number]['id'] | typeof FINAL_BOSS.id;
-/** The Couch King's HP compared to an ordinary boss. */
+/** The Couch King's HP compared to an ordinary boss, and how much each rematch adds. */
 export const FINAL_HP = 1.5;
+export const KING_RANK_HP = 0.25;
+/** Weeks between Couch King rematches while he's still standing. */
+export const KING_REMATCH_WEEKS = 8;
+
+/** Weeks the Couch King was (or will be) your boss: his first week, then every rematch. */
+export const kingWeeksOf = (s: State) => s.kingWeeks ?? (s.finalBossWeek ? [s.finalBossWeek] : []);
+
+/**
+ * The week of the Couch King's next rematch, once his last week is over and he's still standing (null
+ * otherwise). Every 8 weeks from his last fight; a long break skips ahead to the next one still to come.
+ */
+export function kingRematchFor(s: State, week: string): string | null {
+  const last = kingWeeksOf(s).at(-1);
+  if (s.syndicateBroken || !last || last >= week || s.bossesDefeated[last]) return null;
+  let next = addDays(new Date(`${last}T12:00`), 7 * KING_REMATCH_WEEKS);
+  while (dayKey(startOfWeek(next)) < week) next = addDays(next, 7 * KING_REMATCH_WEEKS);
+  return dayKey(startOfWeek(next));
+}
 
 /** Coins per wave of henchmen after the boss has fallen, and a wave's size as a share of the boss's HP. */
 export const MINION_COINS = 20;
@@ -339,11 +383,11 @@ export function xpPace(s: State, monday: Date): number | null {
 
 /** Each boss's weakness: on days that meet it, the XP earned that day hits it 50 % harder. Nothing food-related. */
 export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hit: (s: State, d: DayLog, key: string) => boolean }> = {
-  procrastinator: { label: 'finishing tasks', hit: (s, _d, key) => s.tasks.some((t) => t.done && t.doneAt && dayKey(t.doneAt) === key) },
+  procrastinator: { label: 'finishing tasks', hit: (s, _d, key) => doneTasksOn(s, key).length > 0 },
   couch_goblin: { label: 'moving: step goal or training', hit: (_s, d) => !!d.stepGoalHit || trainedOn(d) },
   doomscroll: { label: 'finishing a Web Focus session', hit: (_s, d) => (d.focus ?? []).some((f) => !f.snapped) },
   snooze: { label: 'logging something before 08:00', hit: (_s, d) => loggedBefore8(d) },
-  dehydration: { label: 'hitting your water goal', hit: (s, d, key) => liveWaterMl(d) >= waterGoalFor(s, key) },
+  dehydration: { label: 'hitting your water goal', hit: (s, d, key) => waterGoalMet(s, d, key) },
   leg_day: { label: 'training', hit: (_s, d) => trainedOn(d) },
   sugar_baron: { label: 'checking off a habit', hit: (s, _d, key) => habitsDone(s, key).length > 0 },
   // Only finished days: today isn't within budget until it's over.
@@ -358,7 +402,7 @@ const HALLOWEEN: Record<(typeof BOSSES)[number]['id'], { name: string; emoji: st
   snooze: { name: 'The Snooze Banshee', emoji: '😱' },
   dehydration: { name: 'Captain Dehydration, Skeleton Crew', emoji: '💀' },
   leg_day: { name: 'Sir Skips-Leg-Day the Headless', emoji: '🎃' },
-  sugar_baron: { name: 'The Sugar Phantom', emoji: '🕯️' },
+  sugar_baron: { name: 'The Shortcut Phantom', emoji: '🕯️' },
   binge: { name: 'The Binge Necromancer, Unholy Edition', emoji: '⚰️' },
 };
 
@@ -367,26 +411,32 @@ const ANY_WEAKNESS = {
   hit: (s: State, d: DayLog, key: string) => BOSSES.some((b) => WEAKNESS[b.id].hit(s, d, key)),
 };
 
+/** A boss's weakness: its own, or every one of them for the Couch King. */
+export const weaknessOf = (id: BossId) => (id === FINAL_BOSS.id ? ANY_WEAKNESS : WEAKNESS[id]);
+
 /** The second weakness a boss shows once it's below half HP: another boss's, picked by the week. */
 export const rageWeaknessOf = (id: string, week: string) => {
   const others = BOSSES.filter((b) => b.id !== id);
   return others[hash(`${week}:rage`) % others.length].id;
 };
 
-export function bossFor(s: State, date: Date | number = new Date()) {
+/** `now`: paused days after it don't shrink the boss yet (a pause planned for later can't make today's fight easier). */
+export function bossFor(s: State, date: Date | number = new Date(), now: Date | number = Date.now()) {
   const monday = startOfWeek(date);
   const key = dayKey(monday);
-  const final = s.finalBossWeek === key;
+  const kings = kingWeeksOf(s);
+  const final = kings.includes(key);
   const base = final ? FINAL_BOSS : BOSSES[weekIndexOf(monday) % BOSSES.length];
   // Halloween dresses every boss up; at nyår the boss is the Old Year itself.
   const season = final ? undefined : seasonOn(date)?.id;
   const skin = season === 'halloween' ? HALLOWEEN[base.id as (typeof BOSSES)[number]['id']] : season === 'nyar' ? { name: 'The Old Year', emoji: '🕰️' } : null;
-  const rank = final ? 1 : bossRank(s, monday);
+  const rank = final ? kings.indexOf(key) + 1 : bossRank(s, monday);
   const name = (skin?.name ?? base.name) + (rank > 1 ? ` ${roman(rank)}` : '');
   const weakness = final ? ANY_WEAKNESS : WEAKNESS[base.id as (typeof BOSSES)[number]['id']];
   const rage = final ? null : rageWeaknessOf(base.id, key);
   const days = Array.from({ length: 7 }, (_, i) => dayKey(addDays(monday, i)));
-  const paused = days.filter((k) => pausedOn(s, k)).length;
+  const upTo = dayKey(now);
+  const paused = days.filter((k) => k <= upTo && pausedOn(s, k)).length;
 
   // Sized to beat your usual week; a brand-new player gets a starter boss instead. Paused days shrink it.
   let healed = 0;
@@ -394,7 +444,7 @@ export function bossFor(s: State, date: Date | number = new Date()) {
   healed = Math.round(healed * healShare(s)); // the Thick Silk ability halves it (perks.ts)
   const pace = xpPace(s, monday);
   const full = pace == null ? 500 + 50 * levelForXp(s.xp) : Math.max(500, Math.round((pace * 7 * BOSS_PACE) / 50) * 50);
-  const sized = Math.round((full * (final ? FINAL_HP : 1) * Math.max(1, 7 - paused)) / 7 / 50) * 50;
+  const sized = Math.round((full * (final ? FINAL_HP + KING_RANK_HP * (rank - 1) : 1) * Math.max(1, 7 - paused)) / 7 / 50) * 50;
   const maxHp = Math.max(50, sized) + healed;
 
   // Day by day: a day that hits the weakness does 50 % more. Below half HP the boss rages, and from the

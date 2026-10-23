@@ -31,8 +31,9 @@ export default function Game() {
   const topMax = Math.max(1, ...topGames.map((g) => g.ms));
 
   const today = dayOf(state);
-  const budgetMs = gamingBudgetMin(state) * MIN;
-  const usedMs = gamingUsedMs(state, undefined, now);
+  const playKey = active ? dayKey(active.start) : dayKey(now); // a session past midnight keeps its start day's budget
+  const budgetMs = gamingBudgetMin(state, playKey) * MIN;
+  const usedMs = gamingUsedMs(state, playKey, now);
   const over = usedMs > budgetMs;
   const left = budgetMs - usedMs;
 
@@ -42,7 +43,7 @@ export default function Game() {
   );
   // Picked once per session (and again if it tips over budget), not every second.
   const sessionStart = active?.start;
-  const leftAtStart = sessionStart ? budgetMs - gamingUsedMs(state, undefined, sessionStart) : 0;
+  const leftAtStart = sessionStart ? budgetMs - gamingUsedMs(state, playKey, sessionStart) : 0;
   // Picked again when it tips over budget, then every 30 minutes over ({over} rounds down to those steps).
   const overKey = gameLineKey(usedMs - budgetMs);
   const overStepMin = overKey === 'gameWayOver' ? Math.floor((usedMs - budgetMs) / (30 * MIN)) * 30 : 0;

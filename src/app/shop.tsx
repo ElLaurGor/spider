@@ -6,6 +6,7 @@ import { Btn, Card, Chip, Field, H, Icon, Row, Stepper, T, useNow } from '@/comp
 import { WardrobeCard } from '@/components/wardrobe-card';
 import { C, MONO } from '@/constants/theme';
 import { REWARD_IDEAS, shopPrice, SHOP_ITEMS } from '@/lib/economy';
+import { bossFor } from '@/lib/quests';
 import { bankRate, perkPoints } from '@/lib/perks';
 import { useStore } from '@/lib/store';
 
@@ -13,6 +14,7 @@ const EMOJIS = ['🍕', '🛋️', '🎮', '🧋', '🍿', '🥡', '😴', '🛍
 
 export default function ShopScreen() {
   const { state, actions } = useStore();
+  const bossDown = bossFor(state).defeated; // a bomb on a fallen boss would just be wasted coins
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [emoji, setEmoji] = useState(EMOJIS[0]);
@@ -50,6 +52,16 @@ export default function ShopScreen() {
         <H>Power-ups</H>
         {SHOP_ITEMS.map((i) => {
           const cost = shopPrice(i.id, state.perks);
+          if (i.id === 'bomb' && bossDown) {
+            return (
+              <Row key={i.id}>
+                <Text style={{ fontSize: 22 }}>{i.emoji}</Text>
+                <T dim style={{ flex: 1 }}>
+                  {i.title} · this week&apos;s boss is already down
+                </T>
+              </Row>
+            );
+          }
           return (
             <Row key={i.id}>
               <Text style={{ fontSize: 22 }}>{i.emoji}</Text>

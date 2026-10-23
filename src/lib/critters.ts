@@ -3,6 +3,7 @@
 // and re-logging gives the same roll (nothing to farm). Never about food amounts or the body.
 import { dayKey, startOfWeek } from './dates';
 import { isSnow, seasonOn, type SeasonId } from './seasons';
+import { habitsFor } from './habits';
 import { activitiesOf, coffeeOf, dayOf, moodsOf, trainedOn } from './selectors';
 import type { DayLog, State } from './types';
 import { activityXp, focusXp, XP } from './xp';
@@ -37,7 +38,8 @@ export type LogKind =
   | 'stop';
 
 /** One thing logged today. `key` is its stable place in the day (the nth glass, a task's id). */
-export type LogEvent = { kind: LogKind; key: string; at: number; xp: number; minutes?: number; ageDays?: number; waterGoal?: boolean };
+/** `id`: the entry (glass, set, task…) it came from, so undoing it can take its crit back. */
+export type LogEvent = { kind: LogKind; key: string; at: number; xp: number; minutes?: number; ageDays?: number; waterGoal?: boolean; id?: string };
 
 const fresh = <T extends { id: string; late?: boolean }>(before: T[], after: T[]) =>
   after.map((x, i) => ({ x, i })).filter(({ x }) => !x.late && !before.some((b) => b.id === x.id));
@@ -53,12 +55,12 @@ export function logEvents(prev: State, next: State, now = new Date()): LogEvent[
 
   for (const { x, i } of fresh(a.water, b.water)) {
     const goal = !a.waterGoalHit && !!b.waterGoalHit;
-    out.push({ kind: 'water', key: `water:${i}`, at: x.at, xp: XP.water + (goal ? XP.waterGoal : 0), waterGoal: goal });
+    out.push({ kind: 'water', key: `water:${i}`, at: x.at, xp: XP.water + (goal ? XP.waterGoal : 0), waterGoal: goal, id: x.id });
   }
-  for (const { i, x } of fresh(a.food, b.food)) out.push({ kind: 'food', key: `food:${i}`, at: x.at, xp: XP.food });
+  for (const { i, x } of fresh(a.food, b.food)) out.push({ kind: 'food', key: `food:${i}`, at: x.at, xp: XP.food, id: x.id });
   for (const { i, x } of fresh(coffeeOf(a), coffeeOf(b))) out.push({ kind: 'coffee', key: `coffee:${i}`, at: x.at, xp: 0 });
   fresh(a.sets, b.sets).forEach(({ i, x }, n) =>
-    out.push({ kind: 'set', key: `set:${i}`, at: x.at, xp: XP.set + (firstTraining && n === 0 ? XP.workout : 0) }),
+    out.push({ kind: 'set', key: `set:${i}`, at: x.at, xp: XP.set + (firstTraining && n === 0 ? XP.workout : 0), id: x.id }),
   );
   fresh(activitiesOf(a), activitiesOf(b)).forEach(({ i, x }, n) =>
     out.push({
@@ -67,17 +69,18 @@ export function logEvents(prev: State, next: State, now = new Date()): LogEvent[
       at: x.at,
       xp: activityXp(x.minutes) + (firstTraining && n === 0 && b.sets.length === a.sets.length ? XP.workout : 0),
       minutes: x.minutes,
+      id: x.id,
     }),
   );
-  for (const { i, x } of fresh(moodsOf(a), moodsOf(b))) out.push({ kind: 'mood', key: `mood:${i}`, at: x.at, xp: i < 3 ? XP.mood : 0 });
+  for (const { i, x } of fresh(moodsOf(a), moodsOf(b))) out.push({ kind: 'mood', key: `mood:${i}`, at: x.at, xp: i < 3 ? XP.mood : 0, id: x.id });
 
   for (const task of next.tasks) {
     if (!task.done || !task.doneAt || dayKey(task.doneAt) !== key) continue;
     if (prev.tasks.find((p) => p.id === task.id)?.done) continue;
-    out.push({ kind: 'task', key: `task:${task.id}`, at: task.doneAt, xp: XP.task, ageDays: (task.doneAt - task.createdAt) / 86_400_000 });
+    out.push({ kind: 'task', key: `task:${task.id}`, at: task.doneAt, xp: XP.task, ageDays: (task.doneAt - task.createdAt) / 86_400_000, id: task.id });
   }
   for (const id of b.habits ?? []) {
-    if (!(a.habits ?? []).includes(id)) out.push({ kind: 'habit', key: `habit:${id}`, at: t, xp: XP.habit });
+    if (!(a.habits ?? []).includes(id)) out.push({ kind: 'habit', key: `habit:${id}`, at: t, xp: XP.habit, id });
   }
   for (const f of b.focus ?? []) {
     if (f.snapped || (a.focus ?? []).some((x) => x.id === f.id)) continue;
@@ -89,7 +92,7 @@ export function logEvents(prev: State, next: State, now = new Date()): LogEvent[
   if (a.energy == null && b.energy != null) out.push({ kind: 'energy', key: 'energy', at: t, xp: XP.energy });
   if (!a.stepGoalHit && b.stepGoalHit) out.push({ kind: 'stepGoal', key: 'steps', at: t, xp: XP.stepGoal });
   if (!a.questsAllDone && b.questsAllDone) out.push({ kind: 'questsAll', key: 'quests', at: t, xp: XP.questsAll });
-  if (next.counters.prs > prev.counters.prs) out.push({ kind: 'pr', key: `pr:${next.counters.prs}`, at: t, xp: XP.pr });
+  if (next.counters.prs > prev.counters.prs) out.push({ kind: 'pr', key: `pr:${next.counters.prs}`, at: t, xp: XP.pr, id: fresh(a.sets, b.sets).at(-1)?.x.id });
   if (next.counters.disciplinedStops > prev.counters.disciplinedStops) {
     out.push({ kind: 'stop', key: `stop:${next.counters.disciplinedStops}`, at: t, xp: 0 });
   }
@@ -111,12 +114,13 @@ export const LEGENDARY_BOMB = 100;
 export const CATCH_MS = 5 * 60_000;
 export const MAX_SPAWNS = 2;
 
-type Ctx = { now: Date; day: DayLog; prevDay: DayLog; season: SeasonId | undefined };
+type Ctx = { now: Date; day: DayLog; prevDay: DayLog; season: SeasonId | undefined; noHabits: boolean };
 export type Fly = { id: string; name: string; emoji: string; rarity: Rarity; hint: string; chance: number; when: (e: LogEvent, c: Ctx) => boolean };
 
 const rainy = (d: DayLog) => !!d.weather && (d.weather.rainMm >= 1 || (d.weather.code >= 51 && d.weather.code <= 67) || (d.weather.code >= 80 && d.weather.code <= 82) || d.weather.code >= 95);
 const training = (e: LogEvent) => e.kind === 'set' || e.kind === 'activity';
-const completeDay = (d: DayLog) => !!d.waterGoalHit && trainedOn(d) && !!d.habitsAllDone && !!d.questsAllDone;
+/** Water, training, every habit (or none due) and every quest. */
+const completeDay = (d: DayLog, noHabits: boolean) => !!d.waterGoalHit && trainedOn(d) && (!!d.habitsAllDone || noHabits) && !!d.questsAllDone;
 
 // Chances are per logged thing that meets the condition. Nothing here is about food amounts or the body.
 export const FLIES: Fly[] = [
@@ -148,7 +152,7 @@ export const FLIES: Fly[] = [
   { id: 'solstice_moth', name: 'Solstice Moth', emoji: '🌑', rarity: 'epic', hint: 'The darkest day of the year.', chance: 0.2, when: (_e, c) => c.season === 'solstice' },
 
   { id: 'golden_scarab', name: 'Golden Scarab', emoji: '🏆', rarity: 'legendary', hint: 'Rare. Very rare. Busy days help.', chance: 0.02, when: (_e, c) => !!c.day.questsAllDone },
-  { id: 'phantom_fly', name: 'Phantom Fly', emoji: '🌟', rarity: 'legendary', hint: 'Water, training, every habit and every quest, in one day.', chance: 0.6, when: (_e, c) => completeDay(c.day) && !completeDay(c.prevDay) },
+  { id: 'phantom_fly', name: 'Phantom Fly', emoji: '🌟', rarity: 'legendary', hint: 'Water, training, every habit and every quest, in one day.', chance: 0.6, when: (_e, c) => completeDay(c.day, c.noHabits) && !completeDay(c.prevDay, c.noHabits) },
 ];
 export const FLY_BY_ID: Record<string, Fly> = Object.fromEntries(FLIES.map((f) => [f.id, f]));
 const ORDER: Rarity[] = ['legendary', 'epic', 'rare', 'common'];
@@ -188,13 +192,15 @@ export function rollCritters(prev: State, next: State, now = new Date()): { stat
   const msgs: CritterMsg[] = [];
   let day = dayOf(next, key);
   let pendingFly = next.pendingFly ?? null;
-  const ctx = (): Ctx => ({ now, day, prevDay: dayOf(prev, key), season: seasonOn(now)?.id });
+  const noHabits = habitsFor(next, now).length === 0;
+  const ctx = (): Ctx => ({ now, day, prevDay: dayOf(prev, key), season: seasonOn(now)?.id, noHabits });
 
   for (const e of events) {
     const critKeys = day.critKeys ?? [];
     if (e.xp > 0 && critKeys.length < MAX_CRITS && !critKeys.includes(e.key) && roll(`crit:${key}:${e.key}`) < CRIT_CHANCE) {
       const damage = critDamage(e.xp);
       day = { ...day, critKeys: [...critKeys, e.key], critDamage: (day.critDamage ?? 0) + damage };
+      if (e.id) day = { ...day, critBy: { ...day.critBy, [e.key]: { id: e.id, dmg: damage } } };
       msgs.push({ key: 'critHit', vars: { n: damage } });
     }
     const spawns = day.flySpawns ?? [];
@@ -208,6 +214,19 @@ export function rollCritters(prev: State, next: State, now = new Date()): { stat
   }
   if (!msgs.length) return { state: next, msgs };
   return { state: { ...next, pendingFly, days: { ...next.days, [key]: day } }, msgs };
+}
+
+/**
+ * An entry was undone or deleted: any crit it rolled comes off the boss. Its slot stays used (critKeys),
+ * so logging it again can't roll a new one.
+ */
+export function withoutCrit(d: DayLog, id: string): DayLog {
+  const hits = Object.entries(d.critBy ?? {}).filter(([, c]) => c.id === id);
+  if (!hits.length) return d;
+  const critBy = { ...d.critBy };
+  for (const [k] of hits) delete critBy[k];
+  const dmg = hits.reduce((a, [, c]) => a + c.dmg, 0);
+  return { ...d, critBy, critDamage: Math.max(0, (d.critDamage ?? 0) - dmg) };
 }
 
 export type CatchResult = { state: State; key: 'flyCaught' | 'flyLegendary' | 'flyGone' | null; vars: Record<string, string | number>; newSpecies: boolean };

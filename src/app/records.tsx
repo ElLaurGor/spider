@@ -7,7 +7,7 @@ import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { fillLine, GOLDEN, GOLDEN_CHANCE } from '@/lib/lines';
 import { hallOfFame, type Rec } from '@/lib/records';
 import { useStore } from '@/lib/store';
-import { levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
+import { BADGE_NOTE, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
 
 export default function RecordsScreen() {
   const { state } = useStore();
@@ -33,17 +33,17 @@ export default function RecordsScreen() {
       <Card accent={C.purple}>
         <H right={<T dim small>{`${Object.keys(state.secrets).length}/${SECRET_ACHIEVEMENTS.length}`}</T>}>🔓 Secret achievements</H>
         <T dim small>
-          Hidden until you stumble into them. Each one: +{XP.secret} XP and {SECRET_COINS} 🪙.
+          Hidden until you stumble into them. Each one: +{XP.secret} XP and {SECRET_COINS} 🪙, except the 🏷️ badges of shame, which pay nothing.
         </T>
         {SECRET_ACHIEVEMENTS.map((a) => {
           const got = !!state.secrets[a.id];
           return (
             <Row key={a.id} style={{ alignItems: 'flex-start' }}>
-              <Text style={{ fontSize: 20, width: 30 }}>{got ? '🔓' : '❓'}</Text>
+              <Text style={{ fontSize: 20, width: 30 }}>{got ? (a.badge ? '🏷️' : '🔓') : '❓'}</Text>
               <View style={{ flex: 1 }}>
                 <T style={!got && { color: C.dim }}>{got ? a.title : '???'}</T>
                 <T dim small>
-                  {got ? a.desc : `Hint: ${a.hint}`}
+                  {got ? (a.badge ? `${a.desc}. ${BADGE_NOTE}` : a.desc) : `Hint: ${a.hint}`}
                 </T>
               </View>
             </Row>

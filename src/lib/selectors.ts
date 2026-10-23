@@ -26,7 +26,7 @@ export function withPastHealth(s: State, past: { key: string; steps: number; sle
     if (!d) continue;
     const steps = p.steps > 0 ? Math.max(d.steps ?? 0, p.steps) : d.steps;
     const sleepMin = syncedSleep(d, p.sleepMin);
-    const stepGoalHit = !!d.stepGoalHit || (steps ?? 0) >= s.settings.stepGoal;
+    const stepGoalHit = !!d.stepGoalHit || (steps ?? 0) >= stepGoalOn(s, p.key);
     if (d.steps === steps && d.sleepMin === sleepMin && !!d.stepGoalHit === stepGoalHit) continue;
     days = { ...days, [p.key]: { ...d, steps, sleepMin, stepGoalHit } };
   }
@@ -91,8 +91,17 @@ export function emotionCounts(s: State, days = 7, now = new Date()) {
 export const moodDays = (s: State) => Object.values(s.days).filter((d) => moodsOf(d).length > 0).length;
 export const totalCoffees = (s: State) => Object.values(s.days).reduce((a, d) => a + coffeeOf(d).length, 0);
 
-export const workoutFor = (s: State, date: Date | number = new Date()): WorkoutDay | null =>
-  s.settings.redDaysOff && redDay(date) ? null : s.plan[new Date(date).getDay() as Weekday];
+/** The day's planned workout: a finished day's snapshot (lib/goals.ts), else the weekly plan. */
+export function workoutFor(s: State, date: Date | number = new Date()): WorkoutDay | null {
+  const plan = s.plan[new Date(date).getDay() as Weekday];
+  const frozen = s.days[dayKey(date)]?.goals;
+  if (frozen) return frozen.workout == null ? null : plan?.name === frozen.workout ? plan : { name: frozen.workout, exercises: [] };
+  return s.settings.redDaysOff && redDay(date) ? null : plan;
+}
+
+/** A day's step goal and protein goal: the snapshot once the day is over, else today's settings. */
+export const stepGoalOn = (s: State, key = dayKey()) => s.days[key]?.goals?.steps ?? s.settings.stepGoal;
+export const proteinGoalOn = (s: State, key = dayKey()) => s.days[key]?.goals?.protein ?? s.settings.proteinGoal;
 
 /** An official red day (swedish-days.ts); de facto days off like midsommarafton don't count. */
 const redDay = (date: Date | number) => holidayOn(date)?.red ?? false;
@@ -121,20 +130,56 @@ export function waterGoalParts(s: State, key = dayKey()): { ml: number; why: str
   return { ml: base + extra, why };
 }
 
-export const waterGoalFor = (s: State, key = dayKey()) => waterGoalParts(s, key).ml;
+/** A day's water goal: the snapshot once the day is over (lib/goals.ts), else the live one. */
+export const waterGoalFor = (s: State, key = dayKey()) => s.days[key]?.goals?.water ?? waterGoalParts(s, key).ml;
 
-export const gamingBudgetMin = (s: State, key = dayKey()) => s.settings.gamingBudgetMin + dayOf(s, key).bonusGameMin;
+/** The water goal counts as met once the glass that met it was logged, even if the goal grew later (a gym set, a hotter forecast). */
+export const waterGoalMet = (s: State, d: DayLog, key: string) => !!d.waterGoalHit || liveWaterMl(d) >= waterGoalFor(s, key);
+
+export const gamingBudgetMin = (s: State, key = dayKey()) => (s.days[key]?.goals?.gaming ?? s.settings.gamingBudgetMin) + dayOf(s, key).bonusGameMin;
 
 /** XP lost for gaming `overMs` past the budget: 2 per started 5 minutes, the first minute is free. */
 export const gamePenalty = (overMs: number) => (overMs > 60_000 ? Math.ceil(overMs / (5 * 60_000)) : 0);
 
-/** Gaming time used on a day, including a running session that started that day. */
+/**
+ * Gaming time used on a day, including a running session that started that day. Phone games count too
+ * (if enabled), minus the minutes played while the timer was running, which the timer already has.
+ */
 export function gamingUsedMs(s: State, key = dayKey(), now = Date.now()) {
   const d = dayOf(s, key);
   let ms = d.games.reduce((a, g) => a + (g.end - g.start), 0);
   if (s.activeGame && dayKey(s.activeGame.start) === key) ms += now - s.activeGame.start;
-  if (s.settings.phoneGamesCount) ms += (d.screen?.gamesMin ?? 0) * 60_000;
+  if (s.settings.phoneGamesCount) ms += Math.max(0, (d.screen?.gamesMin ?? 0) - (d.phoneGamesInTimerMin ?? 0)) * 60_000;
   return ms;
+}
+
+/** Minutes of foreground time in game apps (`games`, package names) that fall inside timer sessions. */
+export function gamesInTimerMin(spans: { packageName: string; start: number; end: number }[], games: Set<string>, sessions: { start: number; end: number }[]) {
+  let ms = 0;
+  for (const sp of spans) {
+    if (!games.has(sp.packageName)) continue;
+    for (const g of sessions) ms += Math.max(0, Math.min(sp.end, g.end) - Math.max(sp.start, g.start));
+  }
+  return Math.round(ms / 60_000);
+}
+
+/** Tasks finished on a day: the day's own record (kept when tasks are deleted or cleared), plus older ones still on the list. */
+export function doneTasksOn(s: State, key = dayKey()) {
+  const out = new Map((s.days[key]?.doneTasks ?? []).map((t) => [t.id, t]));
+  for (const t of s.tasks) if (t.done && t.doneAt && dayKey(t.doneAt) === key && !out.has(t.id)) out.set(t.id, { id: t.id, at: t.doneAt });
+  return [...out.values()];
+}
+
+/**
+ * When a forgotten gaming timer stops itself: an hour past bedtime after it started (if that's within 12
+ * hours, else 8 hours in), and never under 4 hours in.
+ */
+export function gameCapAt(s: State, start: number) {
+  const cap = new Date(start);
+  cap.setHours(s.settings.sleepHour + 1, 0, 0, 0);
+  if (cap.getTime() <= start) cap.setDate(cap.getDate() + 1);
+  const at = cap.getTime() - start > 12 * 3_600_000 ? start + 8 * 3_600_000 : cap.getTime();
+  return Math.max(at, start + 4 * 3_600_000);
 }
 
 export function workoutsThisWeek(s: State, now = new Date()) {
@@ -143,7 +188,7 @@ export function workoutsThisWeek(s: State, now = new Date()) {
   let planned = 0;
   for (let i = 0; i < 7; i++) {
     const d = addDays(monday, i);
-    if (s.plan[d.getDay() as Weekday]) planned++;
+    if (workoutFor(s, d)) planned++; // red days off and finished days' snapshots included
     const log = s.days[dayKey(d)];
     if (log && trainedOn(log)) done++;
   }

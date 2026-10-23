@@ -84,6 +84,15 @@ import { gameLineKey, nightVerdictKey, stepsLineKey, verdictLineKey } from '../s
 import type { DayLog } from '../src/lib/types';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
+// step 2 game
+import { gentleQuestFor, KING_REMATCH_WEEKS, kingRematchFor, kingWeeksOf, reducedDay, weaknessOf } from '../src/lib/quests';
+import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
+import { doneTasksOn, gameCapAt, gamesInTimerMin, gamingBudgetMin, gamingUsedMs as usedMs, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
+import { areaScores } from '../src/lib/weak-spot';
+import { chestShelf, SHELF_MAX, withChestGold } from '../src/lib/loot';
+import { applyFixes, recheckCoffeeGremlin } from '../src/lib/fixes';
+import { credit, earnBonus, ledgerOn, penalize, refundPenalty, unreward, withoutUndoRecords } from '../src/lib/ledger';
+import { withoutCrit } from '../src/lib/critters';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -266,7 +275,8 @@ assert.equal(effectiveSavage(m), 10);
   const mild = new Set(LINES.spiderTap.mild.map((t) => fillLine(t, {})));
   for (let i = 0; i < 1000; i++) assert.ok(mild.has(line('spiderTap', effectiveSavage(sick))), 'a roast slipped through sick mode');
   assert.equal(effectiveSavage(startPause(defaultState(), 'away', 3)), 10);
-  assert.equal(effectiveSavage(endPause(sick)), 10);
+  assert.equal(effectiveSavage(endPause(sick)), 1, "I'm back: today stays easy");
+  assert.equal(effectiveSavage(endPause(sick), addDays(new Date(), 1)), 10, 'from tomorrow the roasts are back');
 }
 // a low mood late last night keeps the roasts paused until today's first check-in
 {
@@ -1503,7 +1513,7 @@ void (async () => {
   assert.equal(late.state.pendingFly, null);
 
   // no fly is about food: logging food only ever turns up the "log anything" fly
-  const ctx = { now: at, day: empty(), prevDay: empty(), season: undefined };
+  const ctx = { now: at, day: empty(), prevDay: empty(), season: undefined, noHabits: true };
   const foodFlies = FLIES.filter((x) => x.when({ kind: 'food', key: 'food:0', at: at.getTime(), xp: 1 }, ctx)).map((x) => x.id);
   assert.deepEqual(foodFlies, ['house_fly']);
   for (const x of FLIES) assert.ok(!/food|meal|\b(eat|eats|ate|eating)\b|kcal|calor|weigh(?!ts)|body/i.test(`${x.name} ${x.hint}`), x.id);
@@ -1578,8 +1588,11 @@ void (async () => {
   assert.equal(ps.pauses?.[0].to, '2027-03-16');
   assert.equal(startPause(ps, 'sick', 2, '2027-03-20'), ps, "March's 7 days are used up");
   ps = endPause(ps, '2027-03-12');
-  assert.ok(pausedOn(ps, '2027-03-11') && !pausedOn(ps, '2027-03-12'));
-  assert.equal(endPause(startPause(defaultState(), 'sick', 2, '2027-03-10'), '2027-03-10').pauses?.length, 0);
+  assert.ok(pausedOn(ps, '2027-03-12') && !pausedOn(ps, '2027-03-13'), "I'm back: today stays paused, tomorrow counts");
+  assert.ok(ps.pauses?.[0].endedAt);
+  assert.equal(endPause(ps, '2027-03-12'), ps, 'ending twice does nothing');
+  const sameDay = endPause(startPause(defaultState(), 'sick', 2, '2027-03-10'), '2027-03-10');
+  assert.ok(pausedOn(sameDay, '2027-03-10') && !pausedOn(sameDay, '2027-03-11'), 'the loophole: ending on the first day keeps it');
   // across a month boundary each month has its own cap
   assert.equal(startPause(defaultState(), 'away', 4, '2027-03-30').pauses?.[0].to, '2027-04-02');
 
@@ -1592,7 +1605,9 @@ void (async () => {
   assert.equal(paceOf(pz, monday), 100);
   pz.pauses.push({ from: mk(0), to: mk(1), kind: 'away' });
   assert.equal(pausedInWeek(pz, monday), 2);
-  assert.equal(bossFor(pz, monday).maxHp, 550); // 750 x 5/7 = 536 -> 550
+  assert.equal(bossFor(pz, monday, addDays(monday, 6)).maxHp, 550); // 750 x 5/7 = 536 -> 550
+  assert.equal(bossFor(pz, monday, addDays(monday, -1)).maxHp, 750, 'paused days still ahead: no shrink yet');
+  assert.equal(bossFor(pz, monday, monday).maxHp, 650, 'Monday paused so far: 750 x 6/7 = 643 -> 650');
   pz.days[mk(0)] = { ...empty(), quests: ['water_goal', 'meals', 'mood'] };
   assert.equal(questsFor(pz, addDays(monday, 0)).length, 1);
   const lgA = defaultState();
@@ -1688,6 +1703,254 @@ void (async () => {
   assert.equal(bestiary(bs, monday).filter((r) => r.fights > 0).length, 3, 'three weeks, three bosses');
   assert.equal(lastKillDay(bs, first.id, mk(0)), WEEKDAYS_LONG[new Date(`${mk(-10)}T12:00`).getDay()]);
   assert.equal(lastKillDay(bs, first.id, mk(-14)), null);
+}
+
+// ---------- step 2 game ----------
+{
+  const empty = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+  const mood = (at: Date, level: 1 | 2 | 3 | 4 | 5 = 3) => ({ id: `m${at.getTime()}`, level, emotions: [], at: at.getTime() });
+
+  // reduced days get one gentle quest, never the seasonal "train or walk 8 000 steps"
+  const sat = new Date(2026, 9, 24, 12); // first day of spooky season
+  const sk = dayKey(sat);
+  const sick = defaultState();
+  sick.days[sk] = { ...empty(), quests: ['hw_crypt', 'water_goal', 'meals'] };
+  sick.pauses = [{ from: sk, to: sk, kind: 'sick' }];
+  assert.ok(reducedDay(sick, sk));
+  assert.deepEqual(questsFor(sick, sat).map((q) => q.id), ['hw_seance']);
+  sick.days[sk].moods = [mood(sat)];
+  assert.equal(gentleQuestFor(sick, sat), 'sip', 'the séance is already met: no instant chest');
+  sick.days[sk].questReduced = 'hw_seance';
+  assert.deepEqual(questsFor(sick, sat).map((q) => q.id), ['hw_seance'], 'fixed once picked');
+  const lowNov = defaultState();
+  const nov = new Date(2026, 10, 10, 12);
+  lowNov.days[dayKey(nov)] = { ...empty(), quests: ['steps_hard', 'water_goal', 'meals'], energy: 1 };
+  assert.equal(gentleQuestFor(lowNov, nov), 'checkin');
+  // every quest done before the day turned reduced: the count stays frozen at three
+  const allDone = defaultState();
+  allDone.days[sk] = { ...empty(), quests: ['hw_crypt', 'water_goal', 'meals'], questsDone: ['hw_crypt', 'water_goal', 'meals'], questsAllDone: true };
+  allDone.pauses = [{ from: sk, to: sk, kind: 'away' }];
+  assert.ok(!reducedDay(allDone, sk));
+  assert.equal(questsFor(allDone, sat).length, 3);
+  // the gentle quests never turn up on an ordinary day
+  for (let i = 0; i < 60; i++) {
+    const d = addDays(nov, i);
+    assert.ok(!pickQuests(defaultState(), d).some((id) => id === 'checkin' || id === 'sip'));
+  }
+
+  // goal snapshots: a finished day keeps the goals it had
+  const gs = defaultState();
+  gs.settings.adaptiveWater = false;
+  const gMon = new Date(2027, 1, 1, 12); // a Monday
+  const gk = (n: number) => dayKey(addDays(gMon, n));
+  for (let i = 0; i < 4; i++) gs.days[gk(i)] = { ...empty(), water: [{ id: `w${i}`, ml: 2000, at: addDays(gMon, i).getTime() }] };
+  gs.habits = [{ id: 'old', name: 'Old', emoji: 'x', days: [], remindHour: null, createdAt: addDays(gMon, -30).getTime() }];
+  const frozen = withGoals(gs, gk(3));
+  assert.ok(frozen.days[gk(0)].goals && frozen.days[gk(2)].goals && !frozen.days[gk(3)].goals, 'past days only, never today');
+  assert.equal(withGoals(frozen, gk(3)), frozen, 'nothing left to freeze');
+  assert.deepEqual(goalsOn(frozen, gk(0)), { water: 2500, steps: 8000, gaming: 120, protein: 120, workout: 'Push', habits: ['old'] });
+  // later: a lower water goal, a new habit, a different plan, a bigger gaming budget
+  const edited = { ...frozen, settings: { ...frozen.settings, waterGoalMl: 1500, gamingBudgetMin: 300 }, plan: { ...frozen.plan, 1: null } };
+  edited.habits = [...edited.habits, { id: 'new', name: 'New', emoji: 'y', days: [], remindHour: null, createdAt: addDays(gMon, 3).getTime() }];
+  assert.equal(waterGoalFor(edited, gk(0)), 2500, "last Monday's water goal stays 2.5 L");
+  assert.ok(!waterGoalMet(edited, edited.days[gk(0)], gk(0)), '2 L of 2.5 L is still a miss');
+  assert.equal(waterGoalFor(edited, gk(3)), 1500, 'today follows the new setting');
+  assert.equal(workoutFor(edited, addDays(gMon, 0))?.name, 'Push', 'the plan it had');
+  assert.equal(workoutFor(edited, addDays(gMon, 7)), null, 'next Monday follows the new plan');
+  assert.equal(gamingBudgetMin(edited, gk(0)), 120);
+  assert.deepEqual(habitsFor(edited, addDays(gMon, 0)).map((h) => h.id), ['old']);
+  assert.deepEqual(habitsFor(edited, addDays(gMon, 3)).map((h) => h.id), ['old', 'new']);
+  // without a snapshot, a habit created today still isn't due on earlier days
+  assert.deepEqual(habitsFor(edited, addDays(gMon, 5)).map((h) => h.id), ['old', 'new']);
+  assert.deepEqual(habitsFor({ ...edited, days: {} }, addDays(gMon, 1)).map((h) => h.id), ['old']);
+  assert.equal(liveGoals(edited, gk(0)).water, 1500, 'the live goal moved; the snapshot did not');
+  // a water goal met once stays met when the goal grows (a gym set later that day)
+  const met = { ...empty(), water: [{ id: 'w', ml: 2500, at: 0 }], waterGoalHit: true, sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: 0 }] };
+  const ad = defaultState();
+  ad.days[gk(10)] = met;
+  assert.ok(waterGoalFor(ad, gk(10)) > 2500 && waterGoalMet(ad, met, gk(10)));
+  // weak spot reads each day's own goal
+  const wsp = defaultState();
+  wsp.settings.adaptiveWater = false;
+  for (let i = 1; i <= 4; i++) wsp.days[gk(10 - i)] = { ...empty(), water: [{ id: 'w', ml: 2000, at: 0 }], goals: { water: 2000, steps: 8000, gaming: 120, protein: 120, workout: null, habits: [] } };
+  assert.equal(areaScores(wsp, addDays(gMon, 10))?.water, 1, 'each day met the goal it had');
+  // a sick or away day makes it a rough week: a missed contract gives the stake back
+  const rw = defaultState();
+  const rwc = { week: gk(0), from: gk(0), goal: 'train' as const, target: 3, stake: 100, status: 'open' as const };
+  assert.ok(!roughWeek(rw, rwc, addDays(gMon, 6)));
+  rw.pauses = [{ from: gk(2), to: gk(2), kind: 'away' }];
+  assert.ok(roughWeek(rw, rwc, addDays(gMon, 6)));
+  // the progress-photo quest is gone (body tracking stays neutral)
+  for (let i = 0; i < 30; i++) assert.ok(!pickQuests(defaultState(), addDays(gMon, i)).includes('progress_photo'));
+
+  // the Couch King comes back every 8 weeks, a rank stronger, until he falls
+  const kg = defaultState();
+  for (let i = 1; i <= 10; i++) kg.days[gk(-i)] = { ...empty(), xpEarned: 100 }; // pace 100/day: 750 HP
+  kg.finalBossWeek = gk(0);
+  assert.deepEqual(kingWeeksOf(kg), [gk(0)]);
+  assert.equal(kingRematchFor(kg, gk(0)), null, 'his week is still on');
+  assert.equal(kingRematchFor(kg, gk(7)), gk(7 * KING_REMATCH_WEEKS));
+  assert.equal(kingRematchFor(kg, gk(7 * 20)), gk(7 * 24), 'a long break skips to the next one still ahead');
+  assert.equal(kingRematchFor({ ...kg, syndicateBroken: 1 }, gk(7)), null);
+  assert.equal(kingRematchFor({ ...kg, bossesDefeated: { [gk(0)]: 'couch_king' } }, gk(7)), null);
+  kg.kingWeeks = [gk(0), gk(56)];
+  for (let i = 1; i <= 28; i++) kg.days[gk(56 - i)] = { ...empty(), xpEarned: 100 }; // 4 weeks at 100/day before the rematch
+  const rematch = bossFor(kg, addDays(gMon, 56), addDays(gMon, 62));
+  assert.equal(rematch.id, FINAL_BOSS.id);
+  assert.equal(rematch.rank, 2);
+  assert.ok(rematch.name.endsWith(' II'));
+  assert.equal(rematch.maxHp, 1300, '750 x 1.75 = 1313 -> 1300');
+  assert.notEqual(bossFor(kg, addDays(gMon, 7)).id, FINAL_BOSS.id, 'an ordinary boss in between');
+  assert.equal(bestiary(kg, addDays(gMon, 60)).find((r) => r.id === FINAL_BOSS.id)?.fights, 2);
+  // every weakness hurts the King, so a King week can still earn a gold chest
+  const kd = { ...empty(), sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: 0 }] };
+  assert.ok(weaknessOf(FINAL_BOSS.id).hit(kg, kd, gk(1)));
+  assert.equal(BOSSES.find((b) => b.id === 'sugar_baron')?.name, 'The Shortcut Baron', 'renamed, same id');
+
+  // the chest shelf: unopened chests wait past midnight, oldest first, with the gold status they ended with
+  const sh = defaultState();
+  for (const n of [0, 1, 2, 3]) sh.days[gk(n)] = { ...empty(), chestReady: true };
+  sh.days[gk(1)].chest = { kind: 'coins', amount: 60, text: '60 coins' };
+  sh.days[gk(2)].chestGold = true;
+  const shelfNow = addDays(gMon, 4);
+  assert.deepEqual(chestShelf(sh, shelfNow).map((c) => c.key), [gk(0), gk(2), gk(3)], 'opened ones are off the shelf');
+  assert.equal(chestShelf(sh, shelfNow).find((c) => c.key === gk(2))?.gold, true);
+  const frozenGold = withChestGold(sh, gk(4));
+  assert.ok(frozenGold.days[gk(0)].chestGold != null && frozenGold.days[gk(3)].chestGold != null);
+  assert.equal(frozenGold.days[gk(1)].chestGold, undefined, 'an opened chest needs no gold status');
+  assert.equal(withChestGold(frozenGold, gk(4)), frozenGold);
+  assert.equal(SHELF_MAX, 3);
+
+  // the limit-breaking secrets are badges of shame: still listed and counted, they pay nothing
+  const badges = SECRET_ACHIEVEMENTS.filter((a) => a.badge).map((a) => a.id).sort();
+  assert.deepEqual(badges, ['s_coffee_gremlin', 's_night_owl', 's_no_life', 's_overhydrated']);
+  const timer = defaultState();
+  timer.activeGame = { start: Date.now() - 6 * 3_600_000 };
+  assert.ok(!SECRET_ACHIEVEMENTS.find((a) => a.id === 's_no_life')!.test(timer), 'a timer still running (or forgotten) is not 5 h of gaming yet');
+
+  // Coffee Gremlin, once: kept if a real day has 6+ cups, else revoked with what it paid
+  const cup = (n: number, key: string) => ({ id: `c${key}${n}`, mg: 90, at: new Date(`${key}T0${n}:30`).getTime() });
+  const cg = defaultState();
+  cg.xp = 1120; // level 5 (1000), 120 into it
+  cg.coins = 60;
+  cg.coinsEarned = 900;
+  cg.secrets = { s_coffee_gremlin: 1, s_zen_master: 2 };
+  cg.days[gk(0)] = { ...empty(), coffee: [1, 2, 3, 4, 5].map((n) => cup(n, gk(0))) };
+  const revoked = recheckCoffeeGremlin(cg);
+  assert.ok(!revoked.secrets.s_coffee_gremlin && revoked.secrets.s_zen_master);
+  assert.equal(revoked.xp, 1070);
+  assert.equal(revoked.coins, 0, 'never below 0 coins');
+  assert.equal(revoked.coinsEarned, 800);
+  assert.equal(recheckCoffeeGremlin({ ...cg, xp: 1010 }).xp, 1000, 'never below the highest level reached');
+  assert.equal(recheckCoffeeGremlin({ ...cg, xp: 980, maxLevel: 5 }).xp, 980, 'already under it: nothing more taken, nothing given');
+  cg.days[gk(1)] = { ...empty(), coffee: [1, 2, 3, 4, 5, 6].map((n) => cup(n, gk(1))) };
+  assert.equal(recheckCoffeeGremlin(cg), cg, 'a real day with 6 cups keeps it');
+  // it runs once: hydrate marks it done, a new save starts with it done
+  const once = hydrate({ ...cg, days: { [gk(0)]: cg.days[gk(0)] }, fixes: undefined });
+  assert.ok(!once.secrets.s_coffee_gremlin && once.fixes?.includes('coffee-gremlin'));
+  assert.equal(applyFixes(once), once);
+  assert.ok(defaultState().fixes?.includes('coffee-gremlin'));
+  assert.equal(hydrate({ ...cg, days: { [gk(0)]: cg.days[gk(0)] }, fixes: ['coffee-gremlin'] }).secrets.s_coffee_gremlin, 1, 'not again');
+  assert.equal(xpForLevel(5), 1000);
+
+  // Completionist: no habits due, or no protein goal, counts as done
+  const comp = defaultState();
+  comp.settings.proteinGoal = 0;
+  comp.days[gk(2)] = { ...empty(), waterGoalHit: true, questsAllDone: true, sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: 0 }] };
+  const completionist = SECRET_ACHIEVEMENTS.find((a) => a.id === 's_completionist')!;
+  assert.ok(completionist.test(comp));
+  comp.habits = [{ id: 'h', name: 'H', emoji: 'x', days: [], remindHour: null, createdAt: 0 }];
+  assert.ok(!completionist.test(comp), 'a habit due and not done');
+
+  // phone games played while the gaming timer ran count once (the timer has them)
+  const t0 = new Date(`${gk(3)}T19:00`).getTime();
+  const spans = [
+    { packageName: 'com.game', start: t0 + 10 * MIN, end: t0 + 40 * MIN }, // 30 min, all inside the session
+    { packageName: 'com.game', start: t0 + 70 * MIN, end: t0 + 90 * MIN }, // 20 min, 10 inside
+    { packageName: 'com.chat', start: t0, end: t0 + 60 * MIN }, // not a game
+  ];
+  assert.equal(gamesInTimerMin(spans, new Set(['com.game']), [{ start: t0, end: t0 + 80 * MIN }]), 40);
+  const both = defaultState();
+  both.days[gk(3)] = { ...empty(), games: [{ start: t0, end: t0 + 80 * MIN }], screen: { totalMin: 90, doomMin: 0, gamesMin: 50, top: [] }, phoneGamesInTimerMin: 40 };
+  assert.equal(usedMs(both, gk(3)), 90 * MIN, '80 on the timer + 10 phone-only minutes, not 130');
+
+  // the ledger: an undo takes back exactly what its entry got (Double XP included), never below zero
+  const lg = defaultState();
+  const lk = gk(4);
+  let led = credit(lg, lk, 4, 0, 'w:1'); // a glass under Double XP: 2 x 2
+  led = credit(led, lk, 15, 15); // the water goal it reached (sticky, no record)
+  assert.equal(led.xp, 19);
+  assert.equal(led.coins, 19);
+  assert.deepEqual(led.days[lk].xpBy, { 'w:1': 4 });
+  assert.equal(led.days[lk].bonusEarnedMin, 15);
+  const undone = unreward(led, lk, 'w:1', 1);
+  assert.equal(undone.xp, 15, 'the 4 it got, not the plain 1');
+  assert.equal(undone.coins, 15);
+  assert.equal(undone.days[lk].xpEarned, 15);
+  assert.equal(undone.days[lk].xpUndone, 4);
+  assert.equal(undone.days[lk].xpBy, undefined);
+  assert.equal(unreward(undone, lk, 'w:1', 1).xp, 14, 'no record (an old entry): the plain amount');
+  const broke = unreward({ ...led, coins: 2 }, lk, null, 10, 30);
+  assert.equal(broke.coins, 0, 'coins never below 0');
+  assert.equal(broke.days[lk].bonusGameMin, 0);
+  assert.equal(broke.days[lk].bonusEarnedMin, 0);
+  // gaming penalties stay out of xpEarned (boss, league); a refund goes back to the same day
+  const pen = penalize(led, lk, 6);
+  assert.equal(pen.xp, 13);
+  assert.equal(pen.days[lk].xpEarned, 19, 'the boss and the league are not hit');
+  assert.deepEqual(ledgerOn(pen, lk), { earned: 19, lost: 6, undone: 0 });
+  assert.equal(refundPenalty(pen, lk, 6).days[lk].xpLost, 0);
+  assert.equal(refundPenalty(pen, lk, 6).xp, 19);
+  assert.equal(earnBonus(lg, lk, 30).days[lk].bonusEarnedMin, 30);
+  // per-entry records go at rollover, the day's totals stay
+  const pruned = withoutUndoRecords({ ...led, days: { ...led.days, [lk]: { ...led.days[lk], critBy: { 'water:0': { id: '1', dmg: 15 } } } } }, gk(5));
+  assert.equal(pruned.days[lk].xpBy, undefined);
+  assert.equal(pruned.days[lk].critBy, undefined);
+  assert.equal(pruned.days[lk].xpEarned, 19);
+  assert.equal(withoutUndoRecords(led, lk), led, "today's records stay");
+
+  // an undone entry takes its crit off the boss; its slot stays used, so a re-log can't crit again
+  const critDay = { ...empty(), critKeys: ['water:0', 'set:0', 'pr:1'], critDamage: 75, critBy: { 'water:0': { id: 'w', dmg: 15 }, 'set:0': { id: 's', dmg: 30 }, 'pr:1': { id: 's', dmg: 30 } } };
+  const uncrit = withoutCrit(critDay, 's');
+  assert.equal(uncrit.critDamage, 15, 'the set and the record it set');
+  assert.deepEqual(Object.keys(uncrit.critBy ?? {}), ['water:0']);
+  assert.deepEqual(uncrit.critKeys, critDay.critKeys);
+  assert.equal(withoutCrit(critDay, 'nope'), critDay);
+  // rollCritters remembers which entry rolled a crit
+  const rc = defaultState();
+  rc.onboarded = true;
+  const rcAt = new Date(2026, 9, 20, 12);
+  const rcKey = dayKey(rcAt);
+  let critted: ReturnType<typeof rollCritters> | null = null;
+  for (let n = 0; n < 400 && !critted?.state.days[rcKey]?.critBy; n++) {
+    const before = { ...rc, days: { [rcKey]: { ...empty(), water: Array.from({ length: n }, (_, i) => ({ id: `x${i}`, ml: 250, at: rcAt.getTime() })) } } };
+    const after = { ...before, days: { [rcKey]: { ...before.days[rcKey], water: [...before.days[rcKey].water, { id: `x${n}`, ml: 250, at: rcAt.getTime() }] } } };
+    critted = rollCritters(before, after, rcAt);
+  }
+  const hit = Object.values(critted?.state.days[rcKey]?.critBy ?? {})[0];
+  assert.ok(hit && /^x\d+$/.test(hit.id) && hit.dmg > 0, 'a crit names its glass');
+
+  // tasks done on a day stay counted after the task is deleted or cleared
+  const td = defaultState();
+  const tAt = new Date(`${gk(5)}T10:00`).getTime();
+  td.days[gk(5)] = { ...empty(), doneTasks: [{ id: 'gone', at: tAt }] };
+  td.tasks = [{ id: 'still', title: 'x', done: true, createdAt: 0, doneAt: tAt + 1 }];
+  assert.deepEqual(doneTasksOn(td, gk(5)).map((t) => t.id).sort(), ['gone', 'still']);
+  const tc = { week: gk(0), from: gk(0), signedAt: 0, goal: 'tasks' as const, target: 2, stake: 100, status: 'open' as const };
+  assert.equal(contractProgress(td, tc, addDays(gMon, 6)), 2, 'the deleted one still counts');
+
+  // a forgotten gaming timer stops itself: an hour past bedtime, at least 4 h in
+  const gc = defaultState(); // sleepHour 23
+  const at = (h: number, m = 0) => new Date(2026, 9, 21, h, m).getTime();
+  assert.equal(gameCapAt(gc, at(21)), at(25), '21:00 -> 01:00 (4 h)');
+  assert.equal(gameCapAt(gc, at(18)), at(24), '18:00 -> midnight');
+  assert.equal(gameCapAt(gc, at(23, 30)), at(27, 30), '23:30 -> 03:30 (4 h)');
+  assert.equal(gameCapAt(gc, at(10)), at(18), 'midnight is too far: 8 h');
+
+  // red days off count in this week's planned workouts
+  const red = defaultState();
+  red.settings.redDaysOff = true;
+  assert.equal(workoutsThisWeek(red, new Date(2026, 11, 23, 12)).planned, 3, 'Christmas Eve week: the plan minus red Friday 25 Dec');
 }
 
 // ---- cluster B ----

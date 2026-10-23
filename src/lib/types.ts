@@ -115,6 +115,7 @@ export type DayLog = {
   energy?: Rating; // morning energy check; 1–2 = low-battery mode
   chestReady?: boolean; // earned by finishing all daily quests
   chest?: ChestPrize; // what the chest gave, once opened
+  chestGold?: boolean; // step 2: an unopened chest's gold status, frozen when its day ended (loot.ts chestShelf)
   focus?: FocusEntry[];
   breaths?: number; // breathing sessions finished
   windDown?: string[]; // wind-down items done that evening
@@ -146,6 +147,7 @@ export type DayLog = {
   // cluster A
   questRerolled?: boolean; // today's one paid quest swap is used (quests.ts rerollFor)
   questFocus?: { id: string; spot: string }; // the quest aimed at the week's weak spot (weak-spot.ts)
+  questReduced?: string; // a reduced day's one gentle quest, fixed once picked (quests.ts gentleQuestFor)
   // cluster B
   banked?: number; // coins paid at day rollover for that day's unused bonus gaming minutes (set once)
   // cluster F
@@ -155,6 +157,27 @@ export type DayLog = {
   bedAt?: number;
   wakeAt?: number;
   sleepStages?: SleepStages;
+  // step 2
+  goals?: DayGoals; // what the day asked for, frozen once it's over (lib/goals.ts)
+  phoneGamesInTimerMin?: number; // phone-game minutes (usage stats) played while the gaming timer ran: counted once
+  // step 2: the XP ledger. xpEarned is what the day earned (boss and league damage); these explain the rest.
+  xpBy?: Record<string, number>; // XP credited per entry today ("w:<glass id>", "s:<set id>", "workout", "q:<quest id>"), so an undo takes back exactly that; dropped at rollover
+  xpLost?: number; // XP taken by gaming penalties (kept out of xpEarned)
+  xpUndone?: number; // XP taken back by undos and deletions
+  paid?: { mood?: number; photo?: boolean; body?: boolean }; // XP already paid today, so delete-and-relog can't pay again
+  bonusEarnedMin?: number; // bonus gaming minutes earned (not bought or from a chest): the bonus-minutes quest counts these
+  doneTasks?: { id: string; at: number }[]; // tasks finished that day, kept when the task is later deleted or cleared
+  critBy?: Record<string, { id: string; dmg: number }>; // crit key -> the entry that rolled it, so undoing it takes the damage back; dropped at rollover
+};
+
+/** A finished day's goals: settings, plan and habits as they were that day. */
+export type DayGoals = {
+  water: number; // ml, adaptive extras included
+  steps: number;
+  gaming: number; // base budget in minutes (the day's bonus minutes come on top)
+  protein: number; // g, 0 = no protein goal
+  workout: string | null; // the planned workout's name
+  habits: string[]; // ids of the habits due
 };
 
 /** Phone use after bedtime, the night before a day. `lastAt` null = none worth mentioning. */
@@ -174,7 +197,7 @@ export type Contract = {
   difficulty?: 'easy' | 'normal' | 'hard'; // cluster B; older contracts are normal
 };
 
-export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number };
+export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number; firstDoneAt?: number }; // firstDoneAt: re-checking later counts for that day
 
 export type Counters = {
   workouts: number;
@@ -256,6 +279,8 @@ export type State = {
   bossPhaseSeen?: string; // week key whose boss rage (phase 2) was announced
   bossKilledAt?: Record<string, number>; // week key -> when its boss fell, for the bestiary
   finalBossWeek?: string; // week key of the Couch King fight, once all 8 bosses have fallen
+  kingWeeks?: string[]; // step 2: every Couch King week, his first and each rematch (unset = just finalBossWeek)
+  kingAnnounced?: string; // step 2: the Couch King week whose arrival was announced
   syndicateBroken?: number; // when the Couch King fell: unlocks its theme
   pauses?: Pause[]; // sick/away periods (pause.ts)
   // cluster B: economy & progression
@@ -270,6 +295,9 @@ export type State = {
   // cluster E
   rivalTalk?: { week: string; rank: number; day: string; n: number } | null; // last league rank seen and today's rival remarks (rival-talk.ts)
   topTomorrow?: { day: string; ids: string[] } | null; // task ids picked in an evening debrief for that day's top 3 (memory.ts)
+  // step 2
+  maxLevel?: number; // the highest level ever reached: only a new one gets the level-up toasts
+  fixes?: string[]; // one-time repairs already applied to this save (lib/fixes.ts)
 };
 
 export type DiaryPage = { n: number; at: number; day: string; text: string };
@@ -305,4 +333,4 @@ export type Experiment = {
 
 // cluster A
 /** Sick or away, from and to inclusive (day keys). */
-export type Pause = { from: string; to: string; kind: 'sick' | 'away' };
+export type Pause = { from: string; to: string; kind: 'sick' | 'away'; endedAt?: number }; // endedAt: "I'm back" was tapped on `to` (today stays easy)

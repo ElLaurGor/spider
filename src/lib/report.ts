@@ -6,6 +6,7 @@ import {
   avgMood,
   coffeeOf,
   dayOf,
+  doneTasksOn,
   emotionCounts,
   gameTotals,
   gamingBudgetMin,
@@ -32,7 +33,7 @@ const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.le
 function taskShare(s: State, date: Date): number | null {
   const start = startOfDay(date).getTime();
   const end = addDays(startOfDay(date), 1).getTime();
-  const done = s.tasks.filter((t) => t.done && (t.doneAt ?? 0) >= start && (t.doneAt ?? 0) < end).length;
+  const done = doneTasksOn(s, dayKey(date)).length; // the day's own record: Clear and delete don't erase it
   const open = s.tasks.filter((t) => t.createdAt < end && (!t.done || (t.doneAt ?? 0) >= end)).length;
   return done + open ? done / (done + open) : null;
 }
@@ -172,7 +173,7 @@ export function weekReport(s: State, weekOffset = 0, now = new Date()) {
   // Tasks: graded only in a week that had any. Up to 5 finished is full marks (fewer if fewer existed).
   const weekStart = monday.getTime();
   const weekEnd = addDays(monday, 7).getTime();
-  const tasks = s.tasks.filter((t) => t.doneAt && t.doneAt >= weekStart && t.doneAt < weekEnd).length;
+  const tasks = Array.from({ length: 7 }, (_, i) => doneTasksOn(s, dayKey(addDays(monday, i))).length).reduce((a, b) => a + b, 0);
   const onList = s.tasks.filter((t) => t.createdAt < weekEnd && (!t.done || (t.doneAt ?? 0) >= weekStart)).length;
   cats.push({ id: 'tasks', label: 'Tasks', emoji: '📋', stat: `${tasks} completed`, score: onList ? clamp01(tasks / Math.min(5, onList)) * 100 : null });
 

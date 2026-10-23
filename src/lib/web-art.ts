@@ -4,7 +4,7 @@
 // Body data and food are never part of it.
 import { dayKey, MIN } from './dates';
 import { habitsDone } from './habits';
-import { avgMood, dayOf, gamingBudgetMin, gamingUsedMs, trainMinutes } from './selectors';
+import { avgMood, dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, trainMinutes } from './selectors';
 import type { MoodLevel, State } from './types';
 
 export type WebParams = {
@@ -24,7 +24,7 @@ export function webParams(s: State, key = dayKey()): WebParams {
   const d = dayOf(s, key);
   const habits = habitsDone(s, key).length;
   const quests = (d.questsDone ?? []).length;
-  const tasks = s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === key).length;
+  const tasks = doneTasksOn(s, key).length;
   const train = trainMinutes(d) + d.sets.length * 3;
   const overMin = Math.max(0, (gamingUsedMs({ ...s, activeGame: null }, key) - gamingBudgetMin(s, key) * MIN) / MIN);
   const mood = avgMood(d);

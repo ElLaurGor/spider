@@ -1,7 +1,7 @@
 // Every boss you've met: how often it showed up, how often it fell, your fastest kill, and its
 // Lazy Syndicate file once you've beaten it. Bosses come back every 8 weeks, a rank stronger.
 import { addDays, dayKey, fmtTime, startOfWeek, WEEKDAYS_LONG } from './dates';
-import { BOSSES, FINAL_BOSS, firstXpDay, WEAKNESS, type BossId } from './quests';
+import { BOSSES, FINAL_BOSS, firstXpDay, kingWeeksOf, WEAKNESS, type BossId } from './quests';
 import type { State } from './types';
 
 /** Each boss's file in the Lazy Syndicate dossier, unlocked by beating it once. */
@@ -14,7 +14,7 @@ export const LORE: Record<BossId, string> = {
   leg_day: 'A knight of the Syndicate who has never been seen below the waist. Claims squats are a myth. Wears very long trousers.',
   sugar_baron: 'Runs the Syndicate\'s money. Takes a cut of every routine you skip and every habit left unchecked.',
   binge: 'Raises "one more episode" from the dead every night at midnight. The Syndicate\'s night shift.',
-  couch_king: 'Ruler of the Lazy Syndicate. Built his throne from every "tomorrow" you ever said. Once all eight of his lieutenants fall, he gets up himself.',
+  couch_king: 'Ruler of the Lazy Syndicate. Built his throne from every "tomorrow" you ever said. Once all eight of his lieutenants fall, he gets up himself, and he keeps coming back until someone puts him down.',
 };
 
 export type BeastRow = {
@@ -51,8 +51,9 @@ export function bestiary(s: State, now = new Date()): BeastRow[] {
   if (first) {
     for (let m = startOfWeek(new Date(`${first}T12:00`)); m <= now; m = addDays(m, 7)) mondays.push(m);
   }
+  const kings = kingWeeksOf(s);
   const rows: BeastRow[] = BOSSES.map((b, i) => {
-    const fights = mondays.filter((m) => weekIndexOf(m) % BOSSES.length === i && dayKey(m) !== s.finalBossWeek).length;
+    const fights = mondays.filter((m) => weekIndexOf(m) % BOSSES.length === i && !kings.includes(dayKey(m))).length;
     const wins = winsOf(s, b.id);
     return {
       id: b.id,
@@ -66,14 +67,14 @@ export function bestiary(s: State, now = new Date()): BeastRow[] {
       lore: wins.length ? LORE[b.id] : null,
     };
   });
-  if (s.finalBossWeek) {
+  if (kings.length) {
     const wins = winsOf(s, FINAL_BOSS.id);
     rows.push({
       id: FINAL_BOSS.id,
       name: FINAL_BOSS.name,
       emoji: FINAL_BOSS.emoji,
       weakness: "any boss's weakness",
-      fights: s.finalBossWeek <= dayKey(now) ? 1 : 0,
+      fights: kings.filter((w) => w <= dayKey(now)).length,
       wins: wins.length,
       fastest: fastestOf(s, FINAL_BOSS.id),
       lastWin: wins.map(([w]) => w).sort().at(-1) ?? null,

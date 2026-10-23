@@ -15,6 +15,7 @@ import { nextDate } from './countdowns';
 import {
   coffeeOf,
   dayOf,
+  doneTasksOn,
   effectiveSavage,
   eventsOn,
   gamingUsedMs,
@@ -176,7 +177,7 @@ function daySummary(s: State, now: Date) {
   const d = dayOf(s, dayKey(now));
   const plan = workoutFor(s, now);
   const gym = plan ? (trainedOn(d) ? 'gym ✓' : 'gym skipped') : 'rest day';
-  const tasks = s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === dayKey(now)).length;
+  const tasks = doneTasksOn(s, dayKey(now)).length;
   const coffee = coffeeOf(d).length;
   const steps =
     (d.steps != null ? ` · 👣 ${d.steps.toLocaleString('sv-SE')}` : '') + (d.screen ? ` · 📱 ${fmtDuration(d.screen.totalMin * MIN)}` : '');

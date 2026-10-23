@@ -3,7 +3,7 @@
 import { addDays, dayKey } from './dates';
 import { habitsDone, habitsFor } from './habits';
 import { pausedOn } from './pause';
-import { dayOf, trainedOn, waterMl, workoutFor } from './selectors';
+import { dayOf, stepGoalOn, trainedOn, waterGoalFor, waterMl, workoutFor } from './selectors';
 import type { State } from './types';
 
 export type WeakSpot = 'water' | 'gym' | 'habits' | 'steps';
@@ -28,7 +28,7 @@ export function areaScores(s: State, date = new Date()): Partial<Record<WeakSpot
   const days = Array.from({ length: 7 }, (_, i) => addDays(date, -(i + 1))).filter((d) => s.days[dayKey(d)] && !pausedOn(s, dayKey(d)));
   if (days.length < MIN_DAYS) return null;
   const out: Partial<Record<WeakSpot, number>> = {};
-  out.water = avg(days.map((d) => (waterMl(dayOf(s, dayKey(d))) >= s.settings.waterGoalMl ? 1 : 0)));
+  out.water = avg(days.map((d) => (dayOf(s, dayKey(d)).waterGoalHit || waterMl(dayOf(s, dayKey(d))) >= waterGoalFor(s, dayKey(d)) ? 1 : 0)));
   const planned = days.filter((d) => workoutFor(s, d));
   if (planned.length) out.gym = avg(planned.map((d) => (trainedOn(dayOf(s, dayKey(d))) ? 1 : 0)));
   const habitDays = days.filter((d) => habitsFor(s, d).length > 0);
@@ -36,7 +36,7 @@ export function areaScores(s: State, date = new Date()): Partial<Record<WeakSpot
     out.habits = avg(habitDays.map((d) => habitsFor(s, d).filter((h) => habitsDone(s, dayKey(d)).includes(h.id)).length / habitsFor(s, d).length));
   }
   const walked = days.filter((d) => dayOf(s, dayKey(d)).steps != null);
-  if (walked.length) out.steps = avg(walked.map((d) => Math.min(1, (dayOf(s, dayKey(d)).steps ?? 0) / s.settings.stepGoal)));
+  if (walked.length) out.steps = avg(walked.map((d) => Math.min(1, (dayOf(s, dayKey(d)).steps ?? 0) / stepGoalOn(s, dayKey(d)))));
   return out;
 }
 

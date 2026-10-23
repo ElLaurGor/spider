@@ -3,7 +3,7 @@
 import { periodStarts, phaseOn } from './body';
 import { BED_MG, bedtimeCaffeine } from './caffeine';
 import { addDays, dayKey } from './dates';
-import { coffeeOf, dayOf, onPeriod, trainedOn, waterMl } from './selectors';
+import { coffeeOf, dayOf, onPeriod, trainedOn, waterGoalFor, waterMl } from './selectors';
 import type { DayLog, State, Tracker } from './types';
 
 type Ctx = { key: string; log: DayLog; prev: DayLog; prevKey: string; starts: string[] };
@@ -21,7 +21,7 @@ export const SUSPECTS: Suspect[] = [
     id: 'low_water',
     emoji: '💧',
     when: 'on days you drink under 60% of your water goal',
-    test: (s, c) => (c.log.water.length ? waterMl(c.log) < s.settings.waterGoalMl * 0.6 : null),
+    test: (s, c) => (c.log.water.length ? waterMl(c.log) < waterGoalFor(s, c.key) * 0.6 : null),
   },
   {
     id: 'pollen',

@@ -1,4 +1,5 @@
 import { dayKey, isDayKey } from './dates';
+import { applyFixes, FIXES } from './fixes';
 import type { DayLog, State } from './types';
 
 export function emptyDay(): DayLog {
@@ -78,6 +79,7 @@ export function defaultState(): State {
     windDownItems: ['📵 Screens away', '🦷 Brush teeth', '🧘 Stretch 5 min', '📖 Read 10 min', '📝 Plan tomorrow'],
     bossesDefeated: {},
     lastBackupAt: null,
+    fixes: [...FIXES], // a new save needs none of the one-time repairs
   };
 }
 
@@ -111,13 +113,14 @@ export function withRealDays(days: State['days']): State['days'] {
   return out;
 }
 
-/** Fills in fields added in newer versions so old saves keep working. */
+/** Fills in fields added in newer versions so old saves keep working, then runs the one-time fixes it hasn't had. */
 export function hydrate(saved: Partial<State> | null): State {
   const base = defaultState();
   if (!saved) return base;
-  return {
+  return applyFixes({
     ...base,
     ...saved,
+    fixes: saved.fixes ?? [], // an old save has had none of them (a new one starts with all done)
     days: withRealDays(saved.days ?? base.days),
     settings: {
       ...base.settings,
@@ -126,5 +129,5 @@ export function hydrate(saved: Partial<State> | null): State {
     },
     plan: { ...base.plan, ...saved.plan },
     counters: { ...base.counters, ...saved.counters },
-  };
+  });
 }

@@ -13,11 +13,12 @@ import { THEMES } from '@/constants/theme';
 
 import { activityInfo } from './body';
 import { calendarPermission, calendarSupported, loadCalendars, loadEvents } from './calendar';
-import { bankFor, coinsFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
+import { bankFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
 import { stageFor, themesUnlockedBetween } from './evolution';
-import { addDays, dayKey, fmtDuration, isDayKey, MIN, startOfDay, uid, WEEKDAYS_LONG } from './dates';
+import { addDays, atTime, dayKey, fmtDuration, fmtTime, isDayKey, MIN, startOfDay, startOfWeek, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, missingHealthAccess, readHealth, type HealthData, type HealthStatus } from './health';
+import { withGoals } from './goals';
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, poolFor, type LineKey } from './lines';
@@ -38,14 +39,14 @@ import {
   snoozeWater,
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
-import { bossFor, finalBossDue, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_COST, questsFor, rerollFor, weekKey } from './quests';
+import { bossFor, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_COST, questsFor, questXpOf, reducedDay, rerollFor, weekKey } from './quests';
 import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
 import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
 import { rivalTalk } from './rival-talk';
 import { withNights } from './sleep';
 import { isSnow, seasonOn, winterOf } from './seasons';
-import { catchFly as catchPendingFly, caughtCount, FLIES, rollCritters } from './critters';
+import { catchFly as catchPendingFly, caughtCount, FLIES, rollCritters, withoutCrit } from './critters';
 import { unlockPages } from './diary';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, spansBetween, startFocusGuard, stopFocusGuard, unlocksBetween, usageBetween } from './screentime';
 import { nightPhone, nightWindow } from './night';
@@ -56,12 +57,15 @@ import {
   coffeeOf,
   dayOf,
   effectiveSavage,
+  gameCapAt,
+  gamesInTimerMin,
   gamePenalty,
   gamingBudgetMin,
   gamingUsedMs,
   moodsOf,
   proteinOf,
   syncedSleep,
+  trainedOn,
   waterGoalFor,
   waterMl,
   withPastHealth,
@@ -91,10 +95,11 @@ import type {
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, needsPlaceInfo, samePlace, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
 import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, triageAlerts, warningsOf, type Air, type Alert, type SourceStatus } from './outside';
-import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
+import { ACHIEVEMENTS, activityXp, BADGE_NOTE, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
 // cluster B: economy & progression
 import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWorn, type Slot } from './cosmetics';
-import { goldChest } from './loot';
+import { chestShelf, SHELF_MAX, withChestGold } from './loot';
+import { credit, earnBonus, penalize, refundPenalty, unreward, withoutUndoRecords } from './ledger';
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
 import { restedAfter, restedGain, restedSplit } from './rested';
 import { goldenAllowed } from './tone';
@@ -134,43 +139,55 @@ const bump = (s: State, counter: keyof State['counters'], by = 1): State => ({
   counters: { ...s.counters, [counter]: Math.max(0, s.counters[counter] + by) },
 });
 
-function reward(s: State, msgs: Msg[], rawXp: number, bonusMin = 0): State {
+type RewardOpts = { ref?: string; quiet?: boolean };
+
+/**
+ * XP (and coins, earned bonus gaming minutes) credited to day `key`, today unless said otherwise. Double
+ * XP and the rested pool add to it. `ref` names the entry it's for (a glass, a set, a task), so undoing
+ * that entry takes back exactly what it got (`unreward`). `quiet`: a level reached here is announced with
+ * the next ordinary action instead (body and photo logging get no fanfare).
+ */
+function reward(s: State, msgs: Msg[], rawXp: number, bonusMin = 0, key = dayKey(), opts: RewardOpts = {}): State {
+  if (rawXp < 0) return unreward(s, key, null, -rawXp, Math.max(0, -bonusMin)); // undos go through unreward
   const before = levelForXp(s.xp);
-  const base = rawXp > 0 && s.doubleXpUntil && Date.now() < s.doubleXpUntil ? rawXp * 2 : rawXp;
+  const base = s.doubleXpUntil && Date.now() < s.doubleXpUntil ? rawXp * 2 : rawXp;
   const rested = restedSplit(s.rested ?? 0, rawXp); // back from a break: +50 % until the pool is used up
   const xp = base + rested.extra;
-  const coins = coinsFor(xp);
-  let next: State = { ...s, xp: Math.max(0, s.xp + xp), coins: s.coins + coins, coinsEarned: s.coinsEarned + coins };
-  if (rested.extra) next = { ...next, rested: rested.left };
-  next = patchDay(next, dayKey(), (d) => ({ ...d, xpEarned: Math.max(0, (d.xpEarned ?? 0) + xp) }));
-  if (bonusMin) next = patchDay(next, dayKey(), (d) => ({ ...d, bonusGameMin: Math.max(0, d.bonusGameMin + bonusMin) }));
+  let next = credit(rested.extra ? { ...s, rested: rested.left } : s, key, xp, bonusMin, opts.ref);
+  // Only a level never reached before is announced: getting one back after a penalty or an undo isn't news.
   const after = levelForXp(next.xp);
-  if (after > before) {
+  const peak = s.maxLevel ?? before;
+  if (after > peak) {
+    if (opts.quiet) return { ...next, maxLevel: peak }; // announced with the next ordinary action
+    next = { ...next, maxLevel: after };
     msgs.push({ text: L(next, 'levelUp', { level: after, title: titleFor(after) }), tone: 'epic' });
     const stage = stageFor(after);
-    if (stage !== stageFor(before)) msgs.push({ text: `🧬 Your spider evolved: ${stage.name}${stage.badge ? ` ${stage.badge}` : ''}!`, tone: 'epic' });
-    for (const id of themesUnlockedBetween(before, after)) {
+    if (stage !== stageFor(peak)) msgs.push({ text: `🧬 Your spider evolved: ${stage.name}${stage.badge ? ` ${stage.badge}` : ''}!`, tone: 'epic' });
+    for (const id of themesUnlockedBetween(peak, after)) {
       msgs.push({ text: `🎨 New theme unlocked: ${THEMES[id].name}. Settings → Themes.`, tone: 'epic' });
     }
   }
   return next;
 }
 
+/** A sick day's gaming is never charged: the time still shows, the penalty and its roast don't. */
+const sickOn = (s: State, key: string) => pauseOn(s, key)?.kind === 'sick';
+
 /**
  * After a finished session on day `key` was edited or deleted: charges the extra over-budget XP, or
- * gives back what no longer applies. Refunds skip `reward()`: penalties never took coins or boss damage.
+ * gives back what no longer applies. Penalties never take coins or boss damage.
  */
 function regradeGaming(prev: State, next: State, key: string, msgs: Msg[], plain: string): State {
   // The running session pays its own penalty when it stops.
   const over = (x: State) => Math.max(0, gamingUsedMs({ ...x, activeGame: null }, key) - gamingBudgetMin(x, key) * MIN);
-  const diff = gamePenalty(over(next)) - gamePenalty(over(prev));
+  const diff = sickOn(next, key) ? 0 : gamePenalty(over(next)) - gamePenalty(over(prev));
   if (diff > 0) {
     msgs.push({ text: L(next, 'gameEditOver', { over: fmtDuration(over(next)), penalty: diff }), tone: 'bad' });
-    return reward(next, msgs, -diff);
+    return penalize(next, key, diff);
   }
   if (diff < 0) {
     msgs.push({ text: L(next, 'gameEditRefund', { xp: -diff }), tone: 'info' });
-    return { ...next, xp: next.xp - diff };
+    return refundPenalty(next, key, -diff);
   }
   msgs.push({ text: plain, tone: 'info' });
   return next;
@@ -197,7 +214,7 @@ function checkLeague(s: State, msgs: Msg[]): State {
   return { ...s, league: newLeague(r.tier, week, history), coins: s.coins + r.prize, coinsEarned: s.coinsEarned + r.prize };
 }
 
-/** Fixes today's quests, completes any that are done, and settles the weekly boss. */
+/** Fixes today's quests, completes any that are done, and settles the weekly boss (checkBoss). */
 function checkQuests(s: State, msgs: Msg[]): State {
   if (!s.onboarded) return s;
   const key = dayKey();
@@ -206,12 +223,17 @@ function checkQuests(s: State, msgs: Msg[]): State {
     const picked = pickQuestsWithFocus(next);
     next = patchDay(next, key, (d) => ({ ...d, quests: picked.ids, questFocus: picked.focus ?? undefined }));
   }
+  // A reduced day's gentle quest is fixed the first time the day is reduced, so it can't change under you.
+  if (reducedDay(next, key) && !dayOf(next, key).questReduced) {
+    const id = gentleQuestFor(next);
+    next = patchDay(next, key, (d) => ({ ...d, questReduced: id }));
+  }
 
   for (const q of questsFor(next)) {
     if ((dayOf(next, key).questsDone ?? []).includes(q.id) || q.progress < q.target) continue;
     next = bump(patchDay(next, key, (d) => ({ ...d, questsDone: [...(d.questsDone ?? []), q.id] })), 'quests');
     msgs.push({ text: `🗡️ ${L(next, 'questDone', { quest: q.title, xp: q.xp })}`, tone: 'epic' });
-    next = reward(next, msgs, q.xp);
+    next = reward(next, msgs, q.xp, 0, key, { ref: `q:${q.id}` });
   }
 
   const d = dayOf(next, key);
@@ -222,28 +244,70 @@ function checkQuests(s: State, msgs: Msg[]): State {
     next = reward(next, msgs, XP.questsAll, BONUS_MIN.questsAll);
   }
 
-  // The week after all 8 bosses have fallen, the Lazy Syndicate's ruler shows up instead.
+  return checkBoss(next, msgs);
+}
+
+type Boss = ReturnType<typeof bossFor>;
+
+/**
+ * Marks a boss as beaten and pays for it. `late`: last week's, finished off by numbers that only came in
+ * after its week (a watch sync, a binge day that's now over). Its XP goes to that week's Sunday, so this
+ * week's boss doesn't take the hit; the bonus gaming minutes are today's, where they can still be used.
+ */
+function slay(s: State, msgs: Msg[], boss: Boss, late = false): State {
+  const sunday = addDays(new Date(`${boss.key}T12:00`), 6);
+  const when = late ? atTime(sunday, 0, 23, 59) : new Date();
+  let next = bump(
+    { ...s, bossesDefeated: { ...s.bossesDefeated, [boss.key]: boss.id }, bossKilledAt: { ...s.bossKilledAt, [boss.key]: when.getTime() } },
+    'bosses',
+  );
+  const season = seasonOn(when);
+  if (season) next = { ...next, seasonWins: [...(next.seasonWins ?? []), `${season.id}-${when.getFullYear()}`] };
+  if (late) {
+    msgs.push({ text: `${boss.emoji} ${L(next, 'bossLateKill', { boss: boss.name, xp: XP.boss })}`, tone: 'epic' });
+    next = earnBonus(reward(next, msgs, XP.boss, 0, dayKey(sunday)), dayKey(), BONUS_MIN.boss);
+  } else {
+    msgs.push({ text: `${boss.emoji} ${L(next, 'bossDefeated', { boss: boss.name })}`, tone: 'epic' });
+    next = reward(next, msgs, XP.boss, BONUS_MIN.boss);
+  }
+  if (boss.final) {
+    next = { ...next, syndicateBroken: Date.now(), coins: next.coins + 500, coinsEarned: next.coinsEarned + 500 };
+    msgs.push({ text: `👑 ${L(next, 'syndicateBroken', { boss: boss.name })}`, tone: 'epic' });
+  }
+  return next;
+}
+
+/**
+ * The weekly boss: a late kill for last week, the Couch King's weeks (his first once all 8 have fallen,
+ * then a rematch every 8 weeks while he stands), this week's kill, its rage and the henchmen after it.
+ * Runs after the quests and again after crits and achievements, so their damage can finish it too.
+ */
+function checkBoss(s: State, msgs: Msg[]): State {
+  if (!s.onboarded) return s;
+  let next = s;
+  const lastWeek = bossFor(next, addDays(startOfWeek(new Date()), -7));
+  if (!lastWeek.defeated && lastWeek.hp <= 0) next = slay(next, msgs, lastWeek, true);
+
   const week = weekKey();
-  if (finalBossDue(next, week) && !next.bossesDefeated[week]) {
-    next = { ...next, finalBossWeek: week };
+  if (finalBossDue(next, week) && !next.bossesDefeated[week]) next = { ...next, finalBossWeek: week, kingWeeks: [week] };
+  const rematch = kingRematchFor(next, week);
+  if (rematch) {
+    next = { ...next, kingWeeks: [...kingWeeksOf(next), rematch] };
+    const day = new Date(`${rematch}T12:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+    if (rematch !== week) msgs.push({ text: `👑 ${L(next, 'kingEscaped', { boss: FINAL_BOSS.name, day })}`, tone: 'info' });
+  }
+  // Announced once per Couch King week (a save from before kingAnnounced already announced its first one).
+  const announced = next.kingAnnounced ?? (s.finalBossWeek === week ? week : undefined);
+  const kings = kingWeeksOf(next);
+  if (kings.includes(week) && announced !== week && !next.bossesDefeated[week]) {
+    next = { ...next, kingAnnounced: week };
     const king = bossFor(next);
-    msgs.push({ text: `${king.emoji} ${L(next, 'finalBossArrives', { boss: king.name })}`, tone: 'epic' });
+    msgs.push({ text: `${king.emoji} ${L(next, kings.indexOf(week) === 0 ? 'finalBossArrives' : 'kingReturns', { boss: king.name })}`, tone: 'epic' });
   }
 
   const boss = bossFor(next);
   if (!boss.defeated && boss.hp <= 0) {
-    next = bump(
-      { ...next, bossesDefeated: { ...next.bossesDefeated, [boss.key]: boss.id }, bossKilledAt: { ...next.bossKilledAt, [boss.key]: Date.now() } },
-      'bosses',
-    );
-    const season = seasonOn();
-    if (season) next = { ...next, seasonWins: [...(next.seasonWins ?? []), `${season.id}-${new Date().getFullYear()}`] };
-    msgs.push({ text: `${boss.emoji} ${L(next, 'bossDefeated', { boss: boss.name })}`, tone: 'epic' });
-    next = reward(next, msgs, XP.boss, BONUS_MIN.boss);
-    if (boss.final) {
-      next = { ...next, syndicateBroken: Date.now(), coins: next.coins + 500, coinsEarned: next.coinsEarned + 500 };
-      msgs.push({ text: `👑 ${L(next, 'syndicateBroken', { boss: boss.name })}`, tone: 'epic' });
-    }
+    next = slay(next, msgs, boss);
   } else if (!boss.defeated && boss.rageWeakness && next.bossPhaseSeen !== boss.key) {
     next = { ...next, bossPhaseSeen: boss.key };
     msgs.push({ text: `${boss.emoji} ${L(next, 'bossEnraged', { boss: boss.name, weakness: boss.rageWeakness })}`, tone: 'epic' });
@@ -274,19 +338,23 @@ function checkDiary(s: State, msgs: Msg[]): State {
   return r.state;
 }
 
-function checkAchievements(s: State, msgs: Msg[]): State {
+function checkAchievements(s: State, msgs: Msg[], quiet = false): State {
   let next = s;
   for (const a of ACHIEVEMENTS) {
     if (next.achievements[a.id] || !a.test(next)) continue;
     next = { ...next, achievements: { ...next.achievements, [a.id]: Date.now() } };
     msgs.push({ text: `🏆 ${L(next, 'achievement', { title: a.title })} +${XP.achievement} XP`, tone: 'epic' });
-    next = reward(next, msgs, XP.achievement);
+    next = reward(next, msgs, XP.achievement, 0, dayKey(), { quiet });
   }
   for (const a of SECRET_ACHIEVEMENTS) {
     if (next.secrets[a.id] || !a.test(next)) continue;
     next = { ...next, secrets: { ...next.secrets, [a.id]: Date.now() } };
+    if (a.badge) {
+      msgs.push({ text: `🏷️ ${a.title}: ${a.desc}. ${BADGE_NOTE}`, tone: 'info' });
+      continue;
+    }
     msgs.push({ text: `🔓 SECRET ACHIEVEMENT: ${a.title}! ${a.desc}. +${XP.secret} XP +${SECRET_COINS} 🪙`, tone: 'epic' });
-    next = reward(next, msgs, XP.secret);
+    next = reward(next, msgs, XP.secret, 0, dayKey(), { quiet });
     next = { ...next, coins: next.coins + SECRET_COINS, coinsEarned: next.coinsEarned + SECRET_COINS };
   }
   return next;
@@ -352,7 +420,8 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
   const now = new Date();
   const yesterday = dayKey(addDays(now, -1));
   const weekAgo = dayKey(addDays(now, -7));
-  let next: State = { ...s, lastRollover: today };
+  // Yesterday (and anything older) keeps the goals it had, whatever changes from now on.
+  let next: State = withoutUndoRecords(withGoals({ ...s, lastRollover: today }, today), today);
   // From the last day the app was opened (which may have stayed empty too), a week back at most.
   const since = s.lastRollover && s.lastRollover < today ? s.lastRollover : yesterday;
   const pool = restedAfter(s.rested ?? 0, restedGain(s, since < weekAgo ? weekAgo : since, yesterday));
@@ -360,7 +429,47 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
     next = { ...next, rested: pool };
     msgs.push({ text: `😴 ${L(next, 'restedReady', { xp: pool })}`, tone: 'info' });
   }
-  for (const key of [dayKey(addDays(now, -2)), yesterday]) next = bankGaming(next, key, msgs);
+  // Every day since the last rollover (two back on a first one), so days away don't lose their unused minutes.
+  const bankFrom = s.lastRollover && s.lastRollover < today ? s.lastRollover : dayKey(addDays(now, -2));
+  for (let d = new Date(`${bankFrom}T12:00`); dayKey(d) <= yesterday; d = addDays(d, 1)) next = bankGaming(next, dayKey(d), msgs);
+  // Unopened chests wait on the shelf with the gold status they earned; past SHELF_MAX the oldest opens itself.
+  next = withChestGold(next, today);
+  const shelf = chestShelf(next, now);
+  for (const c of shelf.slice(0, Math.max(0, shelf.length - SHELF_MAX))) next = openChestOn(next, c.key, c.gold, msgs, true);
+  return next;
+}
+
+/**
+ * Opens the chest earned on day `key` and applies its prize: coins, Double XP (added to any time left),
+ * a boss bomb on this week's boss, or gaming minutes for today, wherever the chest came from.
+ */
+function openChestOn(s: State, key: string, gold: boolean, msgs: Msg[], auto = false): State {
+  const d = dayOf(s, key);
+  if (!d.chestReady || d.chest) return s;
+  const since = s.chestsSinceLegendary ?? 0;
+  const prize = rollChest(Math.random(), { gold, pity: since >= PITY_AFTER, luck: chestLuck(s) });
+  let next = patchDay(s, key, (x) => ({ ...x, chest: prize }));
+  next = { ...next, chestsSinceLegendary: prize.kind === 'legendary' ? 0 : since + 1 };
+  const drop = prize.kind === 'legendary' ? legendaryDrop(next) : null;
+  if (drop) {
+    next = withOwned(next, drop.id);
+    msgs.push({ text: `${drop.emoji} Rare drop: ${drop.name} for your spider. Wear it from the Shop.`, tone: 'epic' });
+  }
+  if (prize.kind === 'coins' || prize.kind === 'legendary') {
+    next = { ...next, coins: next.coins + prize.amount, coinsEarned: next.coinsEarned + prize.amount };
+  }
+  if (prize.kind === 'gaming') next = patchDay(next, dayKey(), (x) => ({ ...x, bonusGameMin: x.bonusGameMin + prize.amount }));
+  if (prize.kind === 'double_xp') next = { ...next, doubleXpUntil: Math.max(Date.now(), next.doubleXpUntil ?? 0) + prize.amount * MIN };
+  if (prize.kind === 'boss_bomb') {
+    const week = weekKeyOf();
+    next = { ...next, bossBombs: { ...next.bossBombs, [week]: (next.bossBombs[week] ?? 0) + prize.amount } };
+  }
+  const text = auto
+    ? L(next, 'chestAutoOpened', { prize: prize.text })
+    : prize.kind === 'legendary'
+      ? L(next, 'legendaryRoast')
+      : L(next, 'chestOpened', { prize: prize.text });
+  msgs.push({ text: prize.gold ? `✨ Gold chest! ${text}` : text, tone: 'epic' });
   return next;
 }
 
@@ -408,7 +517,37 @@ function startWorkout(s: State, msgs: Msg[]): State {
   if (dayOf(s, key).workoutCounted) return s;
   const next = bump(patchDay(s, key, (d) => ({ ...d, workoutCounted: true })), 'workouts');
   msgs.push({ text: L(next, 'gymStarted'), tone: 'epic' });
-  return reward(next, msgs, XP.workout, workoutBonusMin(next));
+  return reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' });
+}
+
+/**
+ * The day's last set or activity was deleted: the workout it counted comes off the books, with its XP,
+ * the counter, its bonus minutes and the workout quests (unless every quest was already done).
+ */
+function undoWorkout(s: State, msgs: Msg[], key = dayKey()): State {
+  const d = dayOf(s, key);
+  if (!d.workoutCounted || trainedOn(d)) return s;
+  let next = bump(patchDay(s, key, (x) => ({ ...x, workoutCounted: false })), 'workouts', -1);
+  next = unreward(next, key, 'workout', XP.workout, workoutBonusMin(next));
+  if (!d.questsAllDone) {
+    for (const q of ['workout', 'train_minutes']) {
+      if (!(dayOf(next, key).questsDone ?? []).includes(q)) continue;
+      next = bump(patchDay(next, key, (x) => ({ ...x, questsDone: (x.questsDone ?? []).filter((id) => id !== q) })), 'quests', -1);
+      next = unreward(next, key, `q:${q}`, questXpOf(q));
+    }
+  }
+  msgs.push({ text: 'Nothing logged for training today anymore, so the workout is off the books.', tone: 'info' });
+  return next;
+}
+
+/** The heaviest weight for an exercise in sets logged before `at` (what a set had to beat to be a record). */
+function bestBefore(s: State, exercise: string, at: number) {
+  const id = exercise.trim().toLowerCase();
+  let best: number | undefined;
+  for (const d of Object.values(s.days)) {
+    for (const x of d.sets) if (x.at < at && x.exercise.trim().toLowerCase() === id) best = Math.max(best ?? 0, x.weight);
+  }
+  return best;
 }
 
 function recomputePr(s: State, exercise: string): State {
@@ -730,17 +869,22 @@ function useStoreValue() {
 
   /** Apply a change, award achievements, save, and show S.P.I.D.E.R.'s reactions. */
   const run = useCallback(
-    (fn: (s: State, msgs: Msg[]) => State) => {
+    /** `quiet`: no golden line, rival remark, respect news or level-up toasts (body and photo logging stay neutral). */
+    (fn: (s: State, msgs: Msg[]) => State, opts: { quiet?: boolean } = {}) => {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
+      const quiet = !!opts.quiet;
       const rolled = checkDayRollover(prev, msgs);
       const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(fn(rolled, msgs), msgs), msgs), msgs), msgs);
-      const next = checkRivalTalk(checkDiary(checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs), msgs), msgs);
+      // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
+      const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
+      const next = quiet ? checkDiary(scored, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(scored, msgs), msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone, m.action));
-      // Earned bonus minutes mid-session move the gaming alerts.
-      if (next.activeGame && dayOf(next).bonusGameMin !== dayOf(prev).bonusGameMin) {
-        void scheduleGameAlerts(next, gamingBudgetMin(next) - gamingUsedMs(next) / MIN);
+      // Earned bonus minutes mid-session move the gaming alerts (the session's own day, past midnight too).
+      const playKey = next.activeGame ? dayKey(next.activeGame.start) : null;
+      if (playKey && dayOf(next, playKey).bonusGameMin !== dayOf(prev, playKey).bonusGameMin) {
+        void scheduleGameAlerts(next, gamingBudgetMin(next, playKey) - gamingUsedMs(next, playKey) / MIN);
       }
       return next;
     },
@@ -863,6 +1007,18 @@ function useStoreValue() {
     screenTimeSupported ? 'needs-permission' : 'unsupported',
   );
   const screenHistoryDone = useRef(false); // past days' final screen time, once per app run
+  /** Phone games played while the gaming timer ran are already in the timer: remembers how many minutes to take off. */
+  const refreshGameOverlap = useCallback(async () => {
+    const s0 = stateRef.current;
+    const from = startOfDay().getTime();
+    const now = Date.now();
+    const sessions = [...dayOf(s0).games, ...(s0.activeGame ? [{ start: s0.activeGame.start, end: now }] : [])].filter((g) => g.end > from);
+    if (!sessions.length || !s0.settings.phoneGamesCount) return;
+    const games = new Set((await usageBetween(from, now)).filter((a) => a.isGame).map((a) => a.packageName));
+    const overlap = games.size ? gamesInTimerMin(await spansBetween(from, now), games, sessions) : 0;
+    if (overlap !== (dayOf(stateRef.current).phoneGamesInTimerMin ?? 0)) run((s) => patchDay(s, dayKey(), (d) => ({ ...d, phoneGamesInTimerMin: overlap })));
+  }, [run]);
+
   const refreshScreen = useCallback(async () => {
     if (!screenTimeSupported) return;
     if (!hasUsageAccess()) {
@@ -905,10 +1061,11 @@ function useStoreValue() {
         const night = nightPhone(await spansBetween(bed, end), bed, end);
         run((s) => patchDay(s, nightKey, (d) => ({ ...d, night })));
       }
+      await refreshGameOverlap();
     } catch (e) {
       console.warn('[spider] screen time failed', e);
     }
-  }, [run]);
+  }, [run, refreshGameOverlap]);
   useEffect(() => {
     if (!ready || !state.onboarded || !screenTimeSupported) return;
     const first = setTimeout(() => void refreshScreen(), 0);
@@ -1180,7 +1337,8 @@ function useStoreValue() {
         }
         run((s, msgs) => {
           const key = dayKey();
-          let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: Date.now() }] }));
+          const id = uid();
+          let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id, ml, at: Date.now() }] }));
           const d = dayOf(next, key);
           const total = waterMl(d);
           const goal = waterGoalFor(next, key);
@@ -1190,11 +1348,12 @@ function useStoreValue() {
               text: `${L(next, 'waterGoal')} +${XP.waterGoal} XP · +${BONUS_MIN.waterGoal} min gaming`,
               tone: 'epic',
             });
-            next = reward(next, msgs, XP.water + XP.waterGoal, BONUS_MIN.waterGoal);
+            // The glass is undoable; the goal it reached stays reached.
+            next = reward(reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` }), msgs, XP.waterGoal, BONUS_MIN.waterGoal, key);
             return hasPerk(next, 'hydro_glands') ? perkCoins(next, msgs, 25, '💧 Hydro Glands') : next;
           }
           msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, goal - total) }), tone: 'good' });
-          return reward(next, msgs, XP.water);
+          return reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` });
         });
       },
 
@@ -1205,11 +1364,12 @@ function useStoreValue() {
           return;
         }
         run((s, msgs) => {
-          const d = dayOf(s);
-          if (d.water.length === 0) return s;
-          const next = patchDay(s, dayKey(), (x) => ({ ...x, water: x.water.slice(0, -1) }));
+          const key = dayKey();
+          const last = dayOf(s, key).water.at(-1);
+          if (!last) return s;
+          const next = patchDay(s, key, (x) => withoutCrit({ ...x, water: x.water.slice(0, -1) }, last.id));
           msgs.push({ text: 'Undone. I saw that, though.', tone: 'info' });
-          return reward(next, msgs, -XP.water);
+          return unreward(next, key, `w:${last.id}`, XP.water);
         });
       },
 
@@ -1225,15 +1385,17 @@ function useStoreValue() {
         }
         run((s, msgs) => {
           const key = dayKey();
-          let next = patchDay(s, key, (d) => ({ ...d, food: [...d.food, { id: uid(), ...food, at: Date.now() }] }));
+          const id = uid();
+          let next = patchDay(s, key, (d) => ({ ...d, food: [...d.food, { id, ...food, at: Date.now() }] }));
           const d = dayOf(next, key);
+          next = reward(next, msgs, XP.food, 0, key, { ref: `f:${id}` });
           if (!d.proteinGoalHit && s.settings.proteinGoal > 0 && proteinOf(d) >= s.settings.proteinGoal) {
             next = patchDay(next, key, (x) => ({ ...x, proteinGoalHit: true }));
             msgs.push({ text: `${L(next, 'proteinGoal')} +${XP.proteinGoal} XP`, tone: 'epic' });
-            return reward(next, msgs, XP.food + XP.proteinGoal);
+            return reward(next, msgs, XP.proteinGoal, 0, key);
           }
           msgs.push({ text: L(next, food.photo ? 'mealPhoto' : 'foodLogged'), tone: 'good' });
-          return reward(next, msgs, XP.food);
+          return next;
         });
       },
 
@@ -1243,9 +1405,9 @@ function useStoreValue() {
 
       removeFood(id: string, key = dayKey()) {
         deletePhoto(dayOf(stateRef.current, key).food.find((f) => f.id === id)?.photo);
-        run((s, msgs) => {
-          const next = patchDay(s, key, (d) => ({ ...d, food: d.food.filter((f) => f.id !== id) }));
-          return pastKey(key) ? next : reward(next, msgs, -XP.food);
+        run((s) => {
+          const next = patchDay(s, key, (d) => withoutCrit({ ...d, food: d.food.filter((f) => f.id !== id) }, id));
+          return pastKey(key) ? next : unreward(next, key, `f:${id}`, XP.food);
         });
       },
 
@@ -1257,13 +1419,20 @@ function useStoreValue() {
 
       /** A progress photo already saved in the app's storage (e.g. shared from another app). */
       addProgressPhotoFrom(uri: string) {
-        run((s, msgs) => {
-          const todayStart = startOfDay().getTime();
-          const firstToday = !s.progressPhotos.some((p) => p.at >= todayStart);
-          const next = { ...s, progressPhotos: [...s.progressPhotos, { id: uid(), uri, at: Date.now() }] };
-          msgs.push({ text: L(next, 'progressPhoto') + (firstToday ? ` +${XP.progressPhoto} XP` : ''), tone: 'good' });
-          return firstToday ? reward(next, msgs, XP.progressPhoto) : next;
-        });
+        run(
+          (s, msgs) => {
+            const key = dayKey();
+            const todayStart = startOfDay().getTime();
+            // once a day, even if today's photo was deleted and taken again
+            const firstToday = !dayOf(s, key).paid?.photo && !s.progressPhotos.some((p) => p.at >= todayStart);
+            let next = { ...s, progressPhotos: [...s.progressPhotos, { id: uid(), uri, at: Date.now() }] };
+            msgs.push({ text: L(next, 'progressPhoto') + (firstToday ? ` +${XP.progressPhoto} XP` : ''), tone: 'good' });
+            if (!firstToday) return next;
+            next = patchDay(next, key, (d) => ({ ...d, paid: { ...d.paid, photo: true } }));
+            return reward(next, msgs, XP.progressPhoto, 0, key, { quiet: true });
+          },
+          { quiet: true },
+        );
       },
 
       removeProgressPhoto(id: string) {
@@ -1311,13 +1480,15 @@ function useStoreValue() {
       // --- timed training (Maskiner / Kondition / Fria vikter) ---
       addActivity(kind: ActivityKind, minutes: number) {
         run((s, msgs) => {
-          let next = patchDay(s, dayKey(), (d) => ({
+          const key = dayKey();
+          const id = uid();
+          let next = patchDay(s, key, (d) => ({
             ...d,
-            activities: [...activitiesOf(d), { id: uid(), kind, minutes, at: Date.now() }],
+            activities: [...activitiesOf(d), { id, kind, minutes, at: Date.now() }],
           }));
           next = startWorkout(next, msgs);
           msgs.push({ text: L(next, 'activityLogged', { activity: activityInfo(kind).label, minutes }), tone: 'good' });
-          return reward(next, msgs, activityXp(minutes));
+          return reward(next, msgs, activityXp(minutes), 0, key, { ref: `a:${id}` });
         });
       },
 
@@ -1325,9 +1496,12 @@ function useStoreValue() {
         run((s, msgs) => {
           const old = activitiesOf(dayOf(s)).find((a) => a.id === id);
           if (!old) return s;
-          const next = patchDay(s, dayKey(), (d) => ({ ...d, activities: activitiesOf(d).map((a) => (a.id === id ? { ...a, ...patch } : a)) }));
-          const xpDiff = activityXp(patch.minutes ?? old.minutes) - activityXp(old.minutes);
-          return xpDiff ? reward(next, msgs, xpDiff) : next;
+          const key = dayKey();
+          const next = patchDay(s, key, (d) => ({ ...d, activities: activitiesOf(d).map((a) => (a.id === id ? { ...a, ...patch } : a)) }));
+          const xp = activityXp(patch.minutes ?? old.minutes);
+          if (xp === activityXp(old.minutes)) return next;
+          // What the old length paid goes, what the new one pays comes: the same multipliers both ways.
+          return reward(unreward(next, key, `a:${id}`, activityXp(old.minutes)), msgs, xp, 0, key, { ref: `a:${id}` });
         });
       },
 
@@ -1335,8 +1509,9 @@ function useStoreValue() {
         run((s, msgs) => {
           const old = activitiesOf(dayOf(s)).find((a) => a.id === id);
           if (!old) return s;
-          const next = patchDay(s, dayKey(), (d) => ({ ...d, activities: activitiesOf(d).filter((a) => a.id !== id) }));
-          return reward(next, msgs, -activityXp(old.minutes));
+          const key = dayKey();
+          const next = patchDay(s, key, (d) => withoutCrit({ ...d, activities: activitiesOf(d).filter((a) => a.id !== id) }, id));
+          return undoWorkout(unreward(next, key, `a:${id}`, activityXp(old.minutes)), msgs, key);
         });
       },
 
@@ -1388,17 +1563,20 @@ function useStoreValue() {
         }
         run((s, msgs) => {
           const key = dayKey();
-          const earlier = moodsOf(dayOf(s, key)).length;
+          const d0 = dayOf(s, key);
+          const paid = d0.paid?.mood ?? moodsOf(d0).length; // check-ins already paid today, deleted ones included
           const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: Date.now() };
-          const next = patchDay(s, key, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
+          let next = patchDay(s, key, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
           msgs.push({ text: L(next, moodInfo(level).line), tone: level <= 2 ? 'info' : 'good' });
           // XP for the first three check-ins a day, so it can't be farmed.
-          return earlier < 3 ? reward(next, msgs, XP.mood) : next;
+          if (paid >= 3) return next;
+          next = patchDay(next, key, (d) => ({ ...d, paid: { ...d.paid, mood: paid + 1 } }));
+          return reward(next, msgs, XP.mood, 0, key);
         });
       },
 
       removeMood(id: string, key = dayKey()) {
-        run((s) => patchDay(s, key, (d) => ({ ...d, moods: moodsOf(d).filter((m) => m.id !== id) })));
+        run((s) => patchDay(s, key, (d) => withoutCrit({ ...d, moods: moodsOf(d).filter((m) => m.id !== id) }, id)));
       },
 
       /** Fixes a check-in's mood, emotions or note. Its time and XP stay as they were. */
@@ -1417,12 +1595,13 @@ function useStoreValue() {
           const key = dayKey();
           const name = exercise.trim();
           const id = name.toLowerCase();
+          const setId = uid();
           const firstOfDay = !dayOf(s, key).workoutCounted;
           const prevBest = s.prs[id];
           let next = patchDay(s, key, (d) => ({
             ...d,
             workoutCounted: true,
-            sets: [...d.sets, { id: uid(), exercise: name, weight, reps, at: Date.now() }],
+            sets: [...d.sets, { id: setId, exercise: name, weight, reps, at: Date.now() }],
           }));
           if (prevBest === undefined || weight > prevBest) next = { ...next, prs: { ...next.prs, [id]: weight } };
           const isPR = prevBest !== undefined && weight > prevBest;
@@ -1430,15 +1609,16 @@ function useStoreValue() {
           if (firstOfDay) {
             next = bump(next, 'workouts');
             msgs.push({ text: `${L(next, 'gymStarted')}`, tone: 'epic' });
-            next = reward(next, msgs, XP.workout + XP.set, workoutBonusMin(next));
+            next = reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' });
           }
+          // Each part is recorded so deleting the set takes back exactly it (and the record, if it was one).
+          next = reward(next, msgs, XP.set, 0, key, { ref: `s:${setId}` });
           if (isPR) {
             next = bump(next, 'prs');
             msgs.push({ text: `🔥 ${L(next, 'gymPR', { exercise: name, weight })} +${XP.pr} XP`, tone: 'epic' });
-            next = reward(next, msgs, XP.pr + (firstOfDay ? 0 : XP.set));
+            next = reward(next, msgs, XP.pr, 0, key, { ref: `pr:${setId}` });
           } else if (!firstOfDay) {
             msgs.push({ text: L(next, 'gymSet', { weight, reps, exercise: name }), tone: 'good' });
-            next = reward(next, msgs, XP.set);
           }
           if (s.settings.restSeconds > 0) next = { ...next, restEndsAt: Date.now() + s.settings.restSeconds * 1000 };
           return next;
@@ -1448,19 +1628,31 @@ function useStoreValue() {
 
       removeSet(id: string) {
         run((s, msgs) => {
-          const set = dayOf(s).sets.find((x) => x.id === id);
+          const key = dayKey();
+          const set = dayOf(s, key).sets.find((x) => x.id === id);
           if (!set) return s;
-          const next = patchDay(s, dayKey(), (d) => ({ ...d, sets: d.sets.filter((x) => x.id !== id) }));
-          return reward(recomputePr(next, set.exercise), msgs, -XP.set);
+          let next = patchDay(s, key, (d) => withoutCrit({ ...d, sets: d.sets.filter((x) => x.id !== id) }, id));
+          next = unreward(next, key, `s:${id}`, XP.set);
+          // A record set taken back: its XP and the record count go too, so logging it again isn't a second record.
+          if (dayOf(s, key).xpBy?.[`pr:${id}`] != null) next = bump(unreward(next, key, `pr:${id}`, XP.pr), 'prs', -1);
+          return undoWorkout(recomputePr(next, set.exercise), msgs, key);
         });
       },
 
-      /** Fixes a typo in one of today's sets. The record follows the new numbers; no XP changes hands. */
+      /**
+       * Fixes a typo in one of today's sets. The record follows the new numbers and no XP changes hands,
+       * except that a set fixed down to no longer be a record gives its record XP back.
+       */
       updateSet(id: string, patch: { weight: number; reps: number }) {
         run((s) => {
-          const set = dayOf(s).sets.find((x) => x.id === id);
+          const key = dayKey();
+          const set = dayOf(s, key).sets.find((x) => x.id === id);
           if (!set) return s;
-          const next = patchDay(s, dayKey(), (d) => ({ ...d, sets: d.sets.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+          let next = patchDay(s, key, (d) => ({ ...d, sets: d.sets.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+          const best = bestBefore(s, set.exercise, set.at);
+          if (dayOf(s, key).xpBy?.[`pr:${id}`] != null && best !== undefined && patch.weight <= best) {
+            next = bump(unreward(next, key, `pr:${id}`, XP.pr), 'prs', -1);
+          }
           return recomputePr(next, set.exercise);
         });
       },
@@ -1500,15 +1692,20 @@ function useStoreValue() {
         const s0 = stateRef.current;
         if (!s0.activeGame) return;
         const next = run((s) => (s.activeGame ? { ...s, activeGame: { ...s.activeGame, game: game.trim() || undefined } } : s));
-        void scheduleGameAlerts(next, gamingBudgetMin(next) - gamingUsedMs(next) / MIN);
+        const key = dayKey(s0.activeGame.start); // a session past midnight keeps its start day's budget
+        void scheduleGameAlerts(next, gamingBudgetMin(next, key) - gamingUsedMs(next, key) / MIN);
       },
 
-      stopGame() {
+      /**
+       * Ends the running session, charged to the day it started (past midnight too). `endAt` and `capped`:
+       * a forgotten timer stopped at its cap (gameCapAt) instead of now.
+       */
+      stopGame(endAt?: number, capped = false) {
         const s0 = stateRef.current;
         if (!s0.activeGame) return;
         const start = s0.activeGame.start;
         const game = s0.activeGame.game;
-        const end = Date.now();
+        const end = Math.max(start, Math.min(typeof endAt === 'number' ? endAt : Date.now(), Date.now()));
         const key = dayKey(start);
         const budgetMs = gamingBudgetMin(s0, key) * MIN;
         const usedBefore = gamingUsedMs({ ...s0, activeGame: null }, key);
@@ -1517,9 +1714,14 @@ function useStoreValue() {
           let next = patchDay({ ...s, activeGame: null }, key, (d) => ({ ...d, games: [...d.games, { start, end, game }] }));
           const overMs = Math.min(dur, usedBefore + dur - budgetMs);
           const penalty = gamePenalty(overMs);
-          if (penalty) {
+          if (capped) msgs.push({ text: L(next, 'gameCapped', { time: fmtTime(end) }), tone: 'info' });
+          if (penalty && sickOn(s, key)) {
+            msgs.push({ text: `Session ended after ${fmtDuration(dur)}. Rest up.`, tone: 'info' });
+          } else if (penalty) {
             msgs.push({ text: L(next, 'gameStopBad', { over: fmtDuration(overMs), penalty }), tone: 'bad' });
-            next = reward(next, msgs, -penalty);
+            next = penalize(next, key, penalty);
+          } else if (capped) {
+            // the capped message said it all
           } else if (dur >= 10 * MIN) {
             next = bump(next, 'disciplinedStops');
             msgs.push({ text: L(next, 'gameStopGood'), tone: 'good' });
@@ -1571,15 +1773,31 @@ function useStoreValue() {
         run((s, msgs) => {
           const task = s.tasks.find((t) => t.id === id);
           if (!task) return s;
-          const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: !t.done, doneAt: t.done ? undefined : Date.now() } : t));
+          const today = dayKey();
+          // The day's own record of finished tasks: what contracts and the boss weakness count, even after Clear.
+          const record = (x: State, key: string, at: number | null) =>
+            patchDay(x, key, (d) => ({ ...d, doneTasks: [...(d.doneTasks ?? []).filter((t) => t.id !== id), ...(at == null ? [] : [{ id, at }])] }));
           if (!task.done) {
+            const first = task.firstDoneAt;
+            if (first != null && dayKey(first) !== today) {
+              // Done again after being unchecked: it goes back to the day it was first done, for its XP only.
+              const key = dayKey(first);
+              const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: true, doneAt: first } : t));
+              msgs.push({ text: `✅ Back to done. It counts for ${dayName(key)}, when you finished it.`, tone: 'info' });
+              return reward(record(bump({ ...s, tasks }, 'tasksDone'), key, first), msgs, XP.task, 0, key);
+            }
+            const now = Date.now();
+            const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: true, doneAt: now, firstDoneAt: t.firstDoneAt ?? now } : t));
             const age = taskAgeDays(task);
             if (age >= IMMORTAL_DAYS) msgs.push({ text: L(s, 'immortalSlain', { task: task.title, days: age }), tone: 'epic' });
             else msgs.push({ text: L(s, 'taskDone'), tone: 'good' });
-            return reward(bump({ ...s, tasks }, 'tasksDone'), msgs, XP.task, BONUS_MIN.task);
+            return reward(record(bump({ ...s, tasks }, 'tasksDone'), today, now), msgs, XP.task, BONUS_MIN.task, today, { ref: `t:${id}` });
           }
-          const doneToday = task.doneAt && dayKey(task.doneAt) === dayKey();
-          return reward(bump({ ...s, tasks }, 'tasksDone', -1), msgs, -XP.task, doneToday ? -BONUS_MIN.task : 0);
+          // Unchecked: it comes off the day it was done (contracts, the boss weakness), with what it paid.
+          const key = task.doneAt ? dayKey(task.doneAt) : today;
+          const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: false, doneAt: undefined, firstDoneAt: t.firstDoneAt ?? t.doneAt } : t));
+          const next = patchDay(record(bump({ ...s, tasks }, 'tasksDone', -1), key, null), key, (d) => withoutCrit(d, id));
+          return unreward(next, key, `t:${id}`, XP.task, key === today ? BONUS_MIN.task : 0);
         });
       },
 
@@ -1621,11 +1839,11 @@ function useStoreValue() {
           const habit = s.habits.find((h) => h.id === id);
           if (!habit) return s;
           const done = habitsDone(s, key);
-          if (done.includes(id)) return reward(patchDay(s, key, (d) => ({ ...d, habits: done.filter((x) => x !== id) })), msgs, -XP.habit);
+          if (done.includes(id)) return unreward(patchDay(s, key, (d) => withoutCrit({ ...d, habits: done.filter((x) => x !== id) }, id)), key, `h:${id}`, XP.habit);
 
           let next = patchDay(s, key, (d) => ({ ...d, habits: [...done, id] }));
           msgs.push({ text: L(next, 'habitDone', { habit: `${habit.emoji} ${habit.name}` }), tone: 'good' });
-          next = reward(next, msgs, XP.habit);
+          next = reward(next, msgs, XP.habit, 0, key, { ref: `h:${id}` });
           const due = habitsFor(next);
           const nowDone = habitsDone(next, key);
           if (!dayOf(next, key).habitsAllDone && due.length > 0 && due.every((h) => nowDone.includes(h.id))) {
@@ -1687,41 +1905,24 @@ function useStoreValue() {
 
       endPause() {
         run((s, msgs) => {
-          if (!pauseOn(s)) return s;
           const next = pauseEnded(s);
-          msgs.push({ text: L(next, 'pauseOff'), tone: 'info' });
+          if (next === s) return s;
+          msgs.push({ text: `${L(next, 'pauseOff')} Today stays easy; it all counts again from tomorrow.`, tone: 'info' });
           return next;
         });
       },
 
       // --- loot chest & shop ---
-      openChest() {
+      /** Opens the oldest chest on the shelf (or the one earned on `key`). Returns the day it came from. */
+      openChest(key?: string) {
+        let opened: string | null = null;
         run((s, msgs) => {
-          const key = dayKey();
-          const d = dayOf(s, key);
-          if (!d.chestReady || d.chest) return s;
-          const since = s.chestsSinceLegendary ?? 0;
-          const prize = rollChest(Math.random(), { gold: goldChest(s), pity: since >= PITY_AFTER, luck: chestLuck(s) });
-          let next = patchDay(s, key, (x) => ({ ...x, chest: prize }));
-          next = { ...next, chestsSinceLegendary: prize.kind === 'legendary' ? 0 : since + 1 };
-          const drop = prize.kind === 'legendary' ? legendaryDrop(next) : null;
-          if (drop) {
-            next = withOwned(next, drop.id);
-            msgs.push({ text: `${drop.emoji} Rare drop: ${drop.name} for your spider. Wear it from the Shop.`, tone: 'epic' });
-          }
-          if (prize.kind === 'coins' || prize.kind === 'legendary') {
-            next = { ...next, coins: next.coins + prize.amount, coinsEarned: next.coinsEarned + prize.amount };
-          }
-          if (prize.kind === 'gaming') next = patchDay(next, key, (x) => ({ ...x, bonusGameMin: x.bonusGameMin + prize.amount }));
-          if (prize.kind === 'double_xp') next = { ...next, doubleXpUntil: Date.now() + prize.amount * MIN };
-          if (prize.kind === 'boss_bomb') {
-            const week = weekKeyOf();
-            next = { ...next, bossBombs: { ...next.bossBombs, [week]: (next.bossBombs[week] ?? 0) + prize.amount } };
-          }
-          const text = prize.kind === 'legendary' ? L(next, 'legendaryRoast') : L(next, 'chestOpened', { prize: prize.text });
-          msgs.push({ text: prize.gold ? `✨ Gold chest! ${text}` : text, tone: 'epic' });
-          return next;
+          const c = chestShelf(s).find((x) => !key || x.key === key);
+          if (!c) return s;
+          opened = c.key;
+          return openChestOn(s, c.key, c.gold, msgs);
         });
+        return opened;
       },
 
       buyItem(id: ShopItemId) {
@@ -1729,6 +1930,11 @@ function useStoreValue() {
           const item = SHOP_ITEMS.find((i) => i.id === id);
           if (!item) return s;
           const cost = shopPrice(id, s.perks);
+          const boss = bossFor(s);
+          if (id === 'bomb' && boss.defeated) {
+            msgs.push({ text: L(s, 'bombNoBoss', { boss: boss.name }), tone: 'info' });
+            return s;
+          }
           if (s.coins < cost) {
             msgs.push({ text: L(s, 'tooPoor', { missing: cost - s.coins }), tone: 'bad' });
             return s;
@@ -1884,7 +2090,7 @@ function useStoreValue() {
           if (!dayOf(s, key).windDownDone && s.windDownItems.every((i) => list.includes(i))) {
             next = patchDay(next, key, (d) => ({ ...d, windDownDone: true }));
             msgs.push({ text: L(next, 'windDownDone'), tone: 'epic' });
-            next = reward(next, msgs, XP.windDown);
+            next = reward(next, msgs, XP.windDown, 0, key);
           }
           return next;
         });
@@ -1925,13 +2131,20 @@ function useStoreValue() {
 
       // --- body tracking (neutral, never roasted) ---
       addBody(values: Omit<BodyEntry, 'id' | 'at'>) {
-        run((s, msgs) => {
-          const todayStart = startOfDay().getTime();
-          const first = !s.bodyLog.some((b) => b.at >= todayStart);
-          const next = { ...s, bodyLog: [...s.bodyLog, { ...values, id: uid(), at: Date.now() }] };
-          msgs.push({ text: L(next, 'bodyLogged'), tone: 'info' });
-          return first ? reward(next, msgs, XP.body) : next;
-        });
+        run(
+          (s, msgs) => {
+            const key = dayKey();
+            const todayStart = startOfDay().getTime();
+            // once a day, even if today's entry was deleted and logged again
+            const first = !dayOf(s, key).paid?.body && !s.bodyLog.some((b) => b.at >= todayStart);
+            let next = { ...s, bodyLog: [...s.bodyLog, { ...values, id: uid(), at: Date.now() }] };
+            msgs.push({ text: L(next, 'bodyLogged'), tone: 'info' });
+            if (!first) return next;
+            next = patchDay(next, key, (d) => ({ ...d, paid: { ...d.paid, body: true } }));
+            return reward(next, msgs, XP.body, 0, key, { quiet: true });
+          },
+          { quiet: true },
+        );
       },
 
       deleteBody(id: string) {
@@ -2101,6 +2314,20 @@ function useStoreValue() {
     );
     return () => clearTimeout(t);
   }, [activeFocus, tick, actions]);
+
+  // A forgotten gaming timer stops itself at its cap (selectors gameCapAt); checked again whenever the app comes back.
+  const gameStart = state.activeGame?.start;
+  useEffect(() => {
+    if (!ready || gameStart == null) return;
+    const cap = gameCapAt(stateRef.current, gameStart);
+    const ms = cap - Date.now();
+    if (ms <= 0) {
+      actions.stopGame(cap, true);
+      return;
+    }
+    const t = setTimeout(() => actions.stopGame(cap, true), Math.min(ms, 2_147_000_000));
+    return () => clearTimeout(t);
+  }, [ready, gameStart, tick, actions]);
 
   // Screens memoize their lines on `quip`, so it changes with the tone: a low mood or sick mode re-picks them gently.
   const savage = effectiveSavage(state);

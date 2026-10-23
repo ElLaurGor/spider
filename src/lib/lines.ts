@@ -1185,6 +1185,31 @@ export const LINES = {
       '{app} again. Your focus has the attention span of a goldfish. Prove me wrong.',
     ],
   },
+  // step 2 game
+  kingEscaped: {
+    mild: ["{boss} got away this time. He'll be back the week of {day}, a little stronger."],
+    savage: ["{boss} slipped out the back. He returns the week of {day}, stronger. Be ready."],
+  },
+  kingReturns: {
+    mild: ['{boss} is back for another round. Every weakness counts again this week.'],
+    savage: ['{boss} has left the couch again. Same rules: every weakness hurts him. Finish it this time.'],
+  },
+  bossLateKill: {
+    mild: ["Last week's late numbers just came in, and they finished {boss}. +{xp} XP."],
+    savage: ["Late delivery: last week's numbers just finished {boss}. +{xp} XP. Even your paperwork hits hard."],
+  },
+  gameCapped: {
+    mild: ['Your gaming timer was still running, so I stopped it at {time}. Fix the time on the Game tab if you played on.'],
+    savage: ["The timer ran on without you. I stopped it at {time}. If you really played that long, fix it on the Game tab and I'll judge accordingly."],
+  },
+  chestAutoOpened: {
+    mild: ['Your oldest unopened chest opened itself to make room: {prize}.'],
+    savage: ['A chest got tired of waiting and opened itself: {prize}. Hoarding is a lifestyle, apparently.'],
+  },
+  bombNoBoss: {
+    mild: ['{boss} has already fallen this week. Keep the coins for the next one.'],
+    savage: ['{boss} is already down. Bombing a fallen boss is just littering. Keep your coins.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;
