@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { addDays, atTime, dayKey, fmtClock, fmtDuration, MIN, startOfWeek } from '../src/lib/dates';
 import { defaultState, hydrate } from '../src/lib/defaults';
-import { freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
+import { fillLine, freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
 import {
   avgMood,
   caffeineMg,
@@ -216,11 +216,40 @@ assert.equal(totalCoffees(m), 2);
 assert.equal(avgMood(m.days[k]), 3);
 assert.equal(moodDays(m), 1);
 assert.deepEqual(emotionCounts(m), [{ emotion: 'Tired', n: 2 }, { emotion: 'Happy', n: 1 }]);
-// latest mood is low (2) -> roasts dialed down to 2 even at savage 10
+// latest mood is low (2) -> roasts paused (mild only) even at savage 10
 assert.equal(m.settings.savageLevel, 10);
-assert.equal(effectiveSavage(m), 2);
+assert.equal(effectiveSavage(m), 1);
+{
+  const mild = new Set(LINES.gymShame.mild.map((t) => fillLine(t, { workout: 'Push' })));
+  for (let i = 0; i < 1000; i++) assert.ok(mild.has(line('gymShame', effectiveSavage(m), { workout: 'Push' })), 'a roast slipped through a low mood');
+}
 m.days[k].moods!.push({ id: 'm3', level: 5, emotions: [], at: 3 });
 assert.equal(effectiveSavage(m), 10);
+// sick mode holds the roasts too ("I will hold the roasts"); away mode only stops the nagging
+{
+  const sick = startPause(defaultState(), 'sick', 3);
+  assert.equal(effectiveSavage(sick), 1);
+  const mild = new Set(LINES.spiderTap.mild.map((t) => fillLine(t, {})));
+  for (let i = 0; i < 1000; i++) assert.ok(mild.has(line('spiderTap', effectiveSavage(sick))), 'a roast slipped through sick mode');
+  assert.equal(effectiveSavage(startPause(defaultState(), 'away', 3)), 10);
+  assert.equal(effectiveSavage(endPause(sick)), 10);
+}
+// a low mood late last night keeps the roasts paused until today's first check-in
+{
+  const night = defaultState();
+  const at = new Date(2027, 0, 13, 7, 30);
+  const day = (moods: { level: 1 | 2 | 3 | 4 | 5; at: number }[]) => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0, moods: moods.map((x, i) => ({ id: `n${i}`, emotions: [], ...x })) });
+  night.days['2027-01-12'] = day([{ level: 4, at: new Date(2027, 0, 12, 13).getTime() }, { level: 1, at: new Date(2027, 0, 12, 23, 30).getTime() }]);
+  assert.equal(effectiveSavage(night, at), 1);
+  night.days['2027-01-13'] = day([{ level: 4, at: at.getTime() }]); // today's check-in takes over
+  assert.equal(effectiveSavage(night, at), 10);
+  night.days['2027-01-12'] = day([{ level: 1, at: 1 }, { level: 3, at: 2 }]); // yesterday ended okay
+  delete night.days['2027-01-13'];
+  assert.equal(effectiveSavage(night, at), 10);
+  night.days['2027-01-11'] = day([{ level: 1, at: 1 }]); // two days ago doesn't carry
+  delete night.days['2027-01-12'];
+  assert.equal(effectiveSavage(night, at), 10);
+}
 // old saved days without coffee/moods still work
 const old = defaultState();
 old.days[k] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };

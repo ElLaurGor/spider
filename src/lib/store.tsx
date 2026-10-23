@@ -1832,7 +1832,12 @@ function useStoreValue() {
     return () => clearTimeout(t);
   }, [activeFocus, tick, actions]);
 
-  const quip = useCallback((key: LineKey, vars: Record<string, string | number> = {}) => L(stateRef.current, key, vars), []);
+  // Screens memoize their lines on `quip`, so it changes with the tone: a low mood or sick mode re-picks them gently.
+  const savage = effectiveSavage(state);
+  const quip = useCallback(
+    (key: LineKey, vars: Record<string, string | number> = {}) => freshLine(key, savage, { name: stateRef.current.settings.userName || 'boss', ...vars }),
+    [savage],
+  );
 
   return {
     ready,

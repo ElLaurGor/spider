@@ -35,6 +35,7 @@ import {
   caffeineMg,
   coffeeOf,
   dayOf,
+  effectiveSavage,
   eventsOn,
   gamingBudgetMin,
   gamingUsedMs,
@@ -66,11 +67,15 @@ function greetingKey(): LineKey {
 
 export default function HQ() {
   const { state, actions, quip, cal, health } = useStore();
-  const [bubble, setBubble] = useState(() => {
+  const savage = effectiveSavage(state);
+  const greet = () => {
     // Mornings, half the time: a remark about how yesterday actually went.
     const callback = timeOfDay() === 'morning' && Math.random() < 0.5 ? yesterdayHighlight(state) : null;
     return callback ? quip(callback.key, callback.vars) : quip(greetingKey());
-  });
+  };
+  const [bubble, setBubble] = useState(() => ({ text: greet(), savage }));
+  // A change of tone (a low mood, sick mode) picks the greeting again, so it never stays savage.
+  if (bubble.savage !== savage) setBubble({ text: greet(), savage });
   const now = useNow(30_000);
 
   const s = state.settings;
@@ -104,8 +109,8 @@ export default function HQ() {
   // A tap on the spider: a random jab, its opinion of your week, or a word about the task that won't die.
   const tapSpider = () => {
     const zombie = immortalTask(state);
-    if (zombie && Math.random() < 0.3) return setBubble(quip('immortalTask', { task: zombie.task.title, days: zombie.days }));
-    setBubble(quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'));
+    if (zombie && Math.random() < 0.3) return setBubble({ text: quip('immortalTask', { task: zombie.task.title, days: zombie.days }), savage });
+    setBubble({ text: quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'), savage });
   };
 
   // The movable cards, by id (lib/hq-layout.ts sets their order and which are hidden).
@@ -356,7 +361,7 @@ export default function HQ() {
         </Pressable>
       }>
       {/* Pinned: these can't be moved or hidden. */}
-      <SpiderSays text={bubble} onPress={tapSpider} />
+      <SpiderSays text={bubble.text} onPress={tapSpider} />
       <OutsideAlerts />
       <PauseBanner />
       <LowBatteryCard />
