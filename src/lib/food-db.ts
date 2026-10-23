@@ -1,5 +1,7 @@
 // Product lookup by barcode in Open Food Facts (free, open database, no key), and plain foods
 // ("havregryn", "ägg kokt") from Livsmedelsverket's food database (free, no key, Swedish names).
+import { getJson } from './http';
+
 export type Product = {
   code: string;
   name: string;
@@ -10,9 +12,8 @@ export type Product = {
 
 export async function lookupBarcode(code: string): Promise<Product | null> {
   const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}?fields=product_name,brands,nutriments,serving_quantity`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'SPIDER/1.2 (personal Android app)' } });
-  if (!res.ok && res.status !== 404) throw new Error(`Lookup failed (${res.status})`);
-  const json = (await res.json()) as {
+  // Not found is a 404 with a JSON body ({ status: 0 }).
+  const json = await getJson<{
     status?: number;
     product?: {
       product_name?: string;
@@ -20,7 +21,7 @@ export async function lookupBarcode(code: string): Promise<Product | null> {
       serving_quantity?: number | string;
       nutriments?: Record<string, number | string | undefined>;
     };
-  };
+  }>(url, 'Lookup', { headers: { 'User-Agent': 'SPIDER/1.2 (personal Android app)' }, allow: [404] });
   const p = json.product;
   if (json.status !== 1 || !p) return null;
   const n = p.nutriments ?? {};
@@ -42,16 +43,14 @@ export type Food = { id: number; name: string };
 
 let foodList: Promise<Food[]> | null = null;
 
-/** Every food in Livsmedelsverket's database (~2,600 names), fetched once per app run. */
+/** Every food in Livsmedelsverket's database (~2,600 names, 1.5 MB), fetched once per app run. */
 export function loadFoods(): Promise<Food[]> {
-  foodList ??= fetch(`${SLV}/livsmedel?offset=0&limit=5000&sprak=1`)
-    .then(async (res) => {
-      if (!res.ok) throw new Error(`Food list failed (${res.status})`);
-      const json = (await res.json()) as { livsmedel?: { nummer: number; namn: string }[] };
-      return (json.livsmedel ?? []).map((x) => ({ id: x.nummer, name: x.namn.trim() }));
-    })
+  foodList ??= getJson<{ livsmedel?: { nummer: number; namn: string }[] }>(`${SLV}/livsmedel?offset=0&limit=5000&sprak=1`, 'Food list', {
+    timeoutMs: 30_000,
+  })
+    .then((json) => (json.livsmedel ?? []).map((x) => ({ id: x.nummer, name: x.namn.trim() })))
     .catch((e: unknown) => {
-      foodList = null; // try again next time
+      foodList = null; // a failure or a timeout: try again next time
       throw e;
     });
   return foodList;
@@ -113,9 +112,7 @@ export function searchFoods(foods: Food[], query: string, limit = 6): Food[] {
 
 /** kcal and protein per 100 g of one food. */
 export async function foodNutrients(id: number): Promise<{ kcal100: number; protein100: number }> {
-  const res = await fetch(`${SLV}/livsmedel/${id}/naringsvarden?sprak=1`);
-  if (!res.ok) throw new Error(`Nutrients failed (${res.status})`);
-  const rows = (await res.json()) as { euroFIRkod?: string; enhet?: string; varde?: number }[];
+  const rows = await getJson<{ euroFIRkod?: string; enhet?: string; varde?: number }[]>(`${SLV}/livsmedel/${id}/naringsvarden?sprak=1`, 'Nutrients');
   const kcal = rows.find((r) => r.euroFIRkod === 'ENERC' && r.enhet === 'kcal')?.varde ?? 0;
   const protein = rows.find((r) => r.euroFIRkod === 'PROT')?.varde ?? 0;
   return { kcal100: Math.round(kcal), protein100: Math.round(protein * 10) / 10 };

@@ -87,7 +87,7 @@ import type {
   Weekday,
   WorkoutDay,
 } from './types';
-import { dayWeatherOf, fetchWeather, fetchWeatherHistory, withCounty, type Weather } from './weather';
+import { dayWeatherOf, fetchWeather, fetchWeatherHistory, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
 import { ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, type Air, type Alert } from './outside';
 import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
@@ -712,7 +712,7 @@ function useStoreValue() {
         const since = dayKey(addDays(new Date(), -60));
         const yesterday = dayKey(addDays(new Date(), -1));
         const missing = Object.entries(stateRef.current.days)
-          .filter(([k, d]) => k >= since && k < key && (!d.weather || d.weather.pressureDrop === undefined || k === yesterday))
+          .filter(([k, d]) => k >= since && k < key && (weatherMissing(d.weather) || k === yesterday))
           .map(([k]) => k);
         if (missing.length) {
           const past = await fetchWeatherHistory(place, 60);
