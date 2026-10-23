@@ -96,6 +96,9 @@ import { chestShelf, SHELF_MAX, withChestGold } from '../src/lib/loot';
 import { applyFixes, recheckCoffeeGremlin } from '../src/lib/fixes';
 import { credit, earnBonus, ledgerOn, penalize, refundPenalty, unreward, withoutUndoRecords } from '../src/lib/ledger';
 import { withoutCrit } from '../src/lib/critters';
+import { actionFromButton, SILENT_BUTTONS, tapKey } from '../src/lib/reminder-actions';
+import { mergeSeen as mergeSeenLists } from '../src/lib/outside';
+import { DEFAULT_WIDGET_COLORS, forToday, snapshotOf, widgetLines, withTap } from '../src/lib/widget-data';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -3052,6 +3055,64 @@ void (async () => {
   assert.equal(w(new Date(2026, 10, 1, 8)), '2026-11-01 10:00 October'); // Sun 1 Nov before 10:00: still October's
   assert.equal(w(new Date(2026, 10, 1, 11)), '2026-12-01 10:00 November');
   assert.equal(w(new Date(2026, 11, 20, 12)), '2027-01-01 10:00 December');
+}
+
+// reminder buttons (APK 1.5.0): one action per button, with the day it's about; one key per tap
+{
+  const at = new Date(2027, 0, 13, 0, 10).getTime(); // just after midnight
+  assert.deepEqual(actionFromButton('water_glass', {}, at), { kind: 'glass', day: '2027-01-13', at });
+  assert.deepEqual(actionFromButton('water_snooze', undefined, at), { kind: 'snooze' });
+  assert.deepEqual(actionFromButton('focus_start', null, at), { kind: 'focus' });
+  // "Done" on last night's reminder ticks the reminder's day, not the new one
+  assert.deepEqual(actionFromButton('habit_done', { habitId: 'h1', day: '2027-01-12' }, at), { kind: 'habit', habitId: 'h1', day: '2027-01-12', at });
+  assert.deepEqual(actionFromButton('habit_done', { habitId: 'h1' }, at), { kind: 'habit', habitId: 'h1', day: '2027-01-13', at });
+  assert.deepEqual(actionFromButton('habit_done', { habitId: 'h1', day: 'junk' }, at), { kind: 'habit', habitId: 'h1', day: '2027-01-13', at });
+  assert.equal(actionFromButton('habit_done', {}, at), null); // no habit id: nothing to tick
+  assert.deepEqual(actionFromButton('mood_2', {}, at), { kind: 'mood', level: 2, day: '2027-01-13', at });
+  assert.equal(actionFromButton('mood_9', {}, at), null);
+  assert.equal(actionFromButton('expo.modules.notifications.actions.DEFAULT', {}, at), null);
+  assert.ok(!SILENT_BUTTONS.has('focus_start')); // opens the app
+  for (const b of ['water_glass', 'water_snooze', 'habit_done', 'mood_4', 'mood_3', 'mood_2']) assert.ok(SILENT_BUTTONS.has(b), b);
+  assert.equal(tapKey('water-2027-01-13-600', 'water_glass', 123), 'water-2027-01-13-600|water_glass|123');
+  assert.notEqual(tapKey('a', 'water_glass', 1), tapKey('a', 'water_glass', 2)); // the next day's reminder is a new tap
+}
+
+// shared seen-list (APK 1.5.0): the app and the background check merge theirs; the later time wins, 30 days max
+{
+  const day = 86_400_000;
+  const now = new Date(2027, 0, 13, 12).getTime();
+  const merged = mergeSeenLists({ 'a:YELLOW': now - 25 * day, old: now - 31 * day }, { 'a:YELLOW': now - day, 'b:VMA': now }, now);
+  assert.deepEqual(merged, { 'a:YELLOW': now - day, 'b:VMA': now }); // triage's "still active" refresh carries over
+  assert.deepEqual(mergeSeenLists({}, {}, now), {});
+}
+
+// home-screen widget (APK 1.5.0): today's numbers, zero on a new day, its own taps shown at once
+{
+  const at = new Date(2027, 0, 13, 15).getTime();
+  const key = dayKey(at);
+  const s0 = defaultState();
+  const s = {
+    ...s0,
+    settings: { ...s0.settings, glassMl: 250, coffeeLimit: 4, gamingBudgetMin: 90 },
+    days: { [key]: { ...emptyDay(), water: [{ id: 'w', ml: 750, at }], coffee: [{ id: 'c', mg: 80, at }] } },
+  };
+  const snap = snapshotOf(s, DEFAULT_WIDGET_COLORS, at);
+  assert.equal(snap.day, key);
+  assert.equal(snap.waterMl, 750);
+  assert.equal(snap.coffees, 1);
+  assert.equal(snap.gameLeftMin, 90);
+  assert.deepEqual(widgetLines(snap), { water: `0.8 / ${(snap.goalMl / 1000).toFixed(1).replace(/\.0$/, '')} L`, coffee: '1 / 4', game: '1h 30m left' });
+  const tapped = withTap(snap, 'glass', at);
+  assert.equal(tapped.waterMl, 1000);
+  assert.equal(withTap(snap, 'coffee', at).coffees, 2);
+  // the next morning: yesterday's numbers don't carry over; the gaming budget is unknown until the app runs
+  const tomorrow = new Date(2027, 0, 14, 8).getTime();
+  const next = forToday(snap, tomorrow);
+  assert.deepEqual([next.day, next.waterMl, next.coffees, next.gameLeftMin], ['2027-01-14', 0, 0, null]);
+  assert.equal(widgetLines(next).game, '–');
+  assert.equal(withTap(snap, 'glass', tomorrow).waterMl, 250); // a tap after midnight starts the new day
+  assert.equal(widgetLines({ ...snap, gameLeftMin: -75 }).game, '1h 15m over');
+  assert.equal(widgetLines({ ...snap, gaming: true }).game, 'playing');
 }
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.

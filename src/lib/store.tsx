@@ -38,6 +38,9 @@ import {
   scheduleRestDone,
   snoozeWater,
 } from './notifications';
+import { useBackgroundSync } from './background-sync';
+import { onQueued, takeQueued } from './pending-actions';
+import type { ReminderAction } from './reminder-actions';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questsFor, questXpOf, reducedDay, rerollFor, validDraft, weekKey } from './quests';
 import { bossRecap, lastWeekKey } from './boss-recap';
@@ -1383,19 +1386,20 @@ function useStoreValue() {
       },
 
       // --- water ---
-      addWater(ml: number, key?: string) {
+      /** `at`: when it was tapped, for taps applied later from the queue (silent buttons, widget). */
+      addWater(ml: number, key?: string, at?: number) {
         const past = pastKey(key);
         if (past) {
           run((s, msgs) => {
             msgs.push(backdated(past, `💧 ${ml} ml`));
-            return patchDay(s, past, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: nowOn(past), late: true }] }));
+            return patchDay(s, past, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: at ?? nowOn(past), late: true }] }));
           });
           return;
         }
         run((s, msgs) => {
           const key = dayKey();
           const id = uid();
-          let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id, ml, at: Date.now() }] }));
+          let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id, ml, at: at ?? Date.now() }] }));
           const d = dayOf(next, key);
           const total = waterMl(d);
           const goal = waterGoalFor(next, key);
@@ -1498,23 +1502,24 @@ function useStoreValue() {
       },
 
       // --- coffee ---
-      addCoffee(key?: string) {
+      addCoffee(key?: string, at?: number) {
         const past = pastKey(key);
         if (past) {
           run((s, msgs) => {
             msgs.push(backdated(past, '☕ A coffee'));
-            return patchDay(s, past, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: s.settings.caffeinePerCupMg, at: nowOn(past), late: true }] }));
+            return patchDay(s, past, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: s.settings.caffeinePerCupMg, at: at ?? nowOn(past), late: true }] }));
           });
           return;
         }
         run((s, msgs) => {
           const key = dayKey();
           const { caffeinePerCupMg, coffeeLimit, coffeeCutoffHour } = s.settings;
-          const next = patchDay(s, key, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: caffeinePerCupMg, at: Date.now() }] }));
+          const when = at ?? Date.now();
+          const next = patchDay(s, key, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: caffeinePerCupMg, at: when }] }));
           const d = dayOf(next, key);
           const vars = { n: coffeeOf(d).length, mg: caffeineMg(d), limit: coffeeLimit, cutoff: coffeeCutoffHour };
           if (vars.n > coffeeLimit) msgs.push({ text: L(next, 'coffeeOver', vars), tone: 'bad' });
-          else if (new Date().getHours() >= coffeeCutoffHour) msgs.push({ text: L(next, 'coffeeLate', vars), tone: 'bad' });
+          else if (new Date(when).getHours() >= coffeeCutoffHour) msgs.push({ text: L(next, 'coffeeLate', vars), tone: 'bad' });
           else msgs.push({ text: L(next, 'coffeeLogged', vars), tone: 'info' });
           return next;
         });
@@ -1608,12 +1613,12 @@ function useStoreValue() {
       },
 
       // --- mood ---
-      logMood(level: MoodLevel, emotions: string[], note: string, key?: string) {
+      logMood(level: MoodLevel, emotions: string[], note: string, key?: string, at?: number) {
         const past = pastKey(key);
         if (past) {
           run((s, msgs) => {
             msgs.push(backdated(past, `${moodInfo(level).emoji} A check-in`));
-            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: nowOn(past), late: true };
+            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? nowOn(past), late: true };
             return patchDay(s, past, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
           });
           return;
@@ -1622,7 +1627,7 @@ function useStoreValue() {
           const key = dayKey();
           const d0 = dayOf(s, key);
           const paid = d0.paid?.mood ?? moodsOf(d0).length; // check-ins already paid today, deleted ones included
-          const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: Date.now() };
+          const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? Date.now() };
           let next = patchDay(s, key, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
           msgs.push({ text: L(next, moodInfo(level).line), tone: level <= 2 ? 'info' : 'good' });
           // XP for the first three check-ins a day, so it can't be farmed.
@@ -2346,21 +2351,51 @@ function useStoreValue() {
   );
 
   // ----- tapped notifications: the body opens its screen; reminder buttons ("+1 glass", "Snooze 30 min", habit "Done", mood) do their thing -----
-  useEffect(() => {
-    if (!ready) return;
-    return onNotificationTap((a) => {
+  // Taps on those buttons and on the widget while the app isn't on screen wait in a queue (pending-actions.ts, APK 1.5.0+).
+  const applyReminder = useCallback(
+    (a: ReminderAction) => {
       const s = stateRef.current;
-      if (a.kind === 'glass') actions.addWater(s.settings.glassMl);
+      if (a.kind === 'glass') actions.addWater(s.settings.glassMl, a.day, a.at);
+      else if (a.kind === 'coffee') actions.addCoffee(a.day, a.at);
       else if (a.kind === 'snooze') {
         void snoozeWater(s);
         say(L(s, 'waterSnoozed'), 'info');
       } else if (a.kind === 'habit') {
-        if (!habitsDone(s, dayKey()).includes(a.habitId)) actions.toggleHabit(a.habitId);
+        if (habitsDone(s, a.day).includes(a.habitId) || !s.habits.some((h) => h.id === a.habitId)) return;
+        if (a.day === dayKey()) actions.toggleHabit(a.habitId);
+        else {
+          // "Done" on yesterday's reminder, tapped after midnight: back-dated like other late entries.
+          run((x, msgs) => {
+            msgs.push(backdated(a.day, '📌 A habit'));
+            return patchDay(x, a.day, (d) => ({ ...d, habits: [...habitsDone(x, a.day), a.habitId] }));
+          });
+        }
       } else if (a.kind === 'focus') {
         if (!s.activeFocus) actions.startFocus(25);
-      } else actions.logMood(a.level, [], '');
-    }, openSoon);
-  }, [ready, actions, say]);
+      } else actions.logMood(a.level, [], '', a.day, a.at);
+    },
+    [actions, run, say],
+  );
+  useEffect(() => {
+    if (!ready) return;
+    return onNotificationTap(applyReminder, openSoon);
+  }, [ready, applyReminder]);
+  useEffect(() => {
+    if (!ready) return;
+    const drain = () => void takeQueued().then((q) => q.forEach(applyReminder), (e) => console.warn('[spider] queue failed', e));
+    drain();
+    const offQueued = onQueued(drain); // the background task ran while the app was alive
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') drain();
+    });
+    return () => {
+      offQueued();
+      sub.remove();
+    };
+  }, [ready, applyReminder]);
+  const getState = useCallback(() => stateRef.current, []);
+  const addSeen = useCallback((seen: Record<string, number>) => run((s) => ({ ...s, seenAlerts: { ...seen, ...s.seenAlerts } })), [run]);
+  useBackgroundSync({ ready, state, getState, addSeen });
 
   // ----- Web Focus guard (APK 1.4.0+): runs while a session is on, also after a restart mid-session -----
   const guardOn = !!state.activeFocus && state.settings.focusGuard !== false;

@@ -4,13 +4,13 @@ plugins {
 }
 
 group = 'expo.modules.spiderusage'
-version = '0.2.0'
+version = '0.3.0'
 
 android {
   namespace "expo.modules.spiderusage"
   defaultConfig {
-    versionCode 2
-    versionName "0.2.0"
+    versionCode 3
+    versionName "0.3.0"
   }
   lintOptions {
     abortOnError false

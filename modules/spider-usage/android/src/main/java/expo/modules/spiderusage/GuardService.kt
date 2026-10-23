@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import java.text.SimpleDateFormat
@@ -38,17 +39,21 @@ class GuardService : Service() {
     private const val QUIET_MS = 60_000L // per app, between two alerts
   }
 
-  private val handler = Handler(Looper.getMainLooper())
-  private var endsAt = 0L
-  private var keywords: List<String> = emptyList()
-  private var lines: List<String> = emptyList()
-  private var lastCheck = 0L
-  private val lastAlert = HashMap<String, Long>()
+  // Usage-event reads run on their own thread, not the app's UI thread. Service lifecycle calls stay on main.
+  private val thread = HandlerThread("spider-guard").apply { start() }
+  private val handler = Handler(thread.looper)
+  private val main = Handler(Looper.getMainLooper())
+  @Volatile private var endsAt = 0L
+  @Volatile private var keywords: List<String> = emptyList()
+  @Volatile private var lines: List<String> = emptyList()
+  private var lastCheck = 0L // only touched on `thread`
+  private val lastAlert = HashMap<String, Long>() // only touched on `thread`
 
   private val tick = object : Runnable {
     override fun run() {
       if (System.currentTimeMillis() >= endsAt) {
-        shutDown()
+        // Re-checked on main: a restart there may have moved the end in the meantime.
+        main.post { if (System.currentTimeMillis() >= endsAt) shutDown() }
         return
       }
       try {
@@ -91,19 +96,22 @@ class GuardService : Service() {
       shutDown()
       return START_NOT_STICKY
     }
-    lastCheck = System.currentTimeMillis()
-    handler.removeCallbacks(tick)
-    handler.post(tick)
+    handler.removeCallbacksAndMessages(null) // a restart replaces the running loop
+    handler.post {
+      lastCheck = System.currentTimeMillis()
+      tick.run()
+    }
     return START_NOT_STICKY
   }
 
   override fun onDestroy() {
-    handler.removeCallbacks(tick)
+    handler.removeCallbacksAndMessages(null)
+    thread.quitSafely()
     super.onDestroy()
   }
 
   private fun shutDown() {
-    handler.removeCallbacks(tick)
+    handler.removeCallbacksAndMessages(null)
     stopForeground(Service.STOP_FOREGROUND_REMOVE)
     stopSelf()
   }

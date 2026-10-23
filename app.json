@@ -2,7 +2,7 @@
   "expo": {
     "name": "S.P.I.D.E.R",
     "slug": "spider",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "spider",
@@ -25,7 +25,9 @@
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_HEART_RATE",
         "android.permission.health.READ_RESTING_HEART_RATE",
-        "android.permission.health.READ_SLEEP"
+        "android.permission.health.READ_SLEEP",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.SCHEDULE_EXACT_ALARM"
       ],
       "runtimeVersion": {
         "policy": "appVersion"
@@ -93,6 +95,25 @@
             "image/*"
           ],
           "disableIOS": true
+        }
+      ],
+      "expo-background-task",
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "Hq",
+              "label": "S.P.I.D.E.R. HQ",
+              "description": "Water, coffee and gaming time, with +1 glass and +1 coffee",
+              "minWidth": "250dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            }
+          ]
         }
       ]
     ],

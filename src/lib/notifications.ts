@@ -30,6 +30,8 @@ import {
   workoutFor,
 } from './selectors';
 import { moodInfo } from './mood';
+import { claimTap, silentButtonsReady } from './pending-actions';
+import { actionFromButton, tapKey, type ReminderAction } from './reminder-actions';
 import type { CalEvent, MoodLevel, State } from './types';
 import { forecastText, type Weather } from './weather';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outside';
@@ -50,7 +52,8 @@ const FOCUS_ID = 'focus-done';
 const DAYS_AHEAD = 3;
 const SNOOZE_ID = 'snooze-water'; // not a planned prefix, so a replan leaves it alone
 
-// Buttons on reminders. Tapping one opens the app, which does the thing (see onReminderAction).
+// Buttons on reminders. From APK 1.5.0 most work without opening the app (silent-buttons.ts); before that,
+// or in Expo Go, a tap opens the app, which does the thing (onNotificationTap).
 const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood', status: 'spider_status' } as const;
 const STATUS_ID = 'status-line'; // the ongoing summary in the shade (cluster F); not a planned prefix
 const MOOD_BUTTONS: MoodLevel[] = [4, 3, 2];
@@ -128,18 +131,19 @@ export async function initNotifications(askIfNeeded: boolean) {
     }
   }
   try {
+    const options = { opensAppToForeground: !(await silentButtonsReady()) };
     await Notifications.setNotificationCategoryAsync(CATEGORY.water, [
-      { identifier: 'water_glass', buttonTitle: '+1 glass' },
-      { identifier: 'water_snooze', buttonTitle: 'Snooze 30 min' },
+      { identifier: 'water_glass', buttonTitle: '+1 glass', options },
+      { identifier: 'water_snooze', buttonTitle: 'Snooze 30 min', options },
     ]);
-    await Notifications.setNotificationCategoryAsync(CATEGORY.habit, [{ identifier: 'habit_done', buttonTitle: 'Done ✓' }]);
+    await Notifications.setNotificationCategoryAsync(CATEGORY.habit, [{ identifier: 'habit_done', buttonTitle: 'Done ✓', options }]);
     await Notifications.setNotificationCategoryAsync(CATEGORY.status, [
-      { identifier: 'water_glass', buttonTitle: '+1 glass' },
+      { identifier: 'water_glass', buttonTitle: '+1 glass', options },
       { identifier: 'focus_start', buttonTitle: '🕸️ Focus 25 min' },
     ]);
     await Notifications.setNotificationCategoryAsync(
       CATEGORY.mood,
-      MOOD_BUTTONS.map((level) => ({ identifier: `mood_${level}`, buttonTitle: `${moodInfo(level).emoji} ${moodInfo(level).label}` })),
+      MOOD_BUTTONS.map((level) => ({ identifier: `mood_${level}`, buttonTitle: `${moodInfo(level).emoji} ${moodInfo(level).label}`, options })),
     );
   } catch (e) {
     console.warn('[spider] notification buttons unavailable', e); // Expo Go: plain reminders still work
@@ -315,7 +319,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
         jobs.push(
           scheduleAt(`habit-${h.id}-${key}`, atTime(now, d, h.remindHour), `📌 ${h.emoji} ${h.name}`, sayOn(s, tone, 'habitRemind', { habit: h.name }), CH.remind, {
             category: CATEGORY.habit,
-            data: { habitId: h.id },
+            data: { habitId: h.id, day: key },
           }),
         );
       }
@@ -474,13 +478,7 @@ export async function snoozeWater(s: State, minutes = 30) {
   await scheduleAt(SNOOZE_ID, Date.now() + minutes * MIN, '💧 Hydration check (snoozed)', say(s, 'waterRemind'), CH.remind, { category: CATEGORY.water });
 }
 
-export type ReminderAction =
-  | { kind: 'glass' }
-  | { kind: 'snooze' }
-  | { kind: 'habit'; habitId: string }
-  | { kind: 'mood'; level: MoodLevel }
-  | { kind: 'focus' }; // the status line's "Focus 25 min"
-
+export type { ReminderAction };
 
 const handled = new Set<string>(); // module-wide: the response that launched the app is seen twice otherwise
 
@@ -491,7 +489,7 @@ const handled = new Set<string>(); // module-wide: the response that launched th
 export function onNotificationTap(onAction: (a: ReminderAction) => void, onOpen: (href: Href) => void): () => void {
   const handle = (r: Notifications.NotificationResponse | null) => {
     if (!r) return;
-    const id = `${r.notification.request.identifier}|${r.actionIdentifier}|${r.notification.date}`;
+    const id = tapKey(r.notification.request.identifier, r.actionIdentifier, r.notification.date);
     if (handled.has(id)) return;
     handled.add(id);
     Notifications.clearLastNotificationResponseAsync().catch(() => {}); // or every later launch would open it again
@@ -499,14 +497,10 @@ export function onNotificationTap(onAction: (a: ReminderAction) => void, onOpen:
       onOpen(linkFor(r.notification.request.identifier));
       return;
     }
-    const a = r.actionIdentifier;
-    const habitId = r.notification.request.content.data?.habitId;
-    const mood = /^mood_([1-5])$/.exec(a);
-    if (a === 'water_glass') onAction({ kind: 'glass' });
-    else if (a === 'water_snooze') onAction({ kind: 'snooze' });
-    else if (a === 'habit_done' && typeof habitId === 'string') onAction({ kind: 'habit', habitId });
-    else if (mood) onAction({ kind: 'mood', level: Number(mood[1]) as MoodLevel });
-    else if (a === 'focus_start') onAction({ kind: 'focus' });
+    const a = actionFromButton(r.actionIdentifier, r.notification.request.content.data);
+    if (a?.kind === 'focus') onAction(a);
+    // A tap the background task already took (the app was in the background) is skipped here.
+    else if (a) void claimTap(id).then((first) => first && onAction(a), () => onAction(a));
     // The status line stays put; it's refreshed by the replan its button causes.
     if (r.notification.request.identifier !== STATUS_ID) Notifications.dismissNotificationAsync(r.notification.request.identifier).catch(() => {});
   };

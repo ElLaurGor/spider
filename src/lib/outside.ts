@@ -217,7 +217,17 @@ export function triageAlerts(list: Alert[], seen: Record<string, number>, now = 
   return { fresh, seen: next, changed };
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+/**
+ * Two seen-lists in one, for the app and the background check (APK 1.5.0+) to share: the later time wins
+ * (so triage's "still active" refresh carries over), and entries older than 30 days go.
+ */
+export function mergeSeen(a: Record<string, number>, b: Record<string, number>, now = Date.now()) {
+  const out: Record<string, number> = {};
+  for (const src of [a, b]) for (const [k, t] of Object.entries(src)) if (t > now - SEEN_DAYS * 86_400_000) out[k] = Math.max(out[k] ?? 0, t);
+  return out;
+}
+
+const MONTHS =['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 const dayLabel = (d: Date) => `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 /** "20 Oct", in the phone's time zone. */
 export const shortDate = (iso: string) => {
