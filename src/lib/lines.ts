@@ -1210,6 +1210,23 @@ export const LINES = {
     mild: ['{boss} has already fallen this week. Keep the coins for the next one.'],
     savage: ['{boss} is already down. Bombing a fallen boss is just littering. Keep your coins.'],
   },
+  // step 2b boss
+  questsLocked: {
+    mild: ["Locked in. Those are today's three.", 'Done. Your three quests for today are set.'],
+    savage: ['Locked in. You picked them, so no complaining about them later.', 'Three quests, hand-picked by you. Now go and actually do them.'],
+  },
+  bossFinisher: {
+    mild: ['{boss} is down to {hp} HP. {plan} would finish it today.', 'Only {hp} HP left on {boss}. {plan} does it.'],
+    savage: ["{boss} has {hp} HP left. {plan} ends it. Don't let it limp into Monday.", '{hp} HP. That is all {boss} has left. {plan}, and it is over.'],
+  },
+  bossRecapWon: {
+    mild: ['Last week: {boss} fell {day}. The recap is on HQ.', "Last week's fight is over: {boss} went down {day}. The recap is on HQ."],
+    savage: ['Last week: {boss} went down {day}. The recap is on HQ. Gloat responsibly.', '{boss} fell {day} last week. Read the recap on HQ, you earned the bragging rights.'],
+  },
+  bossRecapLost: {
+    mild: ['Last week: {boss} got away with {hp} HP left. The recap is on HQ.', '{boss} slipped away last week with {hp} HP. The recap on HQ shows where the damage came from.'],
+    savage: ['Last week: {boss} escaped with {hp} HP. The recap on HQ shows exactly where it slipped through.', '{boss} walked off with {hp} HP last week. The recap is on HQ. New boss, new week.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

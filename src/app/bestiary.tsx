@@ -1,8 +1,10 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { RecapBody } from '@/components/boss-recap';
 import { Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { bestiary, weeksUntil } from '@/lib/bestiary';
+import { recentRecaps } from '@/lib/boss-recap';
 import { BOSSES, bossFor } from '@/lib/quests';
 import { useStore } from '@/lib/store';
 
@@ -12,6 +14,7 @@ export default function BestiaryScreen() {
   const current = bossFor(state);
   const beaten = new Set(Object.values(state.bossesDefeated));
   const distinct = BOSSES.filter((b) => beaten.has(b.id)).length;
+  const recaps = recentRecaps(state, 4);
 
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
@@ -37,6 +40,18 @@ export default function BestiaryScreen() {
           </T>
         ) : null}
       </Card>
+
+      {recaps.length ? (
+        <Card>
+          <H>Recent fights</H>
+          {recaps.map((r, i) => (
+            <View key={r.week} style={[{ gap: 4 }, i > 0 && styles.divider]}>
+              <Text style={styles.mono}>{i === 0 ? 'LAST WEEK' : `WEEK OF ${r.week.slice(5)}`}</Text>
+              <RecapBody r={r} />
+            </View>
+          ))}
+        </Card>
+      ) : null}
 
       {rows.map((r) => {
         const index = BOSSES.findIndex((b) => b.id === r.id);
@@ -88,6 +103,7 @@ const styles = StyleSheet.create({
   name: { color: C.text, fontWeight: '800', fontSize: 16 },
   mono: { color: C.dim, fontFamily: MONO, fontSize: 11 },
   track: { height: 8, borderRadius: 8, backgroundColor: C.card2, overflow: 'hidden' },
+  divider: { borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10 },
   fill: { height: 8, borderRadius: 8, backgroundColor: C.purple },
   stat: { flex: 1, backgroundColor: C.card2, borderRadius: 12, padding: 10, gap: 2 },
   statLabel: { color: C.dim, fontSize: 11, fontWeight: '700' },

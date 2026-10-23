@@ -24,6 +24,8 @@ export type NotifyPrefs = {
   vma: boolean;
   // cluster F
   statusLine: boolean; // a silent, ongoing summary in the notification shade
+  // step 2b
+  weekendBoss: boolean; // Sat/Sun 15:00, when what's still open today can finish the week's boss
 };
 
 export type Settings = {
@@ -148,6 +150,7 @@ export type DayLog = {
   questRerolled?: boolean; // today's one paid quest swap is used (quests.ts rerollFor)
   questFocus?: { id: string; spot: string }; // the quest aimed at the week's weak spot (weak-spot.ts)
   questReduced?: string; // a reduced day's one gentle quest, fixed once picked (quests.ts gentleQuestFor)
+  questDraft?: { candidates: string[]; locked: boolean }; // step 2b: the morning draft (5 on offer, keep 3) until noon
   // cluster B
   banked?: number; // coins paid at day rollover for that day's unused bonus gaming minutes (set once)
   // cluster F
@@ -280,6 +283,9 @@ export type State = {
   bossKilledAt?: Record<string, number>; // week key -> when its boss fell, for the bestiary
   finalBossWeek?: string; // week key of the Couch King fight, once all 8 bosses have fallen
   kingWeeks?: string[]; // step 2: every Couch King week, his first and each rematch (unset = just finalBossWeek)
+  bossRecapAt?: string; // step 2b: week key of the last boss recap announced (toast)
+  bossLateKills?: string[]; // step 2b: week keys whose boss fell late (its numbers came in after the week)
+  bossRecapSeen?: string; // step 2b: week key of the last boss recap dismissed on HQ
   kingAnnounced?: string; // step 2: the Couch King week whose arrival was announced
   syndicateBroken?: number; // when the Couch King fell: unlocks its theme
   pauses?: Pause[]; // sick/away periods (pause.ts)
