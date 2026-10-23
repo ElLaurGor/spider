@@ -2059,7 +2059,9 @@ function useStoreValue() {
       sub.remove();
     };
   }, [ready, applyReminder]);
-  useBackgroundSync(ready, state);
+  const getState = useCallback(() => stateRef.current, []);
+  const addSeen = useCallback((seen: Record<string, number>) => run((s) => ({ ...s, seenAlerts: { ...seen, ...s.seenAlerts } })), [run]);
+  useBackgroundSync({ ready, state, getState, addSeen });
 
   // ----- Web Focus guard (APK 1.4.0+): runs while a session is on, also after a restart mid-session -----
   const guardOn = !!state.activeFocus && state.settings.focusGuard !== false;

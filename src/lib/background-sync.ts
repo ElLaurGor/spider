@@ -1,14 +1,25 @@
-// The app side of the background work (APK 1.5.0+): keeps the small keys the background tasks read up to date.
-// The tasks themselves live in silent-buttons.ts, bg-alerts.ts and src/widgets; they never load the store.
+// The app side of the background work (APK 1.5.0+): keeps the small keys the background tasks read up to date,
+// and takes in what they did. The tasks themselves live in silent-buttons.ts, bg-alerts.ts and src/widgets;
+// they never load the store.
 import { useEffect } from 'react';
+import { AppState } from 'react-native';
 
 import { C } from '@/constants/theme';
 
+import { addToSeenLedger, readSeenLedger } from './bg-alerts';
 import { writeBgConfig } from './bg-config';
 import { effectiveSavage } from './selectors';
 import type { State } from './types';
 
-export function useBackgroundSync(ready: boolean, state: State) {
+type Sync = {
+  ready: boolean;
+  state: State;
+  getState: () => State;
+  /** Warnings the background check announced, to add to state.seenAlerts so the app doesn't announce them again. */
+  addSeen: (seen: Record<string, number>) => void;
+};
+
+export function useBackgroundSync({ ready, state, getState, addSeen }: Sync) {
   const { weather, notify, userName } = state.settings;
   const savage = effectiveSavage(state);
   useEffect(() => {
@@ -23,4 +34,26 @@ export function useBackgroundSync(ready: boolean, state: State) {
       color: C.red,
     }).catch((e) => console.warn('[spider] background config failed', e));
   }, [ready, weather?.county, weather?.name, notify.smhi, notify.vma, savage, userName]);
+
+  // What the app announced goes into the shared ledger, and what the background check announced comes back.
+  const seen = state.seenAlerts;
+  useEffect(() => {
+    if (!ready) return;
+    addToSeenLedger(seen).catch((e) => console.warn('[spider] seen ledger failed', e));
+  }, [ready, seen]);
+  useEffect(() => {
+    if (!ready) return;
+    const pull = () =>
+      void readSeenLedger().then((ledger) => {
+        const mine = getState().seenAlerts;
+        // Only "id:LEVEL" keys: bare ids are old saves' keys that triageAlerts already moved on from.
+        const news = Object.fromEntries(Object.entries(ledger).filter(([k]) => k.includes(':') && !mine[k]));
+        if (Object.keys(news).length) addSeen(news);
+      });
+    pull();
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') pull();
+    });
+    return () => sub.remove();
+  }, [ready, getState, addSeen]);
 }

@@ -78,6 +78,7 @@ import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 import { actionFromButton, SILENT_BUTTONS, tapKey } from '../src/lib/reminder-actions';
+import { mergeSeen as mergeSeenLists } from '../src/lib/outside';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -2059,6 +2060,15 @@ void (async () => {
   for (const b of ['water_glass', 'water_snooze', 'habit_done', 'mood_4', 'mood_3', 'mood_2']) assert.ok(SILENT_BUTTONS.has(b), b);
   assert.equal(tapKey('water-2027-01-13-600', 'water_glass', 123), 'water-2027-01-13-600|water_glass|123');
   assert.notEqual(tapKey('a', 'water_glass', 1), tapKey('a', 'water_glass', 2)); // the next day's reminder is a new tap
+}
+
+// shared seen-list (APK 1.5.0): the app and the background check merge theirs; the later time wins, 30 days max
+{
+  const day = 86_400_000;
+  const now = new Date(2027, 0, 13, 12).getTime();
+  const merged = mergeSeenLists({ 'a:YELLOW': now - 25 * day, old: now - 31 * day }, { 'a:YELLOW': now - day, 'b:VMA': now }, now);
+  assert.deepEqual(merged, { 'a:YELLOW': now - day, 'b:VMA': now }); // triage's "still active" refresh carries over
+  assert.deepEqual(mergeSeenLists({}, {}, now), {});
 }
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.
