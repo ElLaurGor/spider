@@ -1,6 +1,7 @@
 import { addDays, dayKey, MIN, startOfDay, startOfWeek } from './dates';
+import { roughDay, usedOn, type RoughKind } from './day-filters';
 import { habitsDone, habitsFor } from './habits';
-import { bossFor } from './quests';
+import { bossFor, questsFor } from './quests';
 import {
   avgMood,
   coffeeOf,
@@ -36,27 +37,44 @@ function taskShare(s: State, date: Date): number | null {
   return done + open ? done / (done + open) : null;
 }
 
-/** 0–100: how well a day went (or is going). Feeds HQ's verdict, best/worst day, Insights and Wrapped. */
+/**
+ * 0–100: how well a day went (or is going). Feeds HQ's verdict, best/worst day, Insights and Wrapped.
+ * Habits only: what was eaten (protein) and how it felt (mood) are never graded. Water took protein's
+ * 20 points, so a day with nothing logged or everything done scores what it always did.
+ */
 export function dayScoreFor(s: State, date: Date) {
   const key = dayKey(date);
   const d = dayOf(s, key);
-  const water = clamp01(waterMl(d) / waterGoalFor(s, key)) * 30;
+  const water = clamp01(waterMl(d) / waterGoalFor(s, key)) * 50;
   const gym = !workoutFor(s, date) || trainedOn(d) ? 25 : 0;
-  const protein = s.settings.proteinGoal ? clamp01(proteinOf(d) / s.settings.proteinGoal) * 20 : 20;
   // Follow-through: habits due that day and tasks on the list, whichever there are.
   const due = habitsFor(s, date);
   const shares = [due.length ? due.filter((h) => habitsDone(s, key).includes(h.id)).length / due.length : null, taskShare(s, date)];
   const counted = shares.filter((x): x is number => x != null);
   const follow = counted.length ? avg(counted) * 15 : 15;
   const gaming = gamingUsedMs(s, key) <= gamingBudgetMin(s, key) * MIN ? 10 : 0;
-  return Math.round(water + gym + protein + follow + gaming);
+  return Math.round(water + gym + follow + gaming);
 }
 
+export type RestDays = Record<RoughKind, number>;
+
+/**
+ * The weekly report card. It judges the days something was logged that weren't rough ones (sick or
+ * away, a low mood, a period day): rough days are left out and listed as rest, never counted as misses.
+ * Mood and protein are shown but not graded. With nothing to judge, `overall` and `grade` are null.
+ */
 export function weekReport(s: State, weekOffset = 0, now = new Date()) {
   const monday = addDays(startOfWeek(now), weekOffset * 7);
   const dates = Array.from({ length: 7 }, (_, i) => addDays(monday, i)).filter((d) => d.getTime() <= startOfDay(now).getTime());
-  const logs = dates.map((d) => ({ date: d, key: dayKey(d), log: dayOf(s, dayKey(d)) }));
-  const n = Math.max(1, logs.length);
+  const all = dates.map((d) => ({ date: d, key: dayKey(d), log: dayOf(s, dayKey(d)) }));
+  const rest: RestDays = { paused: 0, low: 0, period: 0 };
+  const logs = all.filter((x) => {
+    const rough = roughDay(s, x.key);
+    if (rough) rest[rough] += 1;
+    return !rough && usedOn(s.days[x.key]);
+  });
+  const n = logs.length;
+  const per = (k: number) => (n ? (k / n) * 100 : null);
   const st = s.settings;
   const cats: Category[] = [];
 
@@ -65,28 +83,31 @@ export function weekReport(s: State, weekOffset = 0, now = new Date()) {
     id: 'water',
     label: 'Water',
     emoji: '💧',
-    stat: `${waterHit}/${n} days on goal · avg ${(avg(logs.map((x) => waterMl(x.log))) / 1000).toFixed(1)} L`,
-    score: (waterHit / n) * 100,
+    stat: `${waterHit}/${n} days on goal${n ? ` · avg ${(avg(logs.map((x) => waterMl(x.log))) / 1000).toFixed(1)} L` : ''}`,
+    score: per(waterHit),
   });
 
   const planned = logs.filter((x) => workoutFor(s, x.date)).length;
   const trained = logs.filter((x) => trainedOn(x.log)).length;
-  const minutes = logs.reduce((a, x) => a + trainMinutes(x.log), 0);
+  // A workout on a rest day still counts for you, never against you.
+  const extra = all.filter((x) => !logs.includes(x) && trainedOn(x.log)).length;
+  const minutes = all.reduce((a, x) => a + trainMinutes(x.log), 0);
   cats.push({
     id: 'gym',
     label: 'Gym',
     emoji: '🏋️',
-    stat: `${trained}/${planned} planned workouts${minutes ? ` · ${minutes} min trained` : ''}`,
-    score: planned ? clamp01(trained / planned) * 100 : trained ? 100 : null,
+    stat: `${trained}/${planned} planned workouts${extra ? ` (+${extra} on rest days)` : ''}${minutes ? ` · ${minutes} min trained` : ''}`,
+    score: planned ? clamp01((trained + extra) / planned) * 100 : trained + extra ? 100 : null,
   });
 
-  const fed = logs.filter((x) => x.log.food.length > 0);
+  // Shown, never graded: what was eaten isn't something to score.
+  const fed = all.filter((x) => x.log.food.length > 0);
   cats.push({
     id: 'protein',
     label: 'Protein',
     emoji: '🍗',
-    stat: fed.length ? `avg ${Math.round(avg(fed.map((x) => proteinOf(x.log))))} g/day (goal ${st.proteinGoal})` : 'nothing logged',
-    score: fed.length && st.proteinGoal ? clamp01(avg(fed.map((x) => proteinOf(x.log))) / st.proteinGoal) * 100 : null,
+    stat: fed.length ? `avg ${Math.round(avg(fed.map((x) => proteinOf(x.log))))} g/day on ${fed.length} logged day${fed.length === 1 ? '' : 's'}` : 'nothing logged',
+    score: null,
   });
 
   const walked = logs.filter((x) => x.log.steps != null);
@@ -106,14 +127,14 @@ export function weekReport(s: State, weekOffset = 0, now = new Date()) {
   }
 
   const overDays = logs.filter((x) => gamingUsedMs(s, x.key) > gamingBudgetMin(s, x.key) * MIN).length;
-  const totalMin = Math.round(logs.reduce((a, x) => a + gamingUsedMs(s, x.key), 0) / MIN);
-  const topGame = gameTotals(s, logs.length, dates[dates.length - 1] ?? now).find((g) => g.game !== 'Unnamed');
+  const totalMin = Math.round(all.reduce((a, x) => a + gamingUsedMs(s, x.key), 0) / MIN);
+  const topGame = gameTotals(s, all.length, dates[dates.length - 1] ?? now).find((g) => g.game !== 'Unnamed');
   cats.push({
     id: 'gaming',
     label: 'Gaming',
     emoji: '🎮',
     stat: `${Math.floor(totalMin / 60)}h ${totalMin % 60}m total · ${overDays} days over budget${topGame ? ` · mostly ${topGame.game}` : ''}`,
-    score: (1 - overDays / n) * 100,
+    score: n ? (1 - overDays / n) * 100 : null,
   });
 
   const cups = logs.map((x) => coffeeOf(x.log).length);
@@ -123,18 +144,19 @@ export function weekReport(s: State, weekOffset = 0, now = new Date()) {
     label: 'Coffee',
     emoji: '☕',
     stat: `avg ${avg(cups).toFixed(1)} cups/day · ${coffeeOver} days over limit`,
-    score: (1 - coffeeOver / n) * 100,
+    score: n ? (1 - coffeeOver / n) * 100 : null,
   });
 
-  const moods = logs.map((x) => avgMood(x.log)).filter((m): m is number => m != null);
+  // Shown, never graded: feelings aren't a performance.
+  const moods = all.map((x) => avgMood(x.log)).filter((m): m is number => m != null);
   if (moods.length) {
     const top = emotionCounts(s, 7, dates[dates.length - 1] ?? now)[0];
     cats.push({
       id: 'mood',
       label: 'Mood',
       emoji: '🫀',
-      stat: `avg ${avg(moods).toFixed(1)}/5${top ? ` · mostly ${top.emotion.toLowerCase()}` : ''} · ${logs.reduce((a, x) => a + moodsOf(x.log).length, 0)} check-ins`,
-      score: ((avg(moods) - 1) / 4) * 100,
+      stat: `avg ${avg(moods).toFixed(1)}/5${top ? ` · mostly ${top.emotion.toLowerCase()}` : ''} · ${all.reduce((a, x) => a + moodsOf(x.log).length, 0)} check-ins`,
+      score: null,
     });
   }
 
@@ -147,24 +169,35 @@ export function weekReport(s: State, weekOffset = 0, now = new Date()) {
   }
   if (due) cats.push({ id: 'habits', label: 'Habits', emoji: '✅', stat: `${doneHabits}/${due} done`, score: (doneHabits / due) * 100 });
 
+  // Tasks: graded only in a week that had any. Up to 5 finished is full marks (fewer if fewer existed).
   const weekStart = monday.getTime();
   const weekEnd = addDays(monday, 7).getTime();
   const tasks = s.tasks.filter((t) => t.doneAt && t.doneAt >= weekStart && t.doneAt < weekEnd).length;
-  cats.push({ id: 'tasks', label: 'Tasks', emoji: '📋', stat: `${tasks} completed`, score: clamp01(tasks / 5) * 100 });
+  const onList = s.tasks.filter((t) => t.createdAt < weekEnd && (!t.done || (t.doneAt ?? 0) >= weekStart)).length;
+  cats.push({ id: 'tasks', label: 'Tasks', emoji: '📋', stat: `${tasks} completed`, score: onList ? clamp01(tasks / Math.min(5, onList)) * 100 : null });
 
-  const quests = logs.reduce((a, x) => a + (x.log.questsDone?.length ?? 0), 0);
-  cats.push({ id: 'quests', label: 'Quests', emoji: '🗡️', stat: `${quests}/${n * 3} daily quests`, score: (quests / (n * 3)) * 100 });
+  // Quests against what each day actually offered (one on low-battery days).
+  let offered = 0;
+  let quests = 0;
+  for (const x of logs) {
+    const today = questsFor(s, x.date).length;
+    offered += today;
+    quests += Math.min(today, x.log.questsDone?.length ?? 0);
+  }
+  cats.push({ id: 'quests', label: 'Quests', emoji: '🗡️', stat: `${quests}/${offered} daily quests`, score: offered ? (quests / offered) * 100 : null });
 
   const scored = cats.filter((c): c is Category & { score: number } => c.score != null);
-  const overall = Math.round(avg(scored.map((c) => c.score)));
+  const overall = n && scored.length ? Math.round(avg(scored.map((c) => c.score))) : null;
   const ranked = logs.map((x) => ({ key: x.key, score: dayScoreFor(s, x.date) })).sort((a, b) => b.score - a.score);
 
   return {
     monday,
-    days: logs.length,
+    days: n,
+    rest,
+    restDays: rest.paused + rest.low + rest.period,
     categories: cats,
     overall,
-    grade: gradeOf(overall),
+    grade: overall == null ? null : gradeOf(overall),
     best: ranked[0] ?? null,
     worst: ranked.length > 1 ? ranked[ranked.length - 1] : null,
     boss: bossFor(s, monday),

@@ -3,8 +3,9 @@ import { periodStarts, PHASE_NAMES, phaseOn } from './body';
 import { BED_MG, bedtimeCaffeine } from './caffeine';
 import { cycleNotes, cycleStats } from './cycle-stats';
 import { addDays, dayKey, fmtDuration, WEEKDAYS_LONG } from './dates';
+import { countedDay } from './day-filters';
 import { dayScoreFor } from './report';
-import { avgMood, coffeeOf, dayOf, gamingUsedMs, trainedOn, waterGoalFor, waterMl } from './selectors';
+import { avgMood, coffeeOf, dayOf, effectiveSavage, gamingUsedMs, trainedOn, waterGoalFor, waterMl } from './selectors';
 import { clockLabel, nightClock, rhythmOf } from './sleep';
 import type { DayLog, State } from './types';
 
@@ -44,6 +45,9 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
   }
   const out: Insight[] = [];
   const add = (i: Insight) => out.push(i);
+  // The finding always, the joke only when the tone allows it (not on a low-mood or sick day, not at savage 1–2).
+  const kind = effectiveSavage(s, now) <= 2;
+  const wink = (finding: string, joke: string) => (kind ? finding : `${finding} ${joke}`);
 
   // Sleep after training days.
   const trainSleep = compare(days, (d) => trainedOn(d.log), (d) => d.next.sleepMin ?? null);
@@ -65,7 +69,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'train_mood',
       emoji: up ? '💪' : '🤔',
-      text: up ? 'Your mood is better on days you train. Science agrees with me for once.' : 'Your mood dips on training days. Maybe too hard, or too early?',
+      text: up ? wink('Your mood is better on days you train.', 'Science agrees with me for once.') : 'Your mood dips on training days. Maybe too hard, or too early?',
       detail: `${trainMood.yes.toFixed(1)}/5 vs ${trainMood.no.toFixed(1)}/5 · ${trainMood.n} days`,
       strength: Math.abs(trainMood.yes - trainMood.no) / 0.5,
     });
@@ -78,7 +82,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'coffee_mood',
       emoji: '☕',
-      text: worse ? 'Your mood drops on 3+ coffee days. The beans are not your friends.' : 'You are happier on 3+ coffee days. I am not encouraging this.',
+      text: worse ? wink('Your mood drops on 3+ coffee days.', 'The beans are not your friends.') : wink('You are happier on 3+ coffee days.', 'I am not encouraging this.'),
       detail: `${coffeeMood.yes.toFixed(1)}/5 vs ${coffeeMood.no.toFixed(1)}/5 · ${coffeeMood.n} days`,
       strength: Math.abs(coffeeMood.yes - coffeeMood.no) / 0.5,
     });
@@ -107,7 +111,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'caffeine_bed',
       emoji: '☕',
-      text: `On nights you go to bed with ${BED_MG}+ mg of caffeine still in you, you rate your sleep worse. The beans clock out later than you do.`,
+      text: wink(`On nights you go to bed with ${BED_MG}+ mg of caffeine still in you, you rate your sleep worse.`, 'The beans clock out later than you do.'),
       detail: `${bedCaf.yes.toFixed(1)}/5 vs ${bedCaf.no.toFixed(1)}/5 · ${bedCaf.n} nights`,
       strength: (bedCaf.no - bedCaf.yes) / 0.6,
     });
@@ -119,7 +123,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'late_game',
       emoji: '🎮',
-      text: 'Gaming past 23:00 makes you rate your sleep worse. The final boss is your bedtime.',
+      text: wink('Gaming past 23:00 makes you rate your sleep worse.', 'The final boss is your bedtime.'),
       detail: `${lateGame.yes.toFixed(1)}/5 vs ${lateGame.no.toFixed(1)}/5 · ${lateGame.n} nights`,
       strength: (lateGame.no - lateGame.yes) / 0.6,
     });
@@ -133,8 +137,8 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
       id: 'water_game',
       emoji: '💧',
       text: more
-        ? `You game ${Math.round(waterGame.no - waterGame.yes)} min more on days you skip your water. Dehydrated and distracted.`
-        : `You game ${Math.round(waterGame.yes - waterGame.no)} min more on water-goal days. Hydrated gamer energy.`,
+        ? wink(`You game ${Math.round(waterGame.no - waterGame.yes)} min more on days you skip your water.`, 'Dehydrated and distracted.')
+        : wink(`You game ${Math.round(waterGame.yes - waterGame.no)} min more on water-goal days.`, 'Hydrated gamer energy.'),
       detail: `${Math.round(waterGame.yes)} vs ${Math.round(waterGame.no)} min/day · ${waterGame.n} days`,
       strength: Math.abs(waterGame.yes - waterGame.no) / 30,
     });
@@ -146,7 +150,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'steps_mood',
       emoji: '👣',
-      text: 'Your mood is better on days you hit your step goal. Walking: free therapy.',
+      text: wink('Your mood is better on days you hit your step goal.', 'Walking: free therapy.'),
       detail: `${stepMood.yes.toFixed(1)}/5 vs ${stepMood.no.toFixed(1)}/5 · ${stepMood.n} days`,
       strength: (stepMood.yes - stepMood.no) / 0.5,
     });
@@ -158,7 +162,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'weekend_water',
       emoji: '🏝️',
-      text: `You drink ${Math.round(((weekend.no - weekend.yes) / weekend.no) * 100)}% less water on weekends. Hydration takes no days off.`,
+      text: wink(`You drink ${Math.round(((weekend.no - weekend.yes) / weekend.no) * 100)}% less water on weekends.`, 'Hydration takes no days off.'),
       detail: `${(weekend.yes / 1000).toFixed(1)} L vs ${(weekend.no / 1000).toFixed(1)} L`,
       strength: (weekend.no - weekend.yes) / weekend.no / 0.2,
     });
@@ -170,7 +174,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'energy_sleep',
       emoji: '🔋',
-      text: 'Your energy is clearly higher after 7+ hours of sleep. Shocking, I know.',
+      text: wink('Your energy is clearly higher after 7+ hours of sleep.', 'Shocking, I know.'),
       detail: `${energySleep.yes.toFixed(1)}/5 vs ${energySleep.no.toFixed(1)}/5 · ${energySleep.n} days`,
       strength: (energySleep.yes - energySleep.no) / 0.7,
     });
@@ -247,7 +251,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'doom_mood',
       emoji: '💀',
-      text: 'Your mood is lower on days with 2+ hours of social apps. Lord Doomscroll feeds on this.',
+      text: wink('Your mood is lower on days with 2+ hours of social apps.', 'Lord Doomscroll feeds on this.'),
       detail: `${doomMood.yes.toFixed(1)}/5 vs ${doomMood.no.toFixed(1)}/5 · ${doomMood.n} days`,
       strength: (doomMood.no - doomMood.yes) / 0.5,
     });
@@ -320,15 +324,16 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
     add({
       id: 'rain_steps',
       emoji: '🌧️',
-      text: `You walk ${Math.round(((rainSteps.no - rainSteps.yes) / rainSteps.no) * 100)}% less on rainy days. An umbrella is cheaper than a treadmill.`,
+      text: wink(`You walk ${Math.round(((rainSteps.no - rainSteps.yes) / rainSteps.no) * 100)}% less on rainy days.`, 'An umbrella is cheaper than a treadmill.'),
       detail: `${Math.round(rainSteps.yes).toLocaleString('sv-SE')} vs ${Math.round(rainSteps.no).toLocaleString('sv-SE')} steps · ${rainSteps.n} days`,
       strength: (rainSteps.no - rainSteps.yes) / rainSteps.no / 0.2,
     });
   }
 
-  // Best and worst weekday.
+  // Best and worst weekday, from counted days: a sick Tuesday doesn't make Tuesdays bad.
   const byWeekday = new Map<number, number[]>();
   for (const d of days) {
+    if (!countedDay(s, d.key)) continue;
     const list = byWeekday.get(d.date.getDay()) ?? [];
     list.push(dayScoreFor(s, d.date));
     byWeekday.set(d.date.getDay(), list);
@@ -342,7 +347,7 @@ export function insights(s: State, now = new Date(), windowDays = 60): Insight[]
       add({
         id: 'weekday',
         emoji: '📅',
-        text: `${WEEKDAYS_LONG[best.wd]}s are your best days. ${WEEKDAYS_LONG[worst.wd]}s are… a work in progress.`,
+        text: kind ? `${WEEKDAYS_LONG[best.wd]}s are your best days. ${WEEKDAYS_LONG[worst.wd]}s are harder ones.` : `${WEEKDAYS_LONG[best.wd]}s are your best days. ${WEEKDAYS_LONG[worst.wd]}s are… a work in progress.`,
         detail: `day score ${Math.round(best.score)} vs ${Math.round(worst.score)}`,
         strength: (best.score - worst.score) / 15,
       });
