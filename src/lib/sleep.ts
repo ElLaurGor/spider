@@ -1,28 +1,41 @@
 // Sleep timing from the watch: each night's main sleep (bed and wake time, stages) and how regular
 // bedtimes are. Pure, so it's tested offline; health.ts reads the sessions from Health Connect.
-import { addDays, dayKey, HOUR, MIN } from './dates';
+import { addDays, atTime, dayKey, HOUR } from './dates';
 import type { DayLog, SleepStages, State } from './types';
 
 export type StageKind = 'awake' | 'light' | 'deep' | 'rem' | 'asleep';
 export type StageSegment = { start: number; end: number; stage: StageKind };
-/** A sleep session as Health Connect stores it, times in ms. `stage` uses Health Connect's SleepStageType. */
-export type RawSession = { start: number; end: number; stages: { start: number; end: number; stage: number }[] };
+/**
+ * A sleep session as Health Connect stores it, times in ms. `stage` uses Health Connect's SleepStageType;
+ * `origin` is the app that wrote it (Zepp, the phone, another tracker).
+ */
+export type RawSession = { start: number; end: number; origin?: string; stages: { start: number; end: number; stage: number }[] };
 export type Night = { bedAt: number; wakeAt: number; stages: SleepStages | null; segments: StageSegment[] };
 
-// SleepStageType: 0 unknown, 1 awake, 2 sleeping, 3 out of bed, 4 light, 5 deep, 6 REM.
-const KIND: Record<number, StageKind> = { 1: 'awake', 2: 'asleep', 3: 'awake', 4: 'light', 5: 'deep', 6: 'rem' };
+/** The Zepp app's package (Amazfit watch). Its own records go first, so the numbers match what Zepp shows. */
+export const ZEPP = 'com.huami.watch.hmwatchmanager';
 
-/** "The night before" a day, like the sleep total: 18:00 the evening before until 14:00 that day. */
+// SleepStageType: 0 unknown, 1 awake, 2 sleeping, 3 out of bed, 4 light, 5 deep, 6 REM, 7 awake in bed (Android 14+).
+const KIND: Record<number, StageKind> = { 1: 'awake', 2: 'asleep', 3: 'awake', 4: 'light', 5: 'deep', 6: 'rem', 7: 'awake' };
+
+/** "The night before" a day, like the sleep total: 18:00 the evening before until 14:00 that day (clock times, so a 23- or 25-hour night is fine). */
 export function nightWindow(key: string) {
-  const midnight = new Date(`${key}T00:00`).getTime();
-  return { from: midnight - 6 * HOUR, to: midnight + 14 * HOUR };
+  const noon = new Date(`${key}T12:00`);
+  return { from: atTime(noon, -1, 18).getTime(), to: atTime(noon, 0, 14).getTime() };
 }
 
-/** The night before `key`: its longest session plus any that start or end within an hour of it (a split night). */
+/**
+ * The night before `key`: its longest session plus any that start or end within an hour of it (a split night).
+ * One source only: Zepp's sessions if it wrote any, else the app with the longest session. Two trackers
+ * recording the same night would otherwise add up to more sleep than there was night.
+ */
 export function nightOf(sessions: RawSession[], key: string): Night | null {
   const { from, to } = nightWindow(key);
-  const inWindow = sessions.filter((x) => x.end > x.start && x.end > from && x.start < to);
-  if (!inWindow.length) return null;
+  const all = sessions.filter((x) => x.end > x.start && x.end > from && x.start < to);
+  if (!all.length) return null;
+  const longest = all.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
+  const origin = all.some((x) => x.origin === ZEPP) ? ZEPP : longest.origin;
+  const inWindow = all.filter((x) => x.origin === origin);
   const main = inWindow.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
   const parts = [main];
   let bedAt = main.start;
@@ -43,7 +56,7 @@ export function nightOf(sessions: RawSession[], key: string): Night | null {
     )
     .filter((x): x is StageSegment => !!x.stage && x.end > x.start)
     .sort((a, b) => a.start - b.start);
-  const mins = (k: StageKind) => Math.round(segments.filter((x) => x.stage === k).reduce((a, x) => a + x.end - x.start, 0) / MIN);
+  const mins = (k: StageKind) => Math.round(segments.filter((x) => x.stage === k).reduce((a, x) => a + x.end - x.start, 0) / 60_000);
   const detailed = segments.some((x) => x.stage === 'light' || x.stage === 'deep' || x.stage === 'rem');
   return {
     bedAt,
@@ -70,8 +83,15 @@ export function withNights(s: State, nights: { key: string; night: Night | null 
   return days === s.days ? s : { ...s, days };
 }
 
-/** Minutes from the morning's midnight: 23:30 the evening before is -30, 00:45 is 45. */
-export const nightClock = (t: number, key: string) => Math.round((t - new Date(`${key}T00:00`).getTime()) / MIN);
+/**
+ * The clock time of `t` in minutes, counted from the morning `key`: 23:30 the evening before is -30, 00:45
+ * is 45. Read off the clock, not elapsed time, so a wake-up at 08:00 on a DST morning stays 08:00 (480).
+ */
+export function nightClock(t: number, key: string) {
+  const d = new Date(t);
+  const days = Math.round((new Date(`${dayKey(d)}T12:00`).getTime() - new Date(`${key}T12:00`).getTime()) / (24 * HOUR));
+  return Math.round(days * 1440 + d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60);
+}
 
 /** "23:30" for -30, "00:45" for 45. */
 export function clockLabel(minutes: number) {

@@ -77,7 +77,7 @@ export function cycleInfo(s: State, now = new Date()): CycleInfo | null {
 
   const last = startDates[startDates.length - 1];
   const today = startOfDay(now).getTime();
-  const cycleDay = Math.floor((today - startOfDay(last).getTime()) / DAY) + 1;
+  const cycleDay = Math.round((today - startOfDay(last).getTime()) / DAY) + 1; // round: a 23-hour day isn't a short day
   const nextStart = addDays(startOfDay(last), avgLength);
   const daysUntil = Math.round((nextStart.getTime() - today) / DAY);
   return {

@@ -5,6 +5,7 @@ import { isRunningInExpoGo } from 'expo';
 import * as Calendar from 'expo-calendar';
 import { Platform } from 'react-native';
 
+import { allDayLocal } from './calendar-days';
 import type { CalEvent, CalInfo, CalStatus } from './types';
 
 export const calendarSupported = Platform.OS !== 'web' && !isRunningInExpoGo();
@@ -35,11 +36,14 @@ export async function loadEvents(cals: CalInfo[], start: Date, end: Date): Promi
     .filter((e) => e.startDate && e.endDate)
     .map((e) => {
       const s = new Date(e.startDate as string | Date).getTime();
+      const raw = { start: s, end: new Date(e.endDate as string | Date).getTime() };
+      // All-day events come as UTC midnights: as local days they'd spill into the next day.
+      const { start, end } = e.allDay ? allDayLocal(raw.start, raw.end) : raw;
       return {
         key: `${e.id}-${s}`,
         title: e.title || '(no title)',
-        start: s,
-        end: new Date(e.endDate as string | Date).getTime(),
+        start,
+        end,
         allDay: !!e.allDay,
         location: e.location || null,
         calendarId: e.calendarId,

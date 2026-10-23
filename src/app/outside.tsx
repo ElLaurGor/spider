@@ -3,7 +3,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 
 import { Btn, Card, H, Icon, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { dayKey, WEEKDAYS } from '@/lib/dates';
+import { addDays, dayKey, WEEKDAYS } from '@/lib/dates';
 import { ALERT_COLOR, ALERT_LABEL, alertWhen, aqiBand, LEVEL_LABEL, POLLEN, pollenLevel, shortDate, sourceNote, sourceOk, type Alert } from '@/lib/outside';
 import { useStore } from '@/lib/store';
 
@@ -34,7 +34,7 @@ export function AlertRow({ a }: { a: Alert }) {
 const dayLabel = (date: string) => {
   if (date === dayKey()) return 'Today';
   const d = new Date(`${date}T12:00`);
-  return date === dayKey(new Date(Date.now() + 86_400_000)) ? 'Tomorrow' : WEEKDAYS[d.getDay()];
+  return date === dayKey(addDays(new Date(), 1)) ? 'Tomorrow' : WEEKDAYS[d.getDay()];
 };
 
 export default function OutsideScreen() {
