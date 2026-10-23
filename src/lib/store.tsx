@@ -102,6 +102,7 @@ import { chestShelf, SHELF_MAX, withChestGold } from './loot';
 import { credit, earnBonus, penalize, refundPenalty, unreward, withoutUndoRecords } from './ledger';
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
 import { restedAfter, restedGain, restedSplit } from './rested';
+import { checkSilkTrack, SILK_TIERS } from './silk-track';
 import { goldenAllowed } from './tone';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
@@ -336,6 +337,19 @@ function checkDiary(s: State, msgs: Msg[]): State {
   const r = unlockPages(s);
   if (r.added) msgs.push({ text: L(r.state, 'diaryPage'), tone: 'epic' });
   return r.state;
+}
+
+/** Silk Track tiers the month's XP has reached: the items go in the wardrobe, with one line about them. No XP is paid. */
+function checkSilk(s: State, msgs: Msg[]): State {
+  const { state, unlocked } = checkSilkTrack(s, dayKey());
+  for (const u of unlocked) {
+    const top = u.unlocked[u.unlocked.length - 1];
+    const reward = `${top.emoji} ${top.name}${top.had ? ' (already yours)' : ''}`;
+    const vars = { tier: u.tier, reward, month: u.edition.name, count: u.unlocked.length };
+    msgs.push({ text: L(state, u.unlocked.length > 1 ? 'silkTiers' : 'silkTier', vars), tone: 'epic' });
+    if (u.tier === SILK_TIERS) msgs.push({ text: L(state, 'silkDone', vars), tone: 'epic' });
+  }
+  return state;
 }
 
 function checkAchievements(s: State, msgs: Msg[], quiet = false): State {
@@ -878,7 +892,8 @@ function useStoreValue() {
       const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(fn(rolled, msgs), msgs), msgs), msgs), msgs);
       // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
       const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
-      const next = quiet ? checkDiary(scored, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(scored, msgs), msgs), msgs), msgs);
+      // Silk Track tiers wait for the next ordinary action after body or photo logging (no fanfare there).
+      const next = quiet ? checkDiary(scored, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(scored, msgs), msgs), msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone, m.action));
       // Earned bonus minutes mid-session move the gaming alerts (the session's own day, past midnight too).

@@ -3,7 +3,9 @@ import { Alert, Text, View } from 'react-native';
 import { SpiderAvatar } from '@/components/spider-avatar';
 import { Btn, Card, Chip, H, Row, T } from '@/components/ui';
 import { C } from '@/constants/theme';
-import { buyable, COSMETICS, owns, shownTitle, SLOTS, titlesEarned, whereToGet, worn, type Cosmetic } from '@/lib/cosmetics';
+import { useToday } from '@/components/use-today';
+import { buyable, COSMETICS, owns, shownTitle, SILK_COSMETICS, SLOTS, titlesEarned, whereToGet, worn, type Cosmetic } from '@/lib/cosmetics';
+import { editionFor, monthOf, silkBadges } from '@/lib/silk-track';
 import { useStore } from '@/lib/store';
 import { levelForXp, titleFor } from '@/lib/xp';
 
@@ -13,6 +15,11 @@ export function WardrobeCard() {
   const wearing = worn(state);
   const current = shownTitle(state);
   const levelTitle = titleFor(levelForXp(state.xp));
+  // Silk Track pieces: the ones you have, plus this month's edition (the rest of the year stays out of the list).
+  const today = useToday();
+  const thisEdition = new Set(editionFor(monthOf(today)).rewards.map((r) => r.id));
+  const listed = [...COSMETICS, ...SILK_COSMETICS.filter((c) => owns(state, c.id) || thisEdition.has(c.id))];
+  const badges = silkBadges(state);
 
   const confirmBuy = (c: Cosmetic) =>
     Alert.alert(`Buy ${c.name}?`, `${c.price} 🪙 · you have ${state.coins} 🪙`, [
@@ -24,14 +31,14 @@ export function WardrobeCard() {
     <Card>
       <H right={<SpiderAvatar size={40} />}>Wardrobe</H>
       <T dim small>
-        Looks only. Seasonal pieces are sold while their season is on, auras only drop from legendary chests.
+        Looks only. Seasonal pieces are sold while their season is on, auras drop from legendary chests, and the Silk Track hands out the rest.
       </T>
       {SLOTS.map((slot) => (
         <View key={slot.id} style={{ gap: 8 }}>
           <T dim small mono>
             {slot.name.toUpperCase()}
           </T>
-          {COSMETICS.filter((c) => c.slot === slot.id).map((c) => {
+          {listed.filter((c) => c.slot === slot.id).map((c) => {
             const have = owns(state, c.id);
             const on = wearing[slot.id]?.id === c.id;
             const forSale = !have && c.price != null && buyable(c);
@@ -56,6 +63,18 @@ export function WardrobeCard() {
           })}
         </View>
       ))}
+      {badges.length ? (
+        <>
+          <T dim small mono>
+            SILK BADGES
+          </T>
+          <Row gap={6} style={{ flexWrap: 'wrap' }}>
+            {badges.map((b) => (
+              <Chip key={b.id} label={`${b.emoji} ${b.name}`} />
+            ))}
+          </Row>
+        </>
+      ) : null}
       <T dim small mono>
         TITLE ON HQ
       </T>

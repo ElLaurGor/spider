@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, Card, Chip, Field, H, Icon, Row, Stepper, T, useNow } from '@/components/ui';
+import { SilkTrackSection } from '@/components/silk-track';
 import { WardrobeCard } from '@/components/wardrobe-card';
 import { C, MONO } from '@/constants/theme';
 import { REWARD_IDEAS, shopPrice, SHOP_ITEMS } from '@/lib/economy';
@@ -77,6 +78,8 @@ export default function ShopScreen() {
         kind={points ? 'primary' : 'ghost'}
         onPress={() => router.push('/perks')}
       />
+
+      <SilkTrackSection />
 
       <WardrobeCard />
 

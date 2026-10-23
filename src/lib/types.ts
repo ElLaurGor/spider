@@ -289,6 +289,7 @@ export type State = {
   chestsSinceLegendary?: number; // loot chests opened since the last legendary one (lib/economy.ts pity)
   perks?: string[]; // spider abilities taken (lib/perks.ts)
   cosmetics?: { owned: string[]; worn: Partial<Record<'hat' | 'held' | 'aura', string>>; title?: string }; // lib/cosmetics.ts
+  silk?: { month: string; tier: number }; // Silk Track (lib/silk-track.ts): the month on record and the highest tier handed out in it
   // cluster F
   eggsFound?: Record<string, Record<string, number>>; // Easter hunt: year -> egg id -> found at
   backupFolderUri?: string | null; // folder picked for automatic weekly backups (a persisted SAF uri)

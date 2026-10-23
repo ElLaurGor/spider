@@ -1210,6 +1210,23 @@ export const LINES = {
     mild: ['{boss} has already fallen this week. Keep the coins for the next one.'],
     savage: ['{boss} is already down. Bombing a fallen boss is just littering. Keep your coins.'],
   },
+  // step 2b silk
+  silkTier: {
+    mild: ['🕸️ Silk Track tier {tier}: {reward}. Looking sharp.', '🕸️ Tier {tier} on the {month} track: {reward} is yours.'],
+    savage: [
+      '🕸️ Tier {tier}: {reward}. Finally, proof you were busy.',
+      '🕸️ {reward} unlocked at tier {tier}. Dressed for success. Now act like it.',
+      '🕸️ Tier {tier}, {reward}. Fashion first, habits second? Keep both coming.',
+    ],
+  },
+  silkTiers: {
+    mild: ['🕸️ {count} Silk Track tiers at once, up to tier {tier}. Best of the lot: {reward}.'],
+    savage: ['🕸️ {count} tiers in one go, now tier {tier}. Top prize so far: {reward}. You were busy, I noticed.'],
+  },
+  silkDone: {
+    mild: ["🕸️ The {month} is complete: all 20 tiers. Everything's yours to keep."],
+    savage: ['🕸️ All 20 tiers of the {month}. Done. Fully dressed, fully earned. Rest on it, briefly.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;
