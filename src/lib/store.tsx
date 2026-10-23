@@ -103,6 +103,9 @@ import { credit, earnBonus, penalize, refundPenalty, unreward, withoutUndoRecord
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
 import { restedAfter, restedGain, restedSplit } from './rested';
 import { goldenAllowed } from './tone';
+// step 2b: weekly medals and the ghost of last week
+import { medalList, settleMedals } from './medals';
+import { withoutOldXpHours, withXpHour } from './xp-timeline';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /** A button on a toast (cluster G: "Catch it!" on a fly). */
@@ -210,8 +213,10 @@ function checkLeague(s: State, msgs: Msg[]): State {
   const vars = { tier: `${tier.emoji} ${tier.name}`, rank: r.rank };
   const key = r.tier > old.tier ? 'leaguePromoted' : r.tier < old.tier ? 'leagueDemoted' : 'leagueStayed';
   msgs.push({ text: L(s, key, vars) + (r.prize ? ` +${r.prize} 🪙` : ''), tone: r.tier > old.tier ? 'epic' : r.tier < old.tier ? 'bad' : 'info' });
+  if (r.nemesis?.beaten) msgs.push({ text: L(s, 'nemesisBeaten', { rival: `${r.nemesis.emoji} ${r.nemesis.name}`, coins: r.nemesisPrize }), tone: 'good' });
   const history = [...old.history, { week: old.week, tier: old.tier, rank: r.rank, xp: r.xp }].slice(-26);
-  return { ...s, league: newLeague(r.tier, week, history), coins: s.coins + r.prize, coinsEarned: s.coinsEarned + r.prize };
+  const coins = r.prize + r.nemesisPrize;
+  return { ...s, league: newLeague(r.tier, week, history), coins: s.coins + coins, coinsEarned: s.coinsEarned + coins };
 }
 
 /** Fixes today's quests, completes any that are done, and settles the weekly boss (checkBoss). */
@@ -436,6 +441,13 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
   next = withChestGold(next, today);
   const shelf = chestShelf(next, now);
   for (const c of shelf.slice(0, Math.max(0, shelf.length - SHELF_MAX))) next = openChestOn(next, c.key, c.gold, msgs, true);
+  // Last week's medals, once (medals.ts), and XP timelines older than the ghost needs.
+  const medals = settleMedals(withoutOldXpHours(next, today), now);
+  next = medals.state;
+  if (medals.award?.won.length) {
+    next = reward(next, msgs, medals.award.xp, 0, today, { ref: `medals:${medals.award.week}` });
+    msgs.push({ text: L(next, 'medalsWeek', { medals: medalList(medals.award.won), xp: medals.award.xp }), tone: 'epic' });
+  }
   return next;
 }
 
@@ -878,7 +890,8 @@ function useStoreValue() {
       const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(fn(rolled, msgs), msgs), msgs), msgs), msgs);
       // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
       const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
-      const next = quiet ? checkDiary(scored, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(scored, msgs), msgs), msgs), msgs);
+      // The hour's running XP total is noted too, for the ghost of last week (xp-timeline.ts).
+      const next = withXpHour(quiet ? checkDiary(scored, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(scored, msgs), msgs), msgs), msgs));
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone, m.action));
       // Earned bonus minutes mid-session move the gaming alerts (the session's own day, past midnight too).

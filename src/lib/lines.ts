@@ -1210,6 +1210,39 @@ export const LINES = {
     mild: ['{boss} has already fallen this week. Keep the coins for the next one.'],
     savage: ['{boss} is already down. Bombing a fallen boss is just littering. Keep your coins.'],
   },
+  // step 2b progress
+  nemesisAhead: {
+    mild: ['{rival} is ahead of you this week. Plenty of week left.', '{rival} leads for now. One good day closes it.'],
+    savage: [
+      '{rival} is ahead and has started a group chat about it.',
+      "{rival} is in front and walking slower on purpose so you can see the gap.",
+      '{rival} is ahead and has already practised the victory speech. Twice.',
+    ],
+  },
+  nemesisBehind: {
+    mild: ["You're ahead of {rival} this week. Nice.", '{rival} is behind you for now. Keep it that way.'],
+    savage: [
+      "{rival} is behind you and pretending not to care. They care.",
+      "You're ahead of {rival}. They've started calling it a rebuilding week.",
+      '{rival} is behind you and refreshing the table every few minutes.',
+    ],
+  },
+  nemesisBeaten: {
+    mild: ['😈 You finished ahead of your nemesis {rival} this week. +{coins} 🪙.'],
+    savage: ['😈 {rival} lost to you this week and is calling it a warm-up. +{coins} 🪙.', '😈 Nemesis {rival}: beaten. They want a rematch. Too bad, new week, new nemesis. +{coins} 🪙.'],
+  },
+  ghostAhead: {
+    mild: ["You're ahead of last week's you. Keep going.", 'Last week you were behind this. Nice.'],
+    savage: ["You're beating last week's you. Last week's you is furious.", 'Ahead of your own ghost. It wants a word.'],
+  },
+  ghostBehind: {
+    mild: ["Last week's you is a little ahead. Very catchable.", "Last week's you leads for now. The week isn't over."],
+    savage: ["Last week's you is ahead. You're losing to a recording of yourself.", 'Your own ghost is beating you. Catchable, but embarrassing.'],
+  },
+  medalsWeek: {
+    mild: ["🏅 Last week's medals: {medals}. +{xp} XP."],
+    savage: ["🏅 Last week's medals: {medals}. +{xp} XP. Look at you, collecting things.", "🏅 Medals from last week: {medals}. +{xp} XP. I'm almost impressed."],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

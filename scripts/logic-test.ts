@@ -117,6 +117,10 @@ import { meteoTime, needsPlaceInfo, samePlace, staleNote } from '../src/lib/weat
 import { readinessFor } from '../src/lib/readiness';
 import { heartIn, workoutWindows } from '../src/lib/workout-heart';
 import { movementMap, stillestHour } from '../src/lib/movement';
+// step 2b progress
+import { MEDALS, medalList, medalsFor, medalTotals, needFor, openDays, settleMedals } from '../src/lib/medals';
+import { ghostOf, ghostText, withoutOldXpHours, withXpHour, xpByHour } from '../src/lib/xp-timeline';
+import { NEMESIS_PRIZE, nemesisOf } from '../src/lib/league';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -141,6 +145,7 @@ for (let i = 0; i < 100; i++) {
 const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins', /* cluster E */ 'task', 'days', 'water', 'score']);
 for (const k of ['weakness', 'day', 'until']) known.add(k); // cluster A
 for (const k of ['done', 'budget']) known.add(k); // step 2 tone: the Gym and Game tabs
+for (const k of ['rival', 'medals']) known.add(k); // step 2b progress: the nemesis and weekly medals
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -861,6 +866,113 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   assert.equal(shame.find((r) => r.label === 'Most coffees in a day')?.value, '3 cups'); // the awful day's 6 don't count
   assert.ok(!fame.some((r) => r.label === 'Themes unlocked'));
   assert.equal(hallOfFame(hs, { unlocked: 9, total: 9 }).fame.find((r) => r.label === 'Themes unlocked')?.value, '9/9');
+}
+
+// ---------- step 2b progress ----------
+// The ghost of last week (an hourly XP timeline), weekly medals (counts per week, never a run of days),
+// and the weekly nemesis in the league.
+{
+  const d0 = (xp: number, hours?: Record<number, number>): DayLog => ({ ...emptyDay(), xpEarned: xp, ...(hours ? { xpHours: hours } : {}) });
+  // timeline: noted per hour, unchanged state when nothing moved
+  const tl = defaultState();
+  const wed = new Date(2027, 0, 13, 9, 30); // Wed 13 Jan 2027
+  assert.equal(withXpHour(tl, wed), tl); // no day yet
+  tl.days['2027-01-13'] = d0(0);
+  assert.equal(withXpHour(tl, wed), tl); // nothing earned, nothing noted
+  tl.days['2027-01-13'] = d0(40);
+  const noted = withXpHour(tl, wed);
+  assert.deepEqual(noted.days['2027-01-13'].xpHours, { 9: 40 });
+  assert.equal(withXpHour(noted, wed), noted);
+  assert.equal(xpByHour(d0(0, { 9: 40, 13: 90 }), 8), 0);
+  assert.equal(xpByHour(d0(0, { 9: 40, 13: 90 }), 12), 40);
+  assert.equal(xpByHour(d0(0, { 9: 40, 13: 90 }), 20), 90);
+  assert.equal(xpByHour(d0(90), 20), null); // no timeline
+  const old = { ...defaultState(), days: { '2026-12-20': d0(5, { 8: 5 }), '2027-01-12': d0(5, { 8: 5 }) } };
+  const pruned = withoutOldXpHours(old, '2027-01-13');
+  assert.equal(pruned.days['2026-12-20'].xpHours, undefined);
+  assert.deepEqual(pruned.days['2027-01-12'].xpHours, { 8: 5 });
+  assert.equal(withoutOldXpHours(pruned, '2027-01-13'), pruned);
+
+  // ghost: this week so far against last week up to the same weekday (and hour, once recorded)
+  const gh = defaultState();
+  Object.assign(gh.days, { '2027-01-04': d0(100), '2027-01-05': d0(50), '2027-01-06': d0(80), '2027-01-08': d0(300) }); // last week
+  Object.assign(gh.days, { '2027-01-11': d0(60), '2027-01-12': d0(70), '2027-01-13': d0(20) }); // this week
+  const at = new Date(2027, 0, 13, 15, 0);
+  const whole = ghostOf(gh, at)!;
+  assert.deepEqual(whole, { then: 230, now: 150, exact: false, weekday: 'Wednesday' }); // last Wednesday's whole day stands in
+  assert.ok(ghostText(whole).includes('last week by the end of Wednesday: 230 XP · now: 150'));
+  gh.days['2027-01-06'] = d0(80, { 9: 10, 14: 30, 20: 80 });
+  const exact = ghostOf(gh, at)!;
+  assert.deepEqual(exact, { then: 180, now: 150, exact: true, weekday: 'Wednesday' }); // 100 + 50 + 30 by 15:00
+  assert.ok(ghostText(exact).includes('last Wednesday at this time: 180 XP'));
+  const fresh = defaultState();
+  fresh.days['2027-01-13'] = d0(20);
+  assert.equal(ghostOf(fresh, at), null); // no last week to race
+
+  // medals: the bar scales with the week's non-rough days, never below 1
+  assert.deepEqual(needFor([3, 5, 7], 7), { bronze: 3, silver: 5, gold: 7 });
+  assert.deepEqual(needFor([3, 5, 7], 5), { bronze: 3, silver: 4, gold: 5 });
+  assert.deepEqual(needFor([1, 2, 3], 1), { bronze: 1, silver: 1, gold: 1 });
+  const md = defaultState();
+  md.onboarded = true;
+  md.settings.gamingBudgetMin = 60;
+  const week = '2027-01-11';
+  const mk = (i: number) => dayKey(addDays(new Date(`${week}T12:00`), i));
+  for (let i = 0; i < 7; i++) md.days[mk(i)] = { ...emptyDay(), water: i < 5 ? [{ id: `w${i}`, ml: 6000, at: 0 }] : [] };
+  for (let i = 0; i < 4; i++) md.days[mk(i)].activities = [{ id: `a${i}`, kind: 'cardio', minutes: 30, at: 0 }];
+  md.days[mk(6)].games = [{ start: 0, end: 3 * 3_600_000 }]; // Sunday: 3 h, over budget
+  const end = new Date(2027, 0, 17, 23, 59);
+  const by = (id: string) => medalsFor(md, week, end).find((m) => m.def.id === id)!;
+  assert.equal(by('water').count, 5);
+  assert.equal(by('water').tier, 'silver');
+  assert.equal(by('water').next, 'gold');
+  assert.equal(by('train').tier, 'gold');
+  assert.equal(by('gaming').count, 5); // six used days (Saturday is empty), Sunday over budget
+  assert.equal(by('gaming').tier, 'silver');
+  assert.equal(by('focus').tier, null);
+  assert.ok(!medalsFor(md, week, end).some((m) => m.def.id === 'steps' || m.def.id === 'habits')); // no watch, no habits: no medal to chase
+  md.days[mk(0)].steps = 9000;
+  assert.ok(medalsFor(md, week, end).some((m) => m.def.id === 'steps'));
+  // two sick days lower the bar: the same 5 water days are gold
+  const sick = { ...md, pauses: [{ from: mk(5), to: mk(6), kind: 'sick' as const }] };
+  assert.equal(openDays(sick, week), 5);
+  assert.equal(medalsFor(sick, week, end).find((m) => m.def.id === 'water')!.tier, 'gold');
+  assert.deepEqual(medalsFor({ ...md, pauses: [{ from: mk(0), to: mk(6), kind: 'away' as const }] }, week, end), []); // a week away: nothing to win, nothing missed
+  // settling: the first rollover only marks where medals start; the next week's pays last week once
+  const first = settleMedals(md, new Date(2027, 0, 13, 8));
+  assert.equal(first.award, null);
+  assert.equal(first.state.medalsSince, '2027-01-11');
+  const monday = new Date(2027, 0, 18, 8);
+  const paid = settleMedals(first.state, monday);
+  assert.equal(paid.award?.week, week);
+  assert.deepEqual(paid.state.medals?.[week], { train: 'gold', water: 'silver', gaming: 'silver' }); // one step-goal day isn't a medal yet
+  assert.equal(paid.award?.xp, 30 + 20 + 20);
+  assert.ok(medalList(paid.award!.won).includes('🥇 Training'));
+  assert.equal(settleMedals(paid.state, new Date(2027, 0, 18, 20)).award, null); // once per week
+  assert.equal(settleMedals({ ...md, medalsSince: '2027-01-18' }, monday).award, null); // weeks before medals arrived aren't paid
+  assert.deepEqual(medalTotals(paid.state), { bronze: 0, silver: 2, gold: 1, weeks: 1 });
+  assert.ok(MEDALS.every((m) => m.base[0] <= m.base[1] && m.base[1] <= m.base[2]));
+
+  // nemesis: the rival set to finish just above last week's XP; beating them pays, losing costs nothing
+  const nm = defaultState();
+  assert.equal(nemesisOf(nm), null);
+  nm.league = newLeague(1, week);
+  const sunEnd = new Date(2027, 0, 17, 23, 59);
+  const finals = nm.league.rivals.map((r) => rivalXp(r, 1, week, sunEnd)).sort((a, b) => a - b);
+  assert.equal(rivalXp(nemesisOf(nm)!, 1, week, sunEnd), finals[Math.floor(finals.length / 2)]); // no last week: the middle
+  nm.league.history = [{ week: '2027-01-04', tier: 1, rank: 4, xp: finals[2] }];
+  const target = nemesisOf(nm)!;
+  assert.equal(rivalXp(target, 1, week, sunEnd), finals[3]); // just above what you earned
+  assert.equal(nemesisOf(nm)!.id, target.id); // the same all week
+  nm.league.history = [{ week: '2027-01-04', tier: 1, rank: 1, xp: 99_999 }];
+  assert.equal(rivalXp(nemesisOf(nm)!, 1, week, sunEnd), finals.at(-1)); // beat them all last week: the strongest
+  for (let i = 0; i < 7; i++) nm.days[mk(i)] = { ...emptyDay(), xpEarned: 5000 };
+  const st = settle(nm);
+  assert.ok(st.nemesis?.beaten);
+  assert.equal(st.nemesisPrize, NEMESIS_PRIZE);
+  for (let i = 0; i < 7; i++) nm.days[mk(i)] = emptyDay();
+  assert.equal(settle(nm).nemesisPrize, 0);
+  assert.equal(settle(nm).nemesis?.beaten, false);
 }
 
 // economy: one coin per XP
