@@ -28,7 +28,8 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - A load that fails shows the recovery screen (`components/recovery.tsx`) and nothing is saved until the user picks something. A save that would drop most of the history is refused unless reset/restore allowed it (`wouldWipe`).
   - `hydrate()` in `defaults.ts` fills in fields that old saves don't have. New fields need a default there, or must be read with `?? fallback`.
 - Tab screens stay mounted for days and the React Compiler computes a bare `dayKey()` once: use `useToday()` (`components/use-today.ts`) for "today" in screens. Day keys passed to actions must pass `isDayKey()`; never hand an action straight to `onPress` if it takes an optional argument (`onPress={actions.addCoffee}` once logged cups under "[object Object]").
-- `effectiveSavage()` returns 1 (mild only) on a low mood (carried overnight until the next check-in) and in sick mode. `quip` re-picks when it changes.
+- Tone: `toneOn(s, dayKey)` in `tone.ts` gives `{level, kind}` per day. `kind` (level 1, mild lines only) on a low mood (carried overnight until the next check-in), in sick mode, and on period days (logged, still running, or predicted for planned days) with "go easy on period days" on. Low battery caps at 5; away mode keeps the tone. `effectiveSavage()` is today's level; notifications use each planned day's own tone (`sayOn`). `gentleDay` keeps recaps (diary, callbacks, rival talk) kind about rough days; `goldenAllowed` gates golden lines. `quip` re-picks when the tone changes.
+- Scores and recaps judge only `countedDay`s (`day-filters.ts`): something was logged and the day wasn't rough (paused, low mood, period). Rough days are listed as rest, never as misses; recaps start at `firstDataDay`. Mood and protein are shown but never graded.
 
 ## Before calling a change done
 ```
