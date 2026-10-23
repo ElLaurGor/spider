@@ -31,7 +31,6 @@ const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.le
 
 /** Tasks finished that day, out of those on the list then (finished that day, or still open when it ended). */
 function taskShare(s: State, date: Date): number | null {
-  const start = startOfDay(date).getTime();
   const end = addDays(startOfDay(date), 1).getTime();
   const done = doneTasksOn(s, dayKey(date)).length; // the day's own record: Clear and delete don't erase it
   const open = s.tasks.filter((t) => t.createdAt < end && (!t.done || (t.doneAt ?? 0) >= end)).length;
