@@ -145,12 +145,15 @@ function reward(s: State, msgs: Msg[], rawXp: number, bonusMin = 0, key = dayKey
   if (rested.extra) next = { ...next, rested: rested.left };
   next = patchDay(next, key, (d) => ({ ...d, xpEarned: Math.max(0, (d.xpEarned ?? 0) + xp) }));
   if (bonusMin) next = patchDay(next, key, (d) => ({ ...d, bonusGameMin: Math.max(0, d.bonusGameMin + bonusMin) }));
+  // Only a level never reached before is announced: getting one back after a penalty or an undo isn't news.
   const after = levelForXp(next.xp);
-  if (after > before) {
+  const peak = Math.max(before, s.maxLevel ?? before);
+  if (after > peak) {
+    next = { ...next, maxLevel: after };
     msgs.push({ text: L(next, 'levelUp', { level: after, title: titleFor(after) }), tone: 'epic' });
     const stage = stageFor(after);
-    if (stage !== stageFor(before)) msgs.push({ text: `🧬 Your spider evolved: ${stage.name}${stage.badge ? ` ${stage.badge}` : ''}!`, tone: 'epic' });
-    for (const id of themesUnlockedBetween(before, after)) {
+    if (stage !== stageFor(peak)) msgs.push({ text: `🧬 Your spider evolved: ${stage.name}${stage.badge ? ` ${stage.badge}` : ''}!`, tone: 'epic' });
+    for (const id of themesUnlockedBetween(peak, after)) {
       msgs.push({ text: `🎨 New theme unlocked: ${THEMES[id].name}. Settings → Themes.`, tone: 'epic' });
     }
   }
@@ -410,7 +413,9 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
     next = { ...next, rested: pool };
     msgs.push({ text: `😴 ${L(next, 'restedReady', { xp: pool })}`, tone: 'info' });
   }
-  for (const key of [dayKey(addDays(now, -2)), yesterday]) next = bankGaming(next, key, msgs);
+  // Every day since the last rollover (two back on a first one), so days away don't lose their unused minutes.
+  const bankFrom = s.lastRollover && s.lastRollover < today ? s.lastRollover : dayKey(addDays(now, -2));
+  for (let d = new Date(`${bankFrom}T12:00`); dayKey(d) <= yesterday; d = addDays(d, 1)) next = bankGaming(next, dayKey(d), msgs);
   // Unopened chests wait on the shelf with the gold status they earned; past SHELF_MAX the oldest opens itself.
   next = withChestGold(next, today);
   const shelf = chestShelf(next, now);

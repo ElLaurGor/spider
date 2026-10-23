@@ -286,6 +286,8 @@ export type State = {
   // cluster E
   rivalTalk?: { week: string; rank: number; day: string; n: number } | null; // last league rank seen and today's rival remarks (rival-talk.ts)
   topTomorrow?: { day: string; ids: string[] } | null; // task ids picked in an evening debrief for that day's top 3 (memory.ts)
+  // step 2
+  maxLevel?: number; // the highest level ever reached: only a new one gets the level-up toasts
 };
 
 export type DiaryPage = { n: number; at: number; day: string; text: string };
