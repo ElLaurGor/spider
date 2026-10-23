@@ -432,13 +432,18 @@ export default function SettingsScreen() {
           <H>Watch (Zepp → Health Connect)</H>
           <T dim small>
             {health.status === 'connected'
-              ? 'Connected. Steps, heart rate and sleep are read from Health Connect.'
+              ? health.missing.length
+                ? `Connected, but without access to ${health.missing.join(' and ')}.`
+                : 'Connected. Steps, heart rate and sleep are read from Health Connect.'
               : health.status === 'unavailable'
                 ? 'Health Connect is not available. Install it from the Play Store.'
                 : 'Not connected yet. In Zepp: Profile → Add accounts → Health Connect, then connect here.'}
           </T>
           <Row>
             {health.status !== 'connected' ? <Btn label="Connect" icon="monitor_heart" onPress={health.connect} style={{ flex: 1 }} /> : null}
+            {health.status === 'connected' && health.missing.length ? (
+              <Btn label="Grant missing access" icon="monitor_heart" onPress={health.connect} style={{ flex: 1 }} />
+            ) : null}
             <Btn label="Health Connect settings" kind="ghost" onPress={openHealthSettings} style={{ flex: 1 }} />
           </Row>
         </Card>

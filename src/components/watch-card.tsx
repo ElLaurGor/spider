@@ -47,13 +47,13 @@ export function WatchCard() {
     );
   }
 
-  const max = Math.max(goal, ...(d?.stepsWeek.map((x) => x.steps) ?? [0]), 1);
+  const max = Math.max(goal, ...(d?.stepsWeek.map((x) => x.steps ?? 0) ?? [0]), 1);
 
   return (
     <Card accent={C.green}>
       <H
         right={
-          <Pressable onPress={health.refresh} hitSlop={8}>
+          <Pressable onPress={health.refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Refresh watch data">
             <Icon name="refresh" size={20} color={C.dim} />
           </Pressable>
         }>
@@ -100,9 +100,10 @@ export function WatchCard() {
             <View
               style={{
                 width: '70%',
-                height: Math.max(3, (x.steps / max) * 50),
+                height: Math.max(3, ((x.steps ?? 0) / max) * 50),
                 borderRadius: 4,
-                backgroundColor: x.steps >= goal ? C.green : '#1C4A33',
+                backgroundColor: x.steps != null && x.steps >= goal ? C.green : '#1C4A33',
+                opacity: x.steps == null ? 0.4 : 1, // that day's read failed
               }}
             />
             <Text style={styles.day}>{WEEKDAYS[new Date(`${x.key}T12:00`).getDay()][0]}</Text>
@@ -111,7 +112,15 @@ export function WatchCard() {
       </Row>
 
       <SpiderSays text={sleepLine ? `${stepLine} ${sleepLine}` : stepLine} />
-      <Pressable onPress={openHealthSettings}>
+      {health.missing.length ? (
+        <View style={{ gap: 6 }}>
+          <T dim small>
+            No access to {health.missing.join(' and ')} yet, so {health.missing.length === 1 ? 'that stays' : 'those stay'} empty here.
+          </T>
+          <Btn label="Grant missing access" icon="monitor_heart" kind="ghost" small onPress={health.connect} />
+        </View>
+      ) : null}
+      <Pressable onPress={openHealthSettings} accessibilityRole="button" accessibilityLabel="Manage Health Connect access">
         <T dim small>
           Data comes from Zepp via Health Connect · updated {d ? fmtTime(d.updatedAt) : '–'} · manage access
         </T>

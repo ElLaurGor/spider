@@ -92,6 +92,11 @@ import { nightPhone, nightWindow } from '../src/lib/night';
 import { autoBackupDue } from '../src/lib/backup-due';
 import { workoutFor } from '../src/lib/selectors';
 import { clockLabel, nightClock, nightOf, rhythmOf, withNights } from '../src/lib/sleep';
+import { nightWindow as sleepWindow, ZEPP } from '../src/lib/sleep';
+import { allDayLocal } from '../src/lib/calendar-days';
+import { isDoomscroll } from '../src/lib/doomscroll';
+import { eventsOn } from '../src/lib/selectors';
+import { meteoTime, needsPlaceInfo, samePlace } from '../src/lib/weather';
 import { readinessFor } from '../src/lib/readiness';
 import { heartIn, workoutWindows } from '../src/lib/workout-heart';
 import { movementMap, stillestHour } from '../src/lib/movement';
@@ -1782,6 +1787,89 @@ void (async () => {
   assert.equal(r.spread, 20);
   assert.equal(r.jetlag, 122); // middle of the night: weekend 05:00 (300) vs weekdays 02:58 on average (178)
   assert.equal(rhythmOf(defaultState(), addDays(mon, 6), 7), null);
+}
+
+// ---------- step 2 fixes ----------
+// Clock changes: each check runs on both of this year's switch days of the time zone the test runs in (Europe/Stockholm:
+// Sun 25 Oct 2026 and Sun 28 Mar 2027; America/New_York: 1 Nov 2026 and 14 Mar 2027), the days after, and a plain day.
+{
+  const keys = ['2026-10-25', '2026-10-26', '2026-11-01', '2027-03-14', '2027-03-28', '2027-03-29', '2027-01-12'];
+  const noon = (k: string) => new Date(`${k}T12:00`);
+  for (const key of keys) {
+    const prev = dayKey(addDays(noon(key), -1));
+    // the night before a day: 18:00 the evening before to 14:00 on the clock
+    const w = sleepWindow(key);
+    assert.equal(dayKey(w.from), prev);
+    assert.equal(new Date(w.from).getHours(), 18, key);
+    assert.equal(new Date(w.to).getHours(), 14, key);
+    // the rhythm chart reads the clock: 08:00 is 480 and 23:30 the evening before is -30, whatever the day's length
+    assert.equal(nightClock(atTime(noon(key), 0, 8).getTime(), key), 480, key);
+    assert.equal(nightClock(atTime(noon(key), -1, 23, 30).getTime(), key), -30, key);
+    // a day's events run midnight to midnight: 23:00–23:45 belongs to it, 00:30 the next day doesn't
+    const late = { key: 'a', title: 'late', start: atTime(noon(key), 0, 23).getTime(), end: atTime(noon(key), 0, 23, 45).getTime(), allDay: false, location: null, calendarId: 'c' };
+    const next = { ...late, key: 'b', start: atTime(noon(key), 1, 0, 30).getTime(), end: atTime(noon(key), 1, 1).getTime() };
+    assert.deepEqual(eventsOn([late, next], noon(key)).map((e) => e.key), ['a'], key);
+    // the caffeine curve runs from and to clock hours
+    const cs = defaultState();
+    cs.days[key] = { ...emptyDay(), coffee: [{ id: 'c1', mg: 90, at: atTime(noon(key), 0, 9).getTime() }] };
+    const curve = caffeineCurve(cs, key, 6, 23);
+    assert.equal(new Date(curve[0].t).getHours(), 6, key);
+    assert.equal(new Date(curve[curve.length - 1].t).getHours(), 23, key);
+    // cycle day: whole calendar days (a 23-hour day used to knock it one short for the whole cycle)
+    const cy2 = defaultState();
+    for (const back of [37, 9]) cy2.days[dayKey(addDays(noon(key), -back))] = { ...emptyDay(), period: { flow: 'medium', symptoms: [] } };
+    assert.equal(cycleInfo(cy2, noon(key))!.cycleDay, 10, key);
+  }
+
+  // Open-Meteo's times are all at the response's one offset (today's): Sunday's sunrise after the switch is 05:49 UTC
+  assert.equal(meteoTime('2026-10-25T07:49', 7200), Date.UTC(2026, 9, 25, 5, 49));
+  assert.equal(meteoTime('2026-10-23T07:44', 7200), Date.UTC(2026, 9, 23, 5, 44));
+  assert.equal(meteoTime('2026-10-25T07:49', undefined), new Date('2026-10-25T07:49').getTime()); // no offset given: as before
+
+  // all-day events arrive as UTC midnights: as local days they'd spill into the next morning
+  const allDay = allDayLocal(Date.UTC(2026, 9, 26), Date.UTC(2026, 9, 27));
+  assert.equal(dayKey(allDay.start), '2026-10-26');
+  assert.equal(new Date(allDay.start).getHours(), 0);
+  assert.equal(dayKey(allDay.end), '2026-10-27');
+  const monAllDay = { key: 'x', title: 'Holiday', ...allDay, allDay: true, location: null, calendarId: 'c' };
+  assert.equal(eventsOn([monAllDay], new Date(2026, 9, 27, 12)).length, 0); // not on Tuesday too
+  assert.equal(eventsOn([monAllDay], new Date(2026, 9, 26, 12)).length, 1);
+  const localMidnight = new Date(2026, 9, 26).getTime();
+  if (new Date(localMidnight).getUTCHours() !== 0) assert.deepEqual(allDayLocal(localMidnight, localMidnight + 86_400_000), { start: localMidnight, end: localMidnight + 86_400_000 }); // already local: untouched
+
+  // sleep from one source: Zepp's night, not Zepp's plus another tracker's added on top; stage 7 is awake in bed
+  const key = '2027-01-12';
+  const at = (h: number, m = 0) => atTime(noon(key), 0, 0).getTime() + (h * 60 + m) * 60_000;
+  const zepp = { start: at(-1), end: at(7), origin: ZEPP, stages: [{ start: at(-1), end: at(-0.5), stage: 7 }, { start: at(-0.5), end: at(7), stage: 4 }] };
+  const other = { start: at(-1, -30), end: at(6, 30), origin: 'com.sec.android.app.shealth', stages: [{ start: at(-1, -30), end: at(6, 30), stage: 4 }] };
+  const both = nightOf([other, zepp], key)!;
+  assert.equal(both.bedAt, at(-1));
+  assert.equal(both.wakeAt, at(7));
+  assert.deepEqual(both.stages, { deep: 0, light: 450, rem: 0, awake: 30 });
+  assert.equal(nightOf([other], key)!.bedAt, at(-1, -30)); // no Zepp: the other tracker alone
+  const phone = { ...other, origin: 'android', start: at(2), end: at(3), stages: [] };
+  assert.equal(nightOf([phone, other], key)!.bedAt, at(-1, -30)); // no Zepp: the source with the longest session
+
+  // VMA areas: the municipality, however the geocoder and Krisinformation spell it
+  assert.ok(isMine({ type: 'Municipality', description: 'Stockholms kommun' }, 'Stockholms län', 'Kista', 'Stockholms stad'));
+  assert.ok(isMine({ description: 'Solna kommun' }, 'Stockholms län', 'Solna', 'Solna Kommun'));
+  assert.ok(!isMine({ description: 'Solna kommun' }, 'Stockholms län', 'Kista', 'Stockholms stad'));
+  assert.ok(isMine({ description: 'Malmö kommun' }, 'Skåne län', 'Malmö')); // saved before municipalities: the town still works
+  assert.ok(needsPlaceInfo({ name: 'Stockholm, Sverige', lat: 59.33, lon: 18.07, county: 'Stockholms län' })); // no municipality yet
+  assert.ok(!needsPlaceInfo({ name: 'Kiruna', lat: 67.86, lon: 20.23, county: 'Norrbottens län', municipality: '' })); // looked up, none
+  assert.ok(samePlace({ name: 'A', lat: 1, lon: 2 }, { name: 'A', lat: 1, lon: 2, county: 'x' }));
+  assert.ok(!samePlace({ name: 'A', lat: 1, lon: 2 }, { name: 'B', lat: 1, lon: 2 }));
+
+  // doomscrolling is matched on exact packages: YouTube Music and Messenger are not TikTok
+  for (const pkg of ['com.instagram.android', 'com.google.android.youtube', 'com.zhiliaoapp.musically', 'com.zhiliaoapp.musically.go', 'com.facebook.katana', 'com.instagram.barcelona'])
+    assert.ok(isDoomscroll(pkg), pkg);
+  for (const pkg of ['com.google.android.apps.youtube.music', 'com.facebook.orca', 'com.whatsapp', 'com.spotify.music', 'se.sj.android'])
+    assert.ok(!isDoomscroll(pkg), pkg);
+
+  // a yearly countdown on 29 Feb is on 28 Feb in other years, and back on the 29th in leap years
+  const leap = { id: 'l', title: 'Leap', emoji: '🎂', date: '2024-02-29', yearly: true, createdAt: 0 };
+  assert.equal(dayKey(nextDate(leap, new Date(2027, 1, 20, 12))), '2027-02-28');
+  assert.equal(dayKey(nextDate(leap, new Date(2027, 2, 1, 12))), '2028-02-29');
 }
 
 // morning readiness: sleep and resting heart rate against her own normal, plus her ratings

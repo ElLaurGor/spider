@@ -3,7 +3,11 @@ import { fmtTime } from './dates';
 import { getJson } from './http';
 import type { DayWeather } from './types';
 
-export type Place = { name: string; lat: number; lon: number; county?: string }; // county e.g. "Stockholms län"
+/**
+ * county e.g. "Stockholms län"; municipality the geocoder's admin2, e.g. "Stockholms stad" or "Solna Kommun"
+ * ("" when the geocoder has none, so it isn't looked up again).
+ */
+export type Place = { name: string; lat: number; lon: number; county?: string; municipality?: string };
 
 export type DayForecast = {
   date: string;
@@ -23,16 +27,38 @@ export type Weather = { temp: number; feels: number; code: number; days: DayFore
 // Swedish names, so the county ("Stockholms län") matches SMHI and Krisinformation exactly.
 export async function findPlace(query: string): Promise<Place | null> {
   const url = `https://geocoding-api.open-meteo.com/v1/search?count=1&language=sv&format=json&name=${encodeURIComponent(query.trim())}`;
-  const json = await getJson<{ results?: { name: string; country?: string; admin1?: string; latitude: number; longitude: number }[] }>(url, 'Geocoding');
+  const json = await getJson<{ results?: { name: string; country?: string; admin1?: string; admin2?: string; latitude: number; longitude: number }[] }>(
+    url,
+    'Geocoding',
+  );
   const r = json.results?.[0];
-  return r ? { name: r.country ? `${r.name}, ${r.country}` : r.name, lat: r.latitude, lon: r.longitude, county: r.admin1 } : null;
+  return r
+    ? { name: r.country ? `${r.name}, ${r.country}` : r.name, lat: r.latitude, lon: r.longitude, county: r.admin1, municipality: r.admin2 ?? '' }
+    : null;
 }
 
-/** Places saved before counties were stored: look the county up once from the name. */
+/** Whether a place still needs its county or municipality looked up (saved before they were stored). */
+export const needsPlaceInfo = (place: Place) => !place.county || place.municipality === undefined;
+
+/** Places saved before counties and municipalities were stored: look them up once from the name. */
 export async function withCounty(place: Place): Promise<Place> {
-  if (place.county) return place;
+  if (!needsPlaceInfo(place)) return place;
   const found = await findPlace(place.name.split(',')[0]);
-  return found?.county ? { ...place, county: found.county } : place;
+  if (!found) return place;
+  return { ...place, county: place.county || found.county, municipality: place.municipality ?? found.municipality ?? '' };
+}
+
+/** The same place (a lookup's result must not land on a place picked in Settings in the meantime). */
+export const samePlace = (a: Place | null | undefined, b: Place | null | undefined) => !!a && !!b && a.name === b.name && a.lat === b.lat && a.lon === b.lon;
+
+/**
+ * Open-Meteo's local times ("2026-10-25T07:49", no offset) as real instants. With timezone=auto the whole
+ * response uses one UTC offset, today's, so reading them as the phone's local time puts every time after a
+ * clock change an hour off (Sunday's sunrise would show 07:49 instead of 06:49).
+ */
+export function meteoTime(t: string, offsetSec: number | undefined) {
+  if (offsetSec == null) return new Date(t).getTime();
+  return Date.parse(`${t.length === 16 ? `${t}:00` : t}Z`) - offsetSec * 1000;
 }
 
 export async function fetchWeather(place: Place): Promise<Weather> {
@@ -43,6 +69,7 @@ export async function fetchWeather(place: Place): Promise<Weather> {
     '&minutely_15=precipitation&forecast_minutely_15=16' +
     '&timezone=auto&forecast_days=4';
   const j = await getJson<{
+    utc_offset_seconds?: number;
     current: { temperature_2m: number; apparent_temperature: number; weather_code: number };
     daily: {
       time: string[];
@@ -69,13 +96,13 @@ export async function fetchWeather(place: Place): Promise<Weather> {
       rainPct: j.daily.precipitation_probability_max[i] ?? 0,
       code: j.daily.weather_code[i],
       rainMm: j.daily.precipitation_sum[i] ?? 0,
-      // Local times without an offset: the place's own time zone (timezone=auto), which is the phone's.
-      sunrise: new Date(j.daily.sunrise[i]).getTime(),
-      sunset: new Date(j.daily.sunset[i]).getTime(),
+      // Local times without an offset, all at the response's one offset (see meteoTime).
+      sunrise: meteoTime(j.daily.sunrise[i], j.utc_offset_seconds),
+      sunset: meteoTime(j.daily.sunset[i], j.utc_offset_seconds),
       daylightMin: Math.round(j.daily.daylight_duration[i] / 60),
       sunshineMin: Math.round((j.daily.sunshine_duration[i] ?? 0) / 60),
     })),
-    soon: (j.minutely_15?.time ?? []).map((t, i) => ({ at: new Date(t).getTime(), mm: j.minutely_15?.precipitation[i] ?? 0 })),
+    soon: (j.minutely_15?.time ?? []).map((t, i) => ({ at: meteoTime(t, j.utc_offset_seconds), mm: j.minutely_15?.precipitation[i] ?? 0 })),
     fetchedAt: Date.now(),
   };
 }

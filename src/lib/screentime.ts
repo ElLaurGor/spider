@@ -3,6 +3,10 @@
 // missing and everything here quietly reports "unsupported".
 import { requireOptionalNativeModule } from 'expo';
 
+import { DOOMSCROLL } from './doomscroll';
+
+export { isDoomscroll } from './doomscroll';
+
 export type AppUsage = { packageName: string; label: string; foregroundMs: number; isGame: boolean };
 export type ForegroundSpan = { packageName: string; label: string; start: number; end: number };
 
@@ -85,7 +89,3 @@ export async function unlocksBetween(start: number, end: number): Promise<number
     return null;
   }
 }
-
-/** Social/video apps that count as doomscrolling (matched on package name). */
-const DOOMSCROLL = ['tiktok', 'musically', 'instagram', 'facebook', 'twitter', 'reddit', 'snapchat', 'youtube', 'pinterest', 'threads', 'tumblr', '9gag'];
-export const isDoomscroll = (pkg: string) => DOOMSCROLL.some((k) => pkg.toLowerCase().includes(k));

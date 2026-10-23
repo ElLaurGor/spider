@@ -17,7 +17,7 @@ import { bankFor, coinsFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type S
 import { stageFor, themesUnlockedBetween } from './evolution';
 import { addDays, dayKey, fmtDuration, isDayKey, MIN, startOfDay, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
-import { connectHealth, healthStatus, healthSupported, readHealth, type HealthData, type HealthStatus } from './health';
+import { connectHealth, healthStatus, healthSupported, missingHealthAccess, readHealth, type HealthData, type HealthStatus } from './health';
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, poolFor, type LineKey } from './lines';
@@ -88,7 +88,7 @@ import type {
   Weekday,
   WorkoutDay,
 } from './types';
-import { dayWeatherOf, fetchWeather, fetchWeatherHistory, weatherMissing, withCounty, type Weather } from './weather';
+import { dayWeatherOf, fetchWeather, fetchWeatherHistory, needsPlaceInfo, samePlace, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
 import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, triageAlerts, warningsOf, type Air, type Alert, type SourceStatus } from './outside';
 import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
@@ -772,23 +772,32 @@ function useStoreValue() {
   // ----- watch data (Health Connect) -----
   const [healthState, setHealthState] = useState<HealthStatus>(healthSupported ? 'needs-permission' : 'unsupported');
   const [health, setHealth] = useState<HealthData | null>(null);
+  const [healthMissing, setHealthMissing] = useState<string[]>([]); // asked for but not granted ("heart rate", "sleep")
 
-  /** Applies the watch's numbers: today's (awarding the step goal once), and the final ones for the past week. */
+  /**
+   * Applies the watch's numbers: today's (awarding the step goal once), and the final ones for the past week.
+   * A read that started before midnight holds yesterday's "today", so it only goes in as a past day, and a
+   * failed steps read leaves today's steps as they were.
+   */
   const applyHealth = useCallback(
     (data: HealthData) => {
-      const { steps } = data;
       const s0 = stateRef.current;
       const key = dayKey();
+      const current = data.key === key;
+      const steps = current && data.stepsKnown ? data.steps : null;
       const today = dayOf(s0, key);
-      const sleep = syncedSleep(today, data.sleepMin);
+      const sleep = current ? syncedSleep(today, data.sleepMin) : today.sleepMin;
       const past = data.stepsWeek
         .filter((x) => x.key !== key)
-        .map((x) => ({ key: x.key, steps: x.steps, sleepMin: data.sleepWeek.find((y) => y.key === x.key)?.sleepMin ?? null }));
+        .map((x) => ({ key: x.key, steps: x.steps ?? 0, sleepMin: data.sleepWeek.find((y) => y.key === x.key)?.sleepMin ?? null }));
       const pastChanged = withPastHealth(s0, past) !== s0 || withNights(s0, data.nights, key) !== s0;
-      if (!pastChanged && today.steps === steps && today.sleepMin === sleep && (today.stepGoalHit || steps < s0.settings.stepGoal)) return;
+      const todayChanged = steps != null && (today.steps !== steps || (!today.stepGoalHit && steps >= s0.settings.stepGoal));
+      if (!pastChanged && !todayChanged && today.sleepMin === sleep) return;
       run((s, msgs) => {
-        let next = patchDay(withNights(withPastHealth(s, past), data.nights, key), key, (d) => ({ ...d, steps, sleepMin: sleep }));
-        if (!dayOf(s, key).stepGoalHit && steps >= s.settings.stepGoal) {
+        let next = withNights(withPastHealth(s, past), data.nights, key);
+        if (!current) return next;
+        next = patchDay(next, key, (d) => ({ ...d, ...(steps != null ? { steps } : {}), sleepMin: sleep }));
+        if (steps != null && !dayOf(s, key).stepGoalHit && steps >= s.settings.stepGoal) {
           next = patchDay(next, key, (d) => ({ ...d, stepGoalHit: true }));
           msgs.push({
             text: `${L(next, 'stepGoal', { steps: steps.toLocaleString('sv-SE') })} +${XP.stepGoal} XP · +${BONUS_MIN.stepGoal} min gaming`,
@@ -809,9 +818,13 @@ function useStoreValue() {
         const status = ask ? await connectHealth() : await healthStatus();
         setHealthState(status);
         if (status !== 'connected') return;
+        setHealthMissing(await missingHealthAccess().catch(() => []));
         const data = await readHealth();
         if (!data) return;
-        setHealth(data);
+        // A failed steps read shows the last known number instead of 0.
+        setHealth((prev) =>
+          data.stepsKnown ? data : { ...data, steps: (prev?.key === data.key && prev.stepsKnown ? prev.steps : dayOf(stateRef.current, data.key).steps) ?? 0 },
+        );
         applyHealth(data);
       } catch (e) {
         console.warn('[spider] health failed', e);
@@ -843,12 +856,16 @@ function useStoreValue() {
     }
     setScreenStatus('connected');
     try {
-      const screen = screenDayOf(await usageBetween(startOfDay().getTime(), Date.now()));
-      const unlocks = await unlocksBetween(startOfDay().getTime(), Date.now());
+      // One day for the whole refresh: a refresh that crosses midnight writes its numbers to the day it read.
+      const dayStart = startOfDay();
+      const key = dayKey(dayStart);
+      const until = Math.min(Date.now(), addDays(dayStart, 1).getTime());
+      const screen = screenDayOf(await usageBetween(dayStart.getTime(), until));
+      const unlocks = await unlocksBetween(dayStart.getTime(), until);
       if (unlocks != null) screen.unlocks = unlocks;
-      const old = dayOf(stateRef.current).screen;
+      const old = dayOf(stateRef.current, key).screen;
       if (!old || old.totalMin !== screen.totalMin || old.top.length !== screen.top.length || old.unlocks !== screen.unlocks) {
-        run((s) => patchDay(s, dayKey(), (d) => ({ ...d, screen })));
+        run((s) => patchDay(s, key, (d) => ({ ...d, screen })));
       }
       // Each day's number froze at the last time the app was open; now that those days are over, take the
       // final totals for the past days you used the app (only while Android still has them, so only if higher).
@@ -867,10 +884,11 @@ function useStoreValue() {
       }
       // Last night's phone use in bed, read once a day after 05:00 (cluster F).
       const now = new Date();
-      if (now.getHours() >= 5 && !dayOf(stateRef.current).night) {
+      const nightKey = dayKey(now);
+      if (now.getHours() >= 5 && !dayOf(stateRef.current, nightKey).night) {
         const { bed, end } = nightWindow(now, stateRef.current.settings.sleepHour);
         const night = nightPhone(await spansBetween(bed, end), bed, end);
-        run((s) => patchDay(s, dayKey(), (d) => ({ ...d, night })));
+        run((s) => patchDay(s, nightKey, (d) => ({ ...d, night })));
       }
     } catch (e) {
       console.warn('[spider] screen time failed', e);
@@ -962,18 +980,25 @@ function useStoreValue() {
       outsideDue.current = Date.now() + 14 * 60_000;
       let failed = false;
       try {
-        if (!place.county) {
-          const withC = await withCounty(place);
-          if (withC.county) {
-            place = withC;
-            run((s) => ({ ...s, settings: { ...s.settings, weather: withC } }));
+        if (needsPlaceInfo(place)) {
+          // Saved before counties/municipalities were stored. A failed lookup mustn't stop the warnings below.
+          const looked = place;
+          const found = await withCounty(looked).catch(() => looked);
+          if (found !== looked) {
+            place = found;
+            // Only onto the place that was looked up: one picked in Settings meanwhile keeps its own details.
+            run((s) =>
+              s.settings.weather && samePlace(s.settings.weather, looked)
+                ? { ...s, settings: { ...s.settings, weather: { ...s.settings.weather, county: found.county, municipality: found.municipality } } }
+                : s,
+            );
           }
         }
         const county = place.county;
         const [a, smhi, vma] = await Promise.all([
           fetchAir(place).catch(() => null),
           county ? fetchSmhi(county).catch(() => null) : null,
-          county ? fetchVma(county, place.name.split(',')[0]).catch(() => null) : null,
+          county ? fetchVma(county, place.name.split(',')[0], place.municipality).catch(() => null) : null,
         ]);
         if (a) {
           setAir(a);
@@ -2094,6 +2119,7 @@ function useStoreValue() {
     health: {
       status: healthState,
       data: health,
+      missing: healthMissing, // permissions asked for but not granted, e.g. ["heart rate"]
       refresh: () => refreshHealth(false),
       connect: () => refreshHealth(true),
     },

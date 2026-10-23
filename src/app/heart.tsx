@@ -4,25 +4,28 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Btn, Card, Chip, H, Icon, Row, T } from '@/components/ui';
 import { WorkoutHeart } from '@/components/workout-heart';
 import { C, MONO } from '@/constants/theme';
-import { addDays, dayKey, fmtTime, pad, WEEKDAYS } from '@/lib/dates';
+import { addDays, atTime, dayKey, fmtTime, pad, WEEKDAYS } from '@/lib/dates';
 import { openHealthSettings, readHeartDay, type HeartSample } from '@/lib/health';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { workoutWindows, type TrainWindow } from '@/lib/workout-heart';
 
 const CHART_H = 160;
-const BUCKET_MIN = 10;
-const BUCKETS = (24 * 60) / BUCKET_MIN;
+const BUCKET_MS = 10 * 60_000;
 const AXIS_W = 30;
 
 type Bucket = { i: number; min: number; max: number; avg: number };
 
-/** Groups a day's samples into 10-minute buckets, so a full day draws as 144 bars at most. */
+/** 10-minute buckets in a day: 144, or 138/150 on the days the clocks change (23 or 25 hours). */
+const bucketCount = (dayStart: number) => Math.round((atTime(dayStart, 1, 0).getTime() - dayStart) / BUCKET_MS);
+
+/** Groups a day's samples into 10-minute buckets of real time, so a full day draws as about 144 bars. */
 function bucketsOf(samples: HeartSample[], dayStart: number): Bucket[] {
+  const n = bucketCount(dayStart);
   const acc = new Map<number, { min: number; max: number; sum: number; n: number }>();
   for (const s of samples) {
-    const i = Math.floor((s.at - dayStart) / (BUCKET_MIN * 60_000));
-    if (i < 0 || i >= BUCKETS) continue;
+    const i = Math.floor((s.at - dayStart) / BUCKET_MS);
+    if (i < 0 || i >= n) continue;
     const b = acc.get(i);
     if (b) {
       b.min = Math.min(b.min, s.bpm);
@@ -34,9 +37,10 @@ function bucketsOf(samples: HeartSample[], dayStart: number): Bucket[] {
   return [...acc.entries()].sort((a, b) => a[0] - b[0]).map(([i, b]) => ({ i, min: b.min, max: b.max, avg: Math.round(b.sum / b.n) }));
 }
 
-const clock = (minutes: number) => `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`;
-
 function Timeline({ buckets, resting, windows, dayStart }: { buckets: Bucket[]; resting: number | null; windows: TrainWindow[]; dayStart: number }) {
+  const BUCKETS = bucketCount(dayStart);
+  const dayMs = BUCKETS * BUCKET_MS;
+  const at = (i: number) => fmtTime(dayStart + i * BUCKET_MS); // real time, so labels stay right after a clock change
   const [width, setWidth] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const lowest = Math.min(...buckets.map((b) => b.min), resting ?? Infinity);
@@ -60,7 +64,7 @@ function Timeline({ buckets, resting, windows, dayStart }: { buckets: Bucket[]; 
     <View style={{ gap: 6 }}>
       <T small mono style={{ color: sel ? C.text : C.dim }}>
         {sel
-          ? `${clock(sel.i * BUCKET_MIN)}–${clock((sel.i + 1) * BUCKET_MIN)} · ${sel.min === sel.max ? sel.min : `${sel.min}–${sel.max}`} bpm · avg ${sel.avg}`
+          ? `${at(sel.i)}–${at(sel.i + 1)} · ${sel.min === sel.max ? sel.min : `${sel.min}–${sel.max}`} bpm · avg ${sel.avg}`
           : 'Tap the chart to see a moment.'}
       </T>
       <Row gap={0} style={{ alignItems: 'stretch' }}>
@@ -77,11 +81,11 @@ function Timeline({ buckets, resting, windows, dayStart }: { buckets: Bucket[]; 
           onPress={(e) => pick(e.nativeEvent.locationX)}>
           {width > 0 &&
             windows.map((w) => {
-              const left = ((w.start - dayStart) / 86_400_000) * width;
+              const left = ((w.start - dayStart) / dayMs) * width;
               return (
                 <View
                   key={w.start}
-                  style={[styles.train, { left, width: Math.max(2, ((w.end - w.start) / 86_400_000) * width) }]}
+                  style={[styles.train, { left, width: Math.max(2, ((w.end - w.start) / dayMs) * width) }]}
                 />
               );
             })}
@@ -113,7 +117,9 @@ function Timeline({ buckets, resting, windows, dayStart }: { buckets: Bucket[]; 
       <View style={{ height: 14, marginLeft: AXIS_W }}>
         {width > 0 &&
           [0, 6, 12, 18, 24].map((h) => (
-            <Text key={h} style={[styles.hour, { left: Math.min(width - 22, Math.max(0, (h / 24) * width - 11)) }]}>
+            <Text
+              key={h}
+              style={[styles.hour, { left: Math.min(width - 22, Math.max(0, ((atTime(dayStart, 0, h).getTime() - dayStart) / dayMs) * width - 11)) }]}>
               {pad(h)}
             </Text>
           ))}
@@ -209,7 +215,7 @@ export default function HeartScreen() {
       <Card accent={C.red}>
         <H
           right={
-            <Pressable onPress={health.refresh} hitSlop={8}>
+            <Pressable onPress={health.refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Refresh heart rate">
               <Icon name="refresh" size={20} color={C.dim} />
             </Pressable>
           }>
@@ -221,7 +227,9 @@ export default function HeartScreen() {
           </T>
         ) : buckets.length === 0 ? (
           <T dim small>
-            No heart rate {day === today ? 'yet today' : 'for this day'}. If the watch was on, check that Zepp syncs Heart rate to Health Connect.
+            {health.missing.includes('heart rate')
+              ? 'S.P.I.D.E.R. has no access to heart rate yet. Grant it on the watch card or in Settings.'
+              : `No heart rate ${day === today ? 'yet today' : 'for this day'}. If the watch was on, check that Zepp syncs Heart rate to Health Connect.`}
           </T>
         ) : (
           <Timeline key={day} buckets={buckets} resting={resting} windows={windows} dayStart={dayStart} />
