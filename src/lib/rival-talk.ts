@@ -1,7 +1,7 @@
 // The league bots talk back: a rival who passes you gloats, one you pass sulks. At most two a day, and
 // they keep quiet on low-mood, period and paused days. Their lines are about themselves and the race, never your body.
 import { dayKey } from './dates';
-import { standings } from './league';
+import { nemesisOf, standings } from './league';
 import { fillLine } from './lines';
 import { gentleDay } from './tone';
 import type { State } from './types';
@@ -125,5 +125,6 @@ export function rivalTalk(s: State, now = new Date(), roll = Math.random): { tal
   if (!other || other.me) return { talk, line: null };
   const pool = climbed ? voiceOf(other.name).beaten : voiceOf(other.name).passed;
   const quote = fillLine(pool[Math.floor(roll() * pool.length) % pool.length], { name: s.settings.userName || 'boss' });
-  return { talk: { ...talk, n: n + 1 }, line: { text: `${other.emoji} ${other.name}: "${quote}"`, tone: climbed ? 'good' : 'info' } };
+  const tag = nemesisOf(s)?.id === other.id ? ' (your nemesis)' : '';
+  return { talk: { ...talk, n: n + 1 }, line: { text: `${other.emoji} ${other.name}${tag}: "${quote}"`, tone: climbed ? 'good' : 'info' } };
 }

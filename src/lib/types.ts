@@ -168,6 +168,8 @@ export type DayLog = {
   bonusEarnedMin?: number; // bonus gaming minutes earned (not bought or from a chest): the bonus-minutes quest counts these
   doneTasks?: { id: string; at: number }[]; // tasks finished that day, kept when the task is later deleted or cleared
   critBy?: Record<string, { id: string; dmg: number }>; // crit key -> the entry that rolled it, so undoing it takes the damage back; dropped at rollover
+  // step 2b
+  xpHours?: Record<number, number>; // hour (0–23) -> the day's xpEarned as last seen in that hour, for the ghost of last week (lib/xp-timeline.ts); kept 14 days
 };
 
 /** A finished day's goals: settings, plan and habits as they were that day. */
@@ -299,7 +301,12 @@ export type State = {
   // step 2
   maxLevel?: number; // the highest level ever reached: only a new one gets the level-up toasts
   fixes?: string[]; // one-time repairs already applied to this save (lib/fixes.ts)
+  // step 2b
+  medals?: Record<string, Partial<Record<string, MedalTier>>>; // week key (its Monday) -> medal id -> tier won that week (lib/medals.ts)
+  medalsSince?: string; // first week that earns medals (the week they arrived), so old weeks aren't paid out
 };
+
+export type MedalTier = 'bronze' | 'silver' | 'gold';
 
 export type DiaryPage = { n: number; at: number; day: string; text: string };
 

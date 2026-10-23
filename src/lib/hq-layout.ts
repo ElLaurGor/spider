@@ -21,6 +21,7 @@ export const HQ_SECTIONS = [
   { id: 'shortcuts', label: 'Shortcut buttons' },
   { id: 'league', label: 'League' },
   { id: 'silk', label: 'Silk Track' },
+  { id: 'medals', label: 'Weekly medals' },
   { id: 'contract', label: 'Weekly contract' },
   { id: 'experiment', label: 'Running experiment' },
   { id: 'insight', label: 'Insight of the day' },

@@ -95,6 +95,32 @@ export function standings(s: State, now = new Date()): Standing[] {
   return rows.sort((a, b) => b.xp - a.xp || (a.me ? -1 : b.me ? 1 : 0));
 }
 
+/** Coins for finishing a week ahead of that week's nemesis. */
+export const NEMESIS_PRIZE = 50;
+
+/** Your XP the week before the league's week: its history entry when there is one (frozen), else the days themselves. */
+function lastWeekXp(s: State, l: League) {
+  const prev = dayKey(addDays(mondayOf(l.week), -7));
+  const h = l.history.at(-1);
+  if (h && h.week === prev) return h.xp;
+  return userWeekXp(s, prev, addDays(new Date(`${prev}T23:59`), 6));
+}
+
+/**
+ * This week's nemesis: the rival set to finish just above what you earned last week (rival XP is fixed per
+ * week), or the strongest one if you'd beat them all. With no last week to go by, the middle of the table.
+ * Picked fresh every week from the league itself, so nothing carries over.
+ */
+export function nemesisOf(s: State): Rival | null {
+  const l = s.league;
+  if (!l || !l.rivals.length) return null;
+  const end = addDays(new Date(`${l.week}T23:59`), 6);
+  const finals = l.rivals.map((r) => ({ r, xp: rivalXp(r, l.tier, l.week, end) })).sort((a, b) => a.xp - b.xp);
+  const ref = lastWeekXp(s, l);
+  if (ref <= 0) return finals[Math.floor(finals.length / 2)].r;
+  return (finals.find((x) => x.xp > ref) ?? finals[finals.length - 1]).r;
+}
+
 /** Sick/away days in a league week that protect you from demotion. */
 export const PAUSE_SAFE_DAYS = 3;
 
@@ -107,5 +133,10 @@ export function settle(s: State) {
   const demoted = rank > table.length - DEMOTE && pausedInWeek(s, mondayOf(l.week)) < PAUSE_SAFE_DAYS;
   const tier = rank <= PROMOTE ? Math.min(TIERS.length - 1, l.tier + 1) : demoted ? Math.max(0, l.tier - 1) : l.tier;
   const prize = rank === 1 ? 300 : rank === 2 ? 200 : rank === 3 ? 100 : 0;
-  return { rank, tier, prize, xp: table.find((r) => r.me)?.xp ?? 0 };
+  const xp = table.find((r) => r.me)?.xp ?? 0;
+  const nem = nemesisOf(s);
+  const nemXp = nem ? (table.find((r) => r.id === nem.id)?.xp ?? 0) : 0;
+  // Beating the nemesis pays a little extra. Losing to them costs nothing: next week brings a new one.
+  const nemesis = nem ? { name: nem.name, emoji: nem.emoji, beaten: xp > nemXp } : null;
+  return { rank, tier, prize, xp, nemesis, nemesisPrize: nemesis?.beaten ? NEMESIS_PRIZE : 0 };
 }
