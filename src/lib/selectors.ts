@@ -26,7 +26,7 @@ export function withPastHealth(s: State, past: { key: string; steps: number; sle
     if (!d) continue;
     const steps = p.steps > 0 ? Math.max(d.steps ?? 0, p.steps) : d.steps;
     const sleepMin = syncedSleep(d, p.sleepMin);
-    const stepGoalHit = !!d.stepGoalHit || (steps ?? 0) >= s.settings.stepGoal;
+    const stepGoalHit = !!d.stepGoalHit || (steps ?? 0) >= stepGoalOn(s, p.key);
     if (d.steps === steps && d.sleepMin === sleepMin && !!d.stepGoalHit === stepGoalHit) continue;
     days = { ...days, [p.key]: { ...d, steps, sleepMin, stepGoalHit } };
   }
@@ -97,8 +97,17 @@ export function emotionCounts(s: State, days = 7, now = new Date()) {
 export const moodDays = (s: State) => Object.values(s.days).filter((d) => moodsOf(d).length > 0).length;
 export const totalCoffees = (s: State) => Object.values(s.days).reduce((a, d) => a + coffeeOf(d).length, 0);
 
-export const workoutFor = (s: State, date: Date | number = new Date()): WorkoutDay | null =>
-  s.settings.redDaysOff && redDay(date) ? null : s.plan[new Date(date).getDay() as Weekday];
+/** The day's planned workout: a finished day's snapshot (lib/goals.ts), else the weekly plan. */
+export function workoutFor(s: State, date: Date | number = new Date()): WorkoutDay | null {
+  const plan = s.plan[new Date(date).getDay() as Weekday];
+  const frozen = s.days[dayKey(date)]?.goals;
+  if (frozen) return frozen.workout == null ? null : plan?.name === frozen.workout ? plan : { name: frozen.workout, exercises: [] };
+  return s.settings.redDaysOff && redDay(date) ? null : plan;
+}
+
+/** A day's step goal and protein goal: the snapshot once the day is over, else today's settings. */
+export const stepGoalOn = (s: State, key = dayKey()) => s.days[key]?.goals?.steps ?? s.settings.stepGoal;
+export const proteinGoalOn = (s: State, key = dayKey()) => s.days[key]?.goals?.protein ?? s.settings.proteinGoal;
 
 /** An official red day (swedish-days.ts); de facto days off like midsommarafton don't count. */
 const redDay = (date: Date | number) => holidayOn(date)?.red ?? false;
@@ -127,9 +136,13 @@ export function waterGoalParts(s: State, key = dayKey()): { ml: number; why: str
   return { ml: base + extra, why };
 }
 
-export const waterGoalFor = (s: State, key = dayKey()) => waterGoalParts(s, key).ml;
+/** A day's water goal: the snapshot once the day is over (lib/goals.ts), else the live one. */
+export const waterGoalFor = (s: State, key = dayKey()) => s.days[key]?.goals?.water ?? waterGoalParts(s, key).ml;
 
-export const gamingBudgetMin = (s: State, key = dayKey()) => s.settings.gamingBudgetMin + dayOf(s, key).bonusGameMin;
+/** The water goal counts as met once the glass that met it was logged, even if the goal grew later (a gym set, a hotter forecast). */
+export const waterGoalMet = (s: State, d: DayLog, key: string) => !!d.waterGoalHit || liveWaterMl(d) >= waterGoalFor(s, key);
+
+export const gamingBudgetMin = (s: State, key = dayKey()) => (s.days[key]?.goals?.gaming ?? s.settings.gamingBudgetMin) + dayOf(s, key).bonusGameMin;
 
 /** XP lost for gaming `overMs` past the budget: 2 per started 5 minutes, the first minute is free. */
 export const gamePenalty = (overMs: number) => (overMs > 60_000 ? Math.ceil(overMs / (5 * 60_000)) : 0);
@@ -149,7 +162,7 @@ export function workoutsThisWeek(s: State, now = new Date()) {
   let planned = 0;
   for (let i = 0; i < 7; i++) {
     const d = addDays(monday, i);
-    if (s.plan[d.getDay() as Weekday]) planned++;
+    if (workoutFor(s, d)) planned++; // red days off and finished days' snapshots included
     const log = s.days[dayKey(d)];
     if (log && trainedOn(log)) done++;
   }

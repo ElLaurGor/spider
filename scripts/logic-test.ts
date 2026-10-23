@@ -79,6 +79,9 @@ import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFo
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // step 2 game
 import { gentleQuestFor, reducedDay } from '../src/lib/quests';
+import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
+import { gamingBudgetMin, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
+import { areaScores } from '../src/lib/weak-spot';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -1396,6 +1399,47 @@ void (async () => {
     const d = addDays(nov, i);
     assert.ok(!pickQuests(defaultState(), d).some((id) => id === 'checkin' || id === 'sip'));
   }
+
+  // goal snapshots: a finished day keeps the goals it had
+  const gs = defaultState();
+  gs.settings.adaptiveWater = false;
+  const gMon = new Date(2027, 1, 1, 12); // a Monday
+  const gk = (n: number) => dayKey(addDays(gMon, n));
+  for (let i = 0; i < 4; i++) gs.days[gk(i)] = { ...empty(), water: [{ id: `w${i}`, ml: 2000, at: addDays(gMon, i).getTime() }] };
+  gs.habits = [{ id: 'old', name: 'Old', emoji: 'x', days: [], remindHour: null, createdAt: addDays(gMon, -30).getTime() }];
+  const frozen = withGoals(gs, gk(3));
+  assert.ok(frozen.days[gk(0)].goals && frozen.days[gk(2)].goals && !frozen.days[gk(3)].goals, 'past days only, never today');
+  assert.equal(withGoals(frozen, gk(3)), frozen, 'nothing left to freeze');
+  assert.deepEqual(goalsOn(frozen, gk(0)), { water: 2500, steps: 8000, gaming: 120, protein: 120, workout: 'Push', habits: ['old'] });
+  // later: a lower water goal, a new habit, a different plan, a bigger gaming budget
+  const edited = { ...frozen, settings: { ...frozen.settings, waterGoalMl: 1500, gamingBudgetMin: 300 }, plan: { ...frozen.plan, 1: null } };
+  edited.habits = [...edited.habits, { id: 'new', name: 'New', emoji: 'y', days: [], remindHour: null, createdAt: addDays(gMon, 3).getTime() }];
+  assert.equal(waterGoalFor(edited, gk(0)), 2500, "last Monday's water goal stays 2.5 L");
+  assert.ok(!waterGoalMet(edited, edited.days[gk(0)], gk(0)), '2 L of 2.5 L is still a miss');
+  assert.equal(waterGoalFor(edited, gk(3)), 1500, 'today follows the new setting');
+  assert.equal(workoutFor(edited, addDays(gMon, 0))?.name, 'Push', 'the plan it had');
+  assert.equal(workoutFor(edited, addDays(gMon, 7)), null, 'next Monday follows the new plan');
+  assert.equal(gamingBudgetMin(edited, gk(0)), 120);
+  assert.deepEqual(habitsFor(edited, addDays(gMon, 0)).map((h) => h.id), ['old']);
+  assert.deepEqual(habitsFor(edited, addDays(gMon, 3)).map((h) => h.id), ['old', 'new']);
+  // without a snapshot, a habit created today still isn't due on earlier days
+  assert.deepEqual(habitsFor(edited, addDays(gMon, 5)).map((h) => h.id), ['old', 'new']);
+  assert.deepEqual(habitsFor({ ...edited, days: {} }, addDays(gMon, 1)).map((h) => h.id), ['old']);
+  assert.equal(liveGoals(edited, gk(0)).water, 1500, 'the live goal moved; the snapshot did not');
+  // a water goal met once stays met when the goal grows (a gym set later that day)
+  const met = { ...empty(), water: [{ id: 'w', ml: 2500, at: 0 }], waterGoalHit: true, sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: 0 }] };
+  const ad = defaultState();
+  ad.days[gk(10)] = met;
+  assert.ok(waterGoalFor(ad, gk(10)) > 2500 && waterGoalMet(ad, met, gk(10)));
+  // weak spot reads each day's own goal
+  const wsp = defaultState();
+  wsp.settings.adaptiveWater = false;
+  for (let i = 1; i <= 4; i++) wsp.days[gk(10 - i)] = { ...empty(), water: [{ id: 'w', ml: 2000, at: 0 }], goals: { water: 2000, steps: 8000, gaming: 120, protein: 120, workout: null, habits: [] } };
+  assert.equal(areaScores(wsp, addDays(gMon, 10))?.water, 1, 'each day met the goal it had');
+  // red days off count in this week's planned workouts
+  const red = defaultState();
+  red.settings.redDaysOff = true;
+  assert.equal(workoutsThisWeek(red, new Date(2026, 11, 23, 12)).planned, 3, 'Christmas Eve week: the plan minus red Friday 25 Dec');
 }
 
 // ---- cluster B ----

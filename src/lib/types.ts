@@ -156,6 +156,18 @@ export type DayLog = {
   bedAt?: number;
   wakeAt?: number;
   sleepStages?: SleepStages;
+  // step 2
+  goals?: DayGoals; // what the day asked for, frozen once it's over (lib/goals.ts)
+};
+
+/** A finished day's goals: settings, plan and habits as they were that day. */
+export type DayGoals = {
+  water: number; // ml, adaptive extras included
+  steps: number;
+  gaming: number; // base budget in minutes (the day's bonus minutes come on top)
+  protein: number; // g, 0 = no protein goal
+  workout: string | null; // the planned workout's name
+  habits: string[]; // ids of the habits due
 };
 
 /** Phone use after bedtime, the night before a day. `lastAt` null = none worth mentioning. */

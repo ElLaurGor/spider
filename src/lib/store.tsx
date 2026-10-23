@@ -18,6 +18,7 @@ import { stageFor, themesUnlockedBetween } from './evolution';
 import { addDays, dayKey, fmtDuration, isDayKey, MIN, startOfDay, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, readHealth, type HealthData, type HealthStatus } from './health';
+import { withGoals } from './goals';
 import { habitsDone, habitsFor } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, poolFor, type LineKey } from './lines';
@@ -356,7 +357,8 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
   const now = new Date();
   const yesterday = dayKey(addDays(now, -1));
   const weekAgo = dayKey(addDays(now, -7));
-  let next: State = { ...s, lastRollover: today };
+  // Yesterday (and anything older) keeps the goals it had, whatever changes from now on.
+  let next: State = withGoals({ ...s, lastRollover: today }, today);
   // From the last day the app was opened (which may have stayed empty too), a week back at most.
   const since = s.lastRollover && s.lastRollover < today ? s.lastRollover : yesterday;
   const pool = restedAfter(s.rested ?? 0, restedGain(s, since < weekAgo ? weekAgo : since, yesterday));

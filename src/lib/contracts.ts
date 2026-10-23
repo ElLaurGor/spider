@@ -2,7 +2,7 @@
 // double; miss it and S.P.I.D.E.R. keeps the coins, unless the week was a rough one (low mood or
 // period days), then the stake comes back. Goals are counts within the week, never streaks.
 import { addDays, dayKey, startOfDay, startOfWeek } from './dates';
-import { dayOf, gamingBudgetMin, gamingUsedMs, liveWaterMl, moodsOf, onPeriod, trainedOn, waterGoalFor } from './selectors';
+import { dayOf, gamingBudgetMin, gamingUsedMs, moodsOf, onPeriod, trainedOn, waterGoalMet } from './selectors';
 import type { Contract, ContractGoal, State } from './types';
 
 type GoalDef = {
@@ -21,7 +21,7 @@ export const CONTRACT_GOALS: GoalDef[] = [
     target: 5,
     title: (n) => `Hit your water goal on ${n} days`,
     available: () => true,
-    count: (s, k) => (liveWaterMl(dayOf(s, k)) >= waterGoalFor(s, k) ? 1 : 0),
+    count: (s, k) => (waterGoalMet(s, dayOf(s, k), k) ? 1 : 0),
   },
   {
     id: 'steps',

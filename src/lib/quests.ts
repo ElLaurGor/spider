@@ -6,13 +6,15 @@ import {
   dayOf,
   gamingBudgetMin,
   gamingUsedMs,
-  liveWaterMl,
   lowBattery,
   moodsOf,
+  proteinGoalOn,
   proteinOf,
+  stepGoalOn,
   trainedOn,
   trainMinutes,
   waterGoalFor,
+  waterGoalMet,
   waterMl,
   workoutFor,
 } from './selectors';
@@ -59,8 +61,8 @@ const QUESTS: QuestDef[] = [
   {
     id: 'protein',
     xp: 10,
-    available: (s) => s.settings.proteinGoal > 0,
-    build: (s, d) => ({ title: `Eat ${s.settings.proteinGoal} g protein`, progress: proteinOf(d), target: s.settings.proteinGoal }),
+    available: (s, date) => proteinGoalOn(s, dayKey(date)) > 0,
+    build: (s, d, date) => ({ title: `Eat ${proteinGoalOn(s, dayKey(date))} g protein`, progress: proteinOf(d), target: proteinGoalOn(s, dayKey(date)) }),
   },
   { id: 'meals', xp: 8, available: () => true, build: (_s, d) => ({ title: 'Log 3 meals', progress: d.food.length, target: 3 }) },
   {
@@ -74,7 +76,7 @@ const QUESTS: QuestDef[] = [
     id: 'steps',
     xp: 15,
     available: (s) => Object.values(s.days).some((d) => d.steps != null),
-    build: (s, d) => ({ title: `Walk ${s.settings.stepGoal.toLocaleString('sv-SE')} steps`, progress: d.steps ?? 0, target: s.settings.stepGoal }),
+    build: (s, d, date) => ({ title: `Walk ${stepGoalOn(s, dayKey(date)).toLocaleString('sv-SE')} steps`, progress: d.steps ?? 0, target: stepGoalOn(s, dayKey(date)) }),
   },
   {
     id: 'steps_hard',
@@ -180,7 +182,7 @@ const QUESTS: QuestDef[] = [
     xp: 20,
     season: 'midsommar',
     available: (s) => !hasSteps(s),
-    build: (s, d) => ({ title: '🌼 Midsommar sun: hit your water goal', progress: waterMl(d), target: s.settings.waterGoalMl }),
+    build: (s, d, date) => ({ title: '🌼 Midsommar sun: hit your water goal', progress: waterMl(d), target: waterGoalFor(s, dayKey(date)) }),
   },
   {
     id: 'nyar_close',
@@ -376,7 +378,7 @@ export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hi
   couch_goblin: { label: 'moving: step goal or training', hit: (_s, d) => !!d.stepGoalHit || trainedOn(d) },
   doomscroll: { label: 'finishing a Web Focus session', hit: (_s, d) => (d.focus ?? []).some((f) => !f.snapped) },
   snooze: { label: 'logging something before 08:00', hit: (_s, d) => loggedBefore8(d) },
-  dehydration: { label: 'hitting your water goal', hit: (s, d, key) => liveWaterMl(d) >= waterGoalFor(s, key) },
+  dehydration: { label: 'hitting your water goal', hit: (s, d, key) => waterGoalMet(s, d, key) },
   leg_day: { label: 'training', hit: (_s, d) => trainedOn(d) },
   sugar_baron: { label: 'checking off a habit', hit: (s, _d, key) => habitsDone(s, key).length > 0 },
   // Only finished days: today isn't within budget until it's over.
