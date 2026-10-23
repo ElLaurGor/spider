@@ -4,6 +4,7 @@ import { addDays, dayKey, startOfWeek } from './dates';
 import { habitsDone, habitsFor } from './habits';
 import {
   dayOf,
+  doneTasksOn,
   gamingBudgetMin,
   gamingUsedMs,
   lowBattery,
@@ -44,7 +45,7 @@ type QuestDef = {
 };
 
 const before = (d: DayLog, hour: number) => d.water.filter((w) => new Date(w.at).getHours() < hour).length;
-const tasksDoneOn = (s: State, date: Date) => s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === dayKey(date)).length;
+const tasksDoneOn = (s: State, date: Date) => doneTasksOn(s, dayKey(date)).length;
 const hasSteps = (s: State) => Object.values(s.days).some((d) => d.steps != null);
 // Only entries whose time can't be edited afterwards, logged on the day itself.
 const loggedBefore8 = (d: DayLog) => [...d.water, ...d.sets, ...(d.moods ?? [])].some((x) => !('late' in x && x.late) && new Date(x.at).getHours() < 8);
@@ -94,7 +95,8 @@ const QUESTS: QuestDef[] = [
       target: 3,
     }),
   },
-  { id: 'bonus_time', xp: 10, available: () => true, build: (_s, d) => ({ title: 'Earn 30 bonus gaming minutes', progress: d.bonusGameMin, target: 30 }) },
+  // earned minutes only: bought ones (shop) and chest prizes don't count
+  { id: 'bonus_time', xp: 10, available: () => true, build: (_s, d) => ({ title: 'Earn 30 bonus gaming minutes', progress: d.bonusEarnedMin ?? d.bonusGameMin, target: 30 }) },
   { id: 'mood', xp: 8, available: () => true, build: (_s, d) => ({ title: 'Check in your mood twice', progress: moodsOf(d).length, target: 2 }) },
   {
     id: 'habits',
@@ -209,6 +211,9 @@ export function pickQuestsWithFocus(s: State, date = new Date()) {
 }
 
 export const pickQuests = (s: State, date = new Date()) => pickQuestsWithFocus(s, date).ids;
+
+/** The XP a quest pays (0 for an id that's gone). */
+export const questXpOf = (id: string) => QUESTS.find((q) => q.id === id)?.xp ?? 0;
 
 /** Coins for swapping one of the day's quests (once a day). */
 export const QUEST_REROLL_COST = 40;
@@ -378,7 +383,7 @@ export function xpPace(s: State, monday: Date): number | null {
 
 /** Each boss's weakness: on days that meet it, the XP earned that day hits it 50 % harder. Nothing food-related. */
 export const WEAKNESS: Record<(typeof BOSSES)[number]['id'], { label: string; hit: (s: State, d: DayLog, key: string) => boolean }> = {
-  procrastinator: { label: 'finishing tasks', hit: (s, _d, key) => s.tasks.some((t) => t.done && t.doneAt && dayKey(t.doneAt) === key) },
+  procrastinator: { label: 'finishing tasks', hit: (s, _d, key) => doneTasksOn(s, key).length > 0 },
   couch_goblin: { label: 'moving: step goal or training', hit: (_s, d) => !!d.stepGoalHit || trainedOn(d) },
   doomscroll: { label: 'finishing a Web Focus session', hit: (_s, d) => (d.focus ?? []).some((f) => !f.snapped) },
   snooze: { label: 'logging something before 08:00', hit: (_s, d) => loggedBefore8(d) },

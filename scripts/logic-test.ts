@@ -80,10 +80,12 @@ import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // step 2 game
 import { gentleQuestFor, KING_REMATCH_WEEKS, kingRematchFor, kingWeeksOf, reducedDay, weaknessOf } from '../src/lib/quests';
 import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
-import { gamesInTimerMin, gamingBudgetMin, gamingUsedMs as usedMs, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
+import { doneTasksOn, gameCapAt, gamesInTimerMin, gamingBudgetMin, gamingUsedMs as usedMs, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
 import { areaScores } from '../src/lib/weak-spot';
 import { chestShelf, SHELF_MAX, withChestGold } from '../src/lib/loot';
 import { applyFixes, recheckCoffeeGremlin } from '../src/lib/fixes';
+import { credit, earnBonus, ledgerOn, penalize, refundPenalty, unreward, withoutUndoRecords } from '../src/lib/ledger';
+import { withoutCrit } from '../src/lib/critters';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -1543,6 +1545,79 @@ void (async () => {
   const both = defaultState();
   both.days[gk(3)] = { ...empty(), games: [{ start: t0, end: t0 + 80 * MIN }], screen: { totalMin: 90, doomMin: 0, gamesMin: 50, top: [] }, phoneGamesInTimerMin: 40 };
   assert.equal(usedMs(both, gk(3)), 90 * MIN, '80 on the timer + 10 phone-only minutes, not 130');
+
+  // the ledger: an undo takes back exactly what its entry got (Double XP included), never below zero
+  const lg = defaultState();
+  const lk = gk(4);
+  let led = credit(lg, lk, 4, 0, 'w:1'); // a glass under Double XP: 2 x 2
+  led = credit(led, lk, 15, 15); // the water goal it reached (sticky, no record)
+  assert.equal(led.xp, 19);
+  assert.equal(led.coins, 19);
+  assert.deepEqual(led.days[lk].xpBy, { 'w:1': 4 });
+  assert.equal(led.days[lk].bonusEarnedMin, 15);
+  const undone = unreward(led, lk, 'w:1', 1);
+  assert.equal(undone.xp, 15, 'the 4 it got, not the plain 1');
+  assert.equal(undone.coins, 15);
+  assert.equal(undone.days[lk].xpEarned, 15);
+  assert.equal(undone.days[lk].xpUndone, 4);
+  assert.equal(undone.days[lk].xpBy, undefined);
+  assert.equal(unreward(undone, lk, 'w:1', 1).xp, 14, 'no record (an old entry): the plain amount');
+  const broke = unreward({ ...led, coins: 2 }, lk, null, 10, 30);
+  assert.equal(broke.coins, 0, 'coins never below 0');
+  assert.equal(broke.days[lk].bonusGameMin, 0);
+  assert.equal(broke.days[lk].bonusEarnedMin, 0);
+  // gaming penalties stay out of xpEarned (boss, league); a refund goes back to the same day
+  const pen = penalize(led, lk, 6);
+  assert.equal(pen.xp, 13);
+  assert.equal(pen.days[lk].xpEarned, 19, 'the boss and the league are not hit');
+  assert.deepEqual(ledgerOn(pen, lk), { earned: 19, lost: 6, undone: 0 });
+  assert.equal(refundPenalty(pen, lk, 6).days[lk].xpLost, 0);
+  assert.equal(refundPenalty(pen, lk, 6).xp, 19);
+  assert.equal(earnBonus(lg, lk, 30).days[lk].bonusEarnedMin, 30);
+  // per-entry records go at rollover, the day's totals stay
+  const pruned = withoutUndoRecords({ ...led, days: { ...led.days, [lk]: { ...led.days[lk], critBy: { 'water:0': { id: '1', dmg: 15 } } } } }, gk(5));
+  assert.equal(pruned.days[lk].xpBy, undefined);
+  assert.equal(pruned.days[lk].critBy, undefined);
+  assert.equal(pruned.days[lk].xpEarned, 19);
+  assert.equal(withoutUndoRecords(led, lk), led, "today's records stay");
+
+  // an undone entry takes its crit off the boss; its slot stays used, so a re-log can't crit again
+  const critDay = { ...empty(), critKeys: ['water:0', 'set:0', 'pr:1'], critDamage: 75, critBy: { 'water:0': { id: 'w', dmg: 15 }, 'set:0': { id: 's', dmg: 30 }, 'pr:1': { id: 's', dmg: 30 } } };
+  const uncrit = withoutCrit(critDay, 's');
+  assert.equal(uncrit.critDamage, 15, 'the set and the record it set');
+  assert.deepEqual(Object.keys(uncrit.critBy ?? {}), ['water:0']);
+  assert.deepEqual(uncrit.critKeys, critDay.critKeys);
+  assert.equal(withoutCrit(critDay, 'nope'), critDay);
+  // rollCritters remembers which entry rolled a crit
+  const rc = defaultState();
+  rc.onboarded = true;
+  const rcAt = new Date(2026, 9, 20, 12);
+  const rcKey = dayKey(rcAt);
+  let critted: ReturnType<typeof rollCritters> | null = null;
+  for (let n = 0; n < 400 && !critted?.state.days[rcKey]?.critBy; n++) {
+    const before = { ...rc, days: { [rcKey]: { ...empty(), water: Array.from({ length: n }, (_, i) => ({ id: `x${i}`, ml: 250, at: rcAt.getTime() })) } } };
+    const after = { ...before, days: { [rcKey]: { ...before.days[rcKey], water: [...before.days[rcKey].water, { id: `x${n}`, ml: 250, at: rcAt.getTime() }] } } };
+    critted = rollCritters(before, after, rcAt);
+  }
+  const hit = Object.values(critted?.state.days[rcKey]?.critBy ?? {})[0];
+  assert.ok(hit && /^x\d+$/.test(hit.id) && hit.dmg > 0, 'a crit names its glass');
+
+  // tasks done on a day stay counted after the task is deleted or cleared
+  const td = defaultState();
+  const tAt = new Date(`${gk(5)}T10:00`).getTime();
+  td.days[gk(5)] = { ...empty(), doneTasks: [{ id: 'gone', at: tAt }] };
+  td.tasks = [{ id: 'still', title: 'x', done: true, createdAt: 0, doneAt: tAt + 1 }];
+  assert.deepEqual(doneTasksOn(td, gk(5)).map((t) => t.id).sort(), ['gone', 'still']);
+  const tc = { week: gk(0), from: gk(0), signedAt: 0, goal: 'tasks' as const, target: 2, stake: 100, status: 'open' as const };
+  assert.equal(contractProgress(td, tc, addDays(gMon, 6)), 2, 'the deleted one still counts');
+
+  // a forgotten gaming timer stops itself: an hour past bedtime, at least 4 h in
+  const gc = defaultState(); // sleepHour 23
+  const at = (h: number, m = 0) => new Date(2026, 9, 21, h, m).getTime();
+  assert.equal(gameCapAt(gc, at(21)), at(25), '21:00 -> 01:00 (4 h)');
+  assert.equal(gameCapAt(gc, at(18)), at(24), '18:00 -> midnight');
+  assert.equal(gameCapAt(gc, at(23, 30)), at(27, 30), '23:30 -> 03:30 (4 h)');
+  assert.equal(gameCapAt(gc, at(10)), at(18), 'midnight is too far: 8 h');
 
   // red days off count in this week's planned workouts
   const red = defaultState();

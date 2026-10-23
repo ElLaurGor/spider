@@ -1129,6 +1129,10 @@ export const LINES = {
     mild: ["Last week's late numbers just came in, and they finished {boss}. +{xp} XP."],
     savage: ["Late delivery: last week's numbers just finished {boss}. +{xp} XP. Even your paperwork hits hard."],
   },
+  gameCapped: {
+    mild: ['Your gaming timer was still running, so I stopped it at {time}. Fix the time on the Game tab if you played on.'],
+    savage: ["The timer ran on without you. I stopped it at {time}. If you really played that long, fix it on the Game tab and I'll judge accordingly."],
+  },
   chestAutoOpened: {
     mild: ['Your oldest unopened chest opened itself to make room: {prize}.'],
     savage: ['A chest got tired of waiting and opened itself: {prize}. Hoarding is a lifestyle, apparently.'],

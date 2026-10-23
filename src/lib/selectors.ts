@@ -169,6 +169,25 @@ export function gamesInTimerMin(spans: { packageName: string; start: number; end
   return Math.round(ms / 60_000);
 }
 
+/** Tasks finished on a day: the day's own record (kept when tasks are deleted or cleared), plus older ones still on the list. */
+export function doneTasksOn(s: State, key = dayKey()) {
+  const out = new Map((s.days[key]?.doneTasks ?? []).map((t) => [t.id, t]));
+  for (const t of s.tasks) if (t.done && t.doneAt && dayKey(t.doneAt) === key && !out.has(t.id)) out.set(t.id, { id: t.id, at: t.doneAt });
+  return [...out.values()];
+}
+
+/**
+ * When a forgotten gaming timer stops itself: an hour past bedtime after it started (if that's within 12
+ * hours, else 8 hours in), and never under 4 hours in.
+ */
+export function gameCapAt(s: State, start: number) {
+  const cap = new Date(start);
+  cap.setHours(s.settings.sleepHour + 1, 0, 0, 0);
+  if (cap.getTime() <= start) cap.setDate(cap.getDate() + 1);
+  const at = cap.getTime() - start > 12 * 3_600_000 ? start + 8 * 3_600_000 : cap.getTime();
+  return Math.max(at, start + 4 * 3_600_000);
+}
+
 export function workoutsThisWeek(s: State, now = new Date()) {
   const monday = startOfWeek(now);
   let done = 0;

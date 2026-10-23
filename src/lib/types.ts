@@ -160,6 +160,14 @@ export type DayLog = {
   // step 2
   goals?: DayGoals; // what the day asked for, frozen once it's over (lib/goals.ts)
   phoneGamesInTimerMin?: number; // phone-game minutes (usage stats) played while the gaming timer ran: counted once
+  // step 2: the XP ledger. xpEarned is what the day earned (boss and league damage); these explain the rest.
+  xpBy?: Record<string, number>; // XP credited per entry today ("w:<glass id>", "s:<set id>", "workout", "q:<quest id>"), so an undo takes back exactly that; dropped at rollover
+  xpLost?: number; // XP taken by gaming penalties (kept out of xpEarned)
+  xpUndone?: number; // XP taken back by undos and deletions
+  paid?: { mood?: number; photo?: boolean; body?: boolean }; // XP already paid today, so delete-and-relog can't pay again
+  bonusEarnedMin?: number; // bonus gaming minutes earned (not bought or from a chest): the bonus-minutes quest counts these
+  doneTasks?: { id: string; at: number }[]; // tasks finished that day, kept when the task is later deleted or cleared
+  critBy?: Record<string, { id: string; dmg: number }>; // crit key -> the entry that rolled it, so undoing it takes the damage back; dropped at rollover
 };
 
 /** A finished day's goals: settings, plan and habits as they were that day. */
@@ -189,7 +197,7 @@ export type Contract = {
   difficulty?: 'easy' | 'normal' | 'hard'; // cluster B; older contracts are normal
 };
 
-export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number };
+export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number; firstDoneAt?: number }; // firstDoneAt: re-checking later counts for that day
 
 export type Counters = {
   workouts: number;
