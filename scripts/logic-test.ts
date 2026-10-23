@@ -82,6 +82,7 @@ import { gentleQuestFor, KING_REMATCH_WEEKS, kingRematchFor, kingWeeksOf, reduce
 import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
 import { gamingBudgetMin, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
 import { areaScores } from '../src/lib/weak-spot';
+import { chestShelf, SHELF_MAX, withChestGold } from '../src/lib/loot';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -1474,6 +1475,20 @@ void (async () => {
   const kd = { ...empty(), sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: 0 }] };
   assert.ok(weaknessOf(FINAL_BOSS.id).hit(kg, kd, gk(1)));
   assert.equal(BOSSES.find((b) => b.id === 'sugar_baron')?.name, 'The Shortcut Baron', 'renamed, same id');
+
+  // the chest shelf: unopened chests wait past midnight, oldest first, with the gold status they ended with
+  const sh = defaultState();
+  for (const n of [0, 1, 2, 3]) sh.days[gk(n)] = { ...empty(), chestReady: true };
+  sh.days[gk(1)].chest = { kind: 'coins', amount: 60, text: '60 coins' };
+  sh.days[gk(2)].chestGold = true;
+  const shelfNow = addDays(gMon, 4);
+  assert.deepEqual(chestShelf(sh, shelfNow).map((c) => c.key), [gk(0), gk(2), gk(3)], 'opened ones are off the shelf');
+  assert.equal(chestShelf(sh, shelfNow).find((c) => c.key === gk(2))?.gold, true);
+  const frozenGold = withChestGold(sh, gk(4));
+  assert.ok(frozenGold.days[gk(0)].chestGold != null && frozenGold.days[gk(3)].chestGold != null);
+  assert.equal(frozenGold.days[gk(1)].chestGold, undefined, 'an opened chest needs no gold status');
+  assert.equal(withChestGold(frozenGold, gk(4)), frozenGold);
+  assert.equal(SHELF_MAX, 3);
 
   // red days off count in this week's planned workouts
   const red = defaultState();

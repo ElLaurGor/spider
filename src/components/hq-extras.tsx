@@ -4,20 +4,21 @@ import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native
 
 import { Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { dayKey } from '@/lib/dates';
+import { dayKey, WEEKDAYS_LONG } from '@/lib/dates';
 import { PITY_AFTER } from '@/lib/economy';
 import { standings, TIERS } from '@/lib/league';
-import { goldChest, GOLD_SCORE } from '@/lib/loot';
+import { chestShelf, GOLD_SCORE, SHELF_MAX } from '@/lib/loot';
 import { topToday } from '@/lib/memory';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 
-/** "Open loot chest" button + the reveal, shown once all daily quests are done. */
+/** "Open loot chest" + the reveal: the shelf of chests earned by finishing all daily quests, oldest first. */
 export function ChestButton() {
   const { state, actions } = useStore();
-  const [revealing, setRevealing] = useState(false);
+  const [revealing, setRevealing] = useState<string | null>(null); // the day whose chest was just opened
   const [scale] = useState(() => new Animated.Value(0.3));
   const today = dayOf(state);
+  const shown = revealing ? dayOf(state, revealing).chest : undefined;
 
   useEffect(() => {
     if (!revealing) return;
@@ -25,39 +26,40 @@ export function ChestButton() {
     Animated.spring(scale, { toValue: 1, friction: 4, useNativeDriver: true }).start();
   }, [revealing, scale]);
 
-  if (!today.chestReady) return null;
-  const gold = !today.chest && goldChest(state);
+  const shelf = chestShelf(state);
+  const next = shelf[0];
+  if (!next && !today.chest && !shown) return null;
+  const todays = next?.key === dayKey();
   const pityLeft = PITY_AFTER - (state.chestsSinceLegendary ?? 0);
   return (
     <>
-      {!today.chest ? (
+      {next ? (
         <>
           <Btn
-            label={gold ? '✨ Open GOLD chest' : 'Open loot chest'}
+            label={`${next.gold ? '✨ Open GOLD chest' : 'Open loot chest'}${shelf.length > 1 ? ` (${shelf.length} waiting)` : ''}`}
             icon="redeem"
-            kind={gold ? 'primary' : 'blue'}
-            onPress={() => {
-              actions.openChest();
-              setRevealing(true);
-            }}
+            kind={next.gold ? 'primary' : 'blue'}
+            onPress={() => setRevealing(actions.openChest(next.key))}
           />
           <T dim small>
-            {gold
+            {next.gold
               ? 'A great day earns a gold chest: bigger coins, a bigger bomb, better odds of a legendary.'
-              : `No rush: hit the boss's weakness or a day score of ${GOLD_SCORE} today and this turns into a gold chest.`}
+              : todays
+                ? `No rush, it keeps: hit the boss's weakness or a day score of ${GOLD_SCORE} today and this turns into a gold chest.`
+                : `From ${WEEKDAYS_LONG[new Date(`${next.key}T12:00`).getDay()]}. Chests wait for you, up to ${SHELF_MAX}; past that the oldest opens itself.`}
             {pityLeft <= 5 ? ` A legendary is guaranteed within ${Math.max(1, pityLeft + 1)} chests.` : ''}
           </T>
         </>
-      ) : (
+      ) : today.chest ? (
         <T dim small>
           Today&apos;s chest: {today.chest.text}
         </T>
-      )}
-      <Modal visible={revealing && !!today.chest} transparent animationType="fade" onRequestClose={() => setRevealing(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setRevealing(false)}>
+      ) : null}
+      <Modal visible={!!shown} transparent animationType="fade" onRequestClose={() => setRevealing(null)}>
+        <Pressable style={styles.backdrop} onPress={() => setRevealing(null)}>
           <Animated.View style={[styles.reveal, { transform: [{ scale }] }]}>
-            <Text style={{ fontSize: 80 }}>{today.chest?.kind === 'legendary' ? '🌟' : today.chest?.gold ? '🏆' : '🎁'}</Text>
-            <Text style={styles.prize}>{today.chest?.text}</Text>
+            <Text style={{ fontSize: 80 }}>{shown?.kind === 'legendary' ? '🌟' : shown?.gold ? '🏆' : '🎁'}</Text>
+            <Text style={styles.prize}>{shown?.text}</Text>
             <T dim small>
               Tap to close
             </T>

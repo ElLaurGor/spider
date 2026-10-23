@@ -115,6 +115,7 @@ export type DayLog = {
   energy?: Rating; // morning energy check; 1–2 = low-battery mode
   chestReady?: boolean; // earned by finishing all daily quests
   chest?: ChestPrize; // what the chest gave, once opened
+  chestGold?: boolean; // step 2: an unopened chest's gold status, frozen when its day ended (loot.ts chestShelf)
   focus?: FocusEntry[];
   breaths?: number; // breathing sessions finished
   windDown?: string[]; // wind-down items done that evening

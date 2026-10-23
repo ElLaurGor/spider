@@ -1129,6 +1129,10 @@ export const LINES = {
     mild: ["Last week's late numbers just came in, and they finished {boss}. +{xp} XP."],
     savage: ["Late delivery: last week's numbers just finished {boss}. +{xp} XP. Even your paperwork hits hard."],
   },
+  chestAutoOpened: {
+    mild: ['Your oldest unopened chest opened itself to make room: {prize}.'],
+    savage: ['A chest got tired of waiting and opened itself: {prize}. Hoarding is a lifestyle, apparently.'],
+  },
   bombNoBoss: {
     mild: ['{boss} has already fallen this week. Keep the coins for the next one.'],
     savage: ['{boss} is already down. Bombing the body is just littering. Keep your coins.'],

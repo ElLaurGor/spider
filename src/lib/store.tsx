@@ -95,7 +95,7 @@ import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, 
 import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
 // cluster B: economy & progression
 import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWorn, type Slot } from './cosmetics';
-import { goldChest } from './loot';
+import { chestShelf, SHELF_MAX, withChestGold } from './loot';
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
 import { restedAfter, restedGain, restedSplit } from './rested';
 
@@ -411,6 +411,44 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
     msgs.push({ text: `😴 ${L(next, 'restedReady', { xp: pool })}`, tone: 'info' });
   }
   for (const key of [dayKey(addDays(now, -2)), yesterday]) next = bankGaming(next, key, msgs);
+  // Unopened chests wait on the shelf with the gold status they earned; past SHELF_MAX the oldest opens itself.
+  next = withChestGold(next, today);
+  const shelf = chestShelf(next, now);
+  for (const c of shelf.slice(0, Math.max(0, shelf.length - SHELF_MAX))) next = openChestOn(next, c.key, c.gold, msgs, true);
+  return next;
+}
+
+/**
+ * Opens the chest earned on day `key` and applies its prize: coins, Double XP (added to any time left),
+ * a boss bomb on this week's boss, or gaming minutes for today, wherever the chest came from.
+ */
+function openChestOn(s: State, key: string, gold: boolean, msgs: Msg[], auto = false): State {
+  const d = dayOf(s, key);
+  if (!d.chestReady || d.chest) return s;
+  const since = s.chestsSinceLegendary ?? 0;
+  const prize = rollChest(Math.random(), { gold, pity: since >= PITY_AFTER, luck: chestLuck(s) });
+  let next = patchDay(s, key, (x) => ({ ...x, chest: prize }));
+  next = { ...next, chestsSinceLegendary: prize.kind === 'legendary' ? 0 : since + 1 };
+  const drop = prize.kind === 'legendary' ? legendaryDrop(next) : null;
+  if (drop) {
+    next = withOwned(next, drop.id);
+    msgs.push({ text: `${drop.emoji} Rare drop: ${drop.name} for your spider. Wear it from the Shop.`, tone: 'epic' });
+  }
+  if (prize.kind === 'coins' || prize.kind === 'legendary') {
+    next = { ...next, coins: next.coins + prize.amount, coinsEarned: next.coinsEarned + prize.amount };
+  }
+  if (prize.kind === 'gaming') next = patchDay(next, dayKey(), (x) => ({ ...x, bonusGameMin: x.bonusGameMin + prize.amount }));
+  if (prize.kind === 'double_xp') next = { ...next, doubleXpUntil: Math.max(Date.now(), next.doubleXpUntil ?? 0) + prize.amount * MIN };
+  if (prize.kind === 'boss_bomb') {
+    const week = weekKeyOf();
+    next = { ...next, bossBombs: { ...next.bossBombs, [week]: (next.bossBombs[week] ?? 0) + prize.amount } };
+  }
+  const text = auto
+    ? L(next, 'chestAutoOpened', { prize: prize.text })
+    : prize.kind === 'legendary'
+      ? L(next, 'legendaryRoast')
+      : L(next, 'chestOpened', { prize: prize.text });
+  msgs.push({ text: prize.gold ? `✨ Gold chest! ${text}` : text, tone: 'epic' });
   return next;
 }
 
@@ -1703,33 +1741,16 @@ function useStoreValue() {
       },
 
       // --- loot chest & shop ---
-      openChest() {
+      /** Opens the oldest chest on the shelf (or the one earned on `key`). Returns the day it came from. */
+      openChest(key?: string) {
+        let opened: string | null = null;
         run((s, msgs) => {
-          const key = dayKey();
-          const d = dayOf(s, key);
-          if (!d.chestReady || d.chest) return s;
-          const since = s.chestsSinceLegendary ?? 0;
-          const prize = rollChest(Math.random(), { gold: goldChest(s), pity: since >= PITY_AFTER, luck: chestLuck(s) });
-          let next = patchDay(s, key, (x) => ({ ...x, chest: prize }));
-          next = { ...next, chestsSinceLegendary: prize.kind === 'legendary' ? 0 : since + 1 };
-          const drop = prize.kind === 'legendary' ? legendaryDrop(next) : null;
-          if (drop) {
-            next = withOwned(next, drop.id);
-            msgs.push({ text: `${drop.emoji} Rare drop: ${drop.name} for your spider. Wear it from the Shop.`, tone: 'epic' });
-          }
-          if (prize.kind === 'coins' || prize.kind === 'legendary') {
-            next = { ...next, coins: next.coins + prize.amount, coinsEarned: next.coinsEarned + prize.amount };
-          }
-          if (prize.kind === 'gaming') next = patchDay(next, key, (x) => ({ ...x, bonusGameMin: x.bonusGameMin + prize.amount }));
-          if (prize.kind === 'double_xp') next = { ...next, doubleXpUntil: Date.now() + prize.amount * MIN };
-          if (prize.kind === 'boss_bomb') {
-            const week = weekKeyOf();
-            next = { ...next, bossBombs: { ...next.bossBombs, [week]: (next.bossBombs[week] ?? 0) + prize.amount } };
-          }
-          const text = prize.kind === 'legendary' ? L(next, 'legendaryRoast') : L(next, 'chestOpened', { prize: prize.text });
-          msgs.push({ text: prize.gold ? `✨ Gold chest! ${text}` : text, tone: 'epic' });
-          return next;
+          const c = chestShelf(s).find((x) => !key || x.key === key);
+          if (!c) return s;
+          opened = c.key;
+          return openChestOn(s, c.key, c.gold, msgs);
         });
+        return opened;
       },
 
       buyItem(id: ShopItemId) {
