@@ -32,13 +32,12 @@ import { insightOfTheDay } from '@/lib/insights';
 import { ledgerOn } from '@/lib/ledger';
 import { verdictLineKey } from '@/lib/line-context';
 import { immortalTask, yesterdayHighlight } from '@/lib/memory';
-import { moodInfo } from '@/lib/mood';
+import { MOOD_LEVELS, moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
 import { respectFor } from '@/lib/respect';
 import { seasonOn } from '@/lib/seasons';
 import { gentleDay, toneOn } from '@/lib/tone';
 import {
-  avgMood,
   caffeineMg,
   coffeeOf,
   dayOf,
@@ -56,6 +55,7 @@ import {
   workoutsThisWeek,
 } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import type { MoodLevel } from '@/lib/types';
 import { ACHIEVEMENTS, levelProgress, SECRET_ACHIEVEMENTS } from '@/lib/xp';
 
 const GREETING: Record<ReturnType<typeof timeOfDay>, LineKey> = {
@@ -101,8 +101,6 @@ export default function HQ() {
   const upcoming = eventsOn(cal.events, now).filter((e) => e.end > now && !e.allDay).slice(0, 3);
   const unlocked = ACHIEVEMENTS.filter((a) => state.achievements[a.id]).length;
   const coffees = coffeeOf(today).length;
-  const todayMood = avgMood(today);
-  const mood = todayMood ? moodInfo(todayMood) : null;
   const cycle = cycleInfo(state);
   const stage = stageFor(lvl.level);
   const next = nextStage(lvl.level);
@@ -253,12 +251,6 @@ export default function HQ() {
             {caffeineMg(today)} mg · tap to add one
           </T>
         </Tile>
-        <Tile icon="mood" color={mood ? mood.color : C.cyan} label="Mood" onPress={() => router.push('/mood')}>
-          <Text style={styles.tileVal}>{mood ? `${mood.emoji} ${mood.label}` : 'Check in'}</Text>
-          <T dim small>
-            {moodsOf(today).length} check-ins today
-          </T>
-        </Tile>
         {health.status !== 'unsupported' ? (
           <>
             <Tile icon="directions_walk" color={C.green} label="Steps" onPress={() => router.navigate('/gym')}>
@@ -292,6 +284,7 @@ export default function HQ() {
             {cycle && !cycle.periodDay ? (cycle.daysUntil > 0 ? `next in ~${cycle.daysUntil} days` : 'due any day') : 'tap to open'}
           </T>
         </Tile>
+        <MoodTile latest={moodsOf(today).at(-1)?.level ?? null} count={moodsOf(today).length} onLog={(level) => actions.logMood(level, [], '')} />
       </View>
     ),
     buttons: () => (
@@ -427,6 +420,56 @@ export default function HQ() {
 const ledgerLine = (l: { earned: number; lost: number; undone: number }) =>
   `XP today: +${l.earned}${l.lost ? ` · −${l.lost} gaming` : ''}${l.undone ? ` · −${l.undone} undone` : ''}`;
 
+/**
+ * The mood check-in in one tap: each face logs it on the spot, a long-press (anywhere on the tile) opens Mood
+ * for emotions and a note. Full width, so the faces are big enough to hit. A double tap doesn't log twice.
+ */
+function MoodTile({ latest, count, onLog }: { latest: MoodLevel | null; count: number; onLog: (level: MoodLevel) => void }) {
+  const [busy, setBusy] = useState(false);
+  const info = latest ? moodInfo(latest) : null;
+  const color = info ? info.color : C.cyan;
+  const log = (level: MoodLevel) => {
+    if (busy) return;
+    setBusy(true);
+    onLog(level);
+    setTimeout(() => setBusy(false), 1500);
+  };
+  const more = () => router.push('/mood');
+  return (
+    <Pressable onLongPress={more} style={[styles.tile, styles.tileWide]} accessibilityHint="Long-press to add emotions and a note">
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Row gap={6}>
+          <Icon name="mood" size={18} color={color} />
+          <Text style={[styles.tileLabel, { color }]}>Mood</Text>
+        </Row>
+        <T dim small>
+          {info ? `${info.emoji} ${info.label} · ${count} today` : 'How are you right now?'}
+        </T>
+      </Row>
+      <Row gap={6}>
+        {MOOD_LEVELS.map((m) => (
+          <Pressable
+            key={m.level}
+            onPress={() => log(m.level)}
+            onLongPress={more}
+            disabled={busy}
+            style={({ pressed }) => [styles.face, latest === m.level && { borderColor: m.color }, (pressed || busy) && { opacity: 0.6 }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Log mood: ${m.label}`}
+            accessibilityHint="Long-press to add emotions and a note"
+            accessibilityState={{ selected: latest === m.level, disabled: busy }}>
+            <Text style={styles.faceEmoji}>{m.emoji}</Text>
+            <Text style={styles.faceLabel}>{m.label}</Text>
+          </Pressable>
+        ))}
+      </Row>
+      <T dim small>
+        Tap a face to check in · long-press for emotions and a note
+      </T>
+    </Pressable>
+  );
+}
+
 function Tile({
   icon,
   color,
@@ -478,6 +521,10 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 8,
   },
+  tileWide: { width: '100%' },
+  face: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 14, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.card2, gap: 2 },
+  faceEmoji: { fontSize: 26 },
+  faceLabel: { color: C.dim, fontSize: 11, fontWeight: '700' },
   tileLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase' },
   tileVal: { color: C.text, fontSize: 20, fontWeight: '800', fontFamily: MONO },
   tileUnit: { color: C.dim, fontSize: 12, fontWeight: '600' },
