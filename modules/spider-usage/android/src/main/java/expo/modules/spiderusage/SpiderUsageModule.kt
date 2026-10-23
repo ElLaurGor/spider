@@ -97,7 +97,13 @@ class SpiderUsageModule : Module() {
     } else {
       ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
     }
-    return mode == AppOpsManager.MODE_ALLOWED
+    // Some phone makers report MODE_DEFAULT even after the user granted access: then the permission decides.
+    return when (mode) {
+      AppOpsManager.MODE_ALLOWED -> true
+      AppOpsManager.MODE_DEFAULT ->
+        context.checkCallingOrSelfPermission("android.permission.PACKAGE_USAGE_STATS") == PackageManager.PERMISSION_GRANTED
+      else -> false
+    }
   }
 
   private fun countUnlocks(start: Long, end: Long): Int {
@@ -134,6 +140,7 @@ class SpiderUsageModule : Module() {
     val spans = ArrayList<Span>()
     val event = UsageEvents.Event()
     var current: String? = null
+    var currentClass: String? = null // the activity on screen, so a late event of the app's previous one is ignored
     var since = 0L
 
     fun close(at: Long) {
@@ -142,18 +149,27 @@ class SpiderUsageModule : Module() {
       val e = minOf(at, end)
       if (e > s && pkg !in ignored) spans.add(Span(pkg, s, e))
       current = null
+      currentClass = null
     }
 
+    // An app moving between its own activities logs PAUSED(old), RESUMED(new), then STOPPED(old).
+    // Only a PAUSED of the activity on screen ends the span: STOPPED always follows a PAUSED, and a
+    // late one used to end the span the new activity had just started.
     while (events.hasNextEvent()) {
       events.getNextEvent(event)
       when (event.eventType) {
         UsageEvents.Event.ACTIVITY_RESUMED -> {
-          close(event.timeStamp)
-          current = event.packageName
-          since = event.timeStamp
+          if (event.packageName == current) {
+            currentClass = event.className // same app, other activity: the span keeps running
+          } else {
+            close(event.timeStamp)
+            current = event.packageName
+            currentClass = event.className
+            since = event.timeStamp
+          }
         }
-        UsageEvents.Event.ACTIVITY_PAUSED, UsageEvents.Event.ACTIVITY_STOPPED -> {
-          if (event.packageName == current) close(event.timeStamp)
+        UsageEvents.Event.ACTIVITY_PAUSED -> {
+          if (event.packageName == current && event.className == currentClass) close(event.timeStamp)
         }
         UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> close(event.timeStamp)
       }
