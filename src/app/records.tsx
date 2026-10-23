@@ -3,14 +3,16 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
+import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { fillLine, GOLDEN, GOLDEN_CHANCE } from '@/lib/lines';
 import { hallOfFame, type Rec } from '@/lib/records';
 import { useStore } from '@/lib/store';
-import { SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
+import { levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
 
 export default function RecordsScreen() {
   const { state } = useStore();
-  const { fame, shame } = hallOfFame(state);
+  const level = levelForXp(state.xp);
+  const { fame, shame } = hallOfFame(state, { unlocked: themeIds.filter((id) => themeUnlocked(id, level, state)).length, total: themeIds.length });
   const found = state.goldenFound ?? {};
   const golden = GOLDEN.filter((g) => found[g.id]).sort((a, b) => found[b.id] - found[a.id]);
   return (

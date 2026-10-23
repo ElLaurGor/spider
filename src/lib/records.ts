@@ -1,7 +1,7 @@
-// Hall of Fame (personal bests) and Hall of Shame (personal worsts, for laughs).
-import { THEMES } from '@/constants/theme';
-
+// Hall of Fame (personal bests) and Hall of Shame (personal worsts, for laughs). Theme-free, so it
+// loads under tsx: the screen passes the theme count in.
 import { dayKey, fmtDuration, fmtTime } from './dates';
+import { countedDay, usedOn } from './day-filters';
 import { TIERS } from './league';
 import { dayScoreFor } from './report';
 import { coffeeOf, trainedOn, waterMl } from './selectors';
@@ -26,8 +26,14 @@ function maxBy<T>(items: T[], score: (t: T) => number) {
   return best ? { item: best, score: bestScore } : null;
 }
 
-export function hallOfFame(s: State) {
+/**
+ * `themes` is how many themes are unlocked, trophy included (evolution's themeUnlocked, which needs the
+ * theme file). The Hall of Shame only looks at counted days: a sick, away, low-mood or period day is never
+ * a record anyone gets roasted for.
+ */
+export function hallOfFame(s: State, themes?: { unlocked: number; total: number }) {
   const entries = Object.entries(s.days);
+  const counted = entries.filter(([k]) => countedDay(s, k));
   const fame: Rec[] = [];
   const shame: Rec[] = [];
   const level = levelForXp(s.xp);
@@ -40,7 +46,10 @@ export function hallOfFame(s: State) {
   const trainingDays = entries.filter(([, d]) => trainedOn(d)).length;
   if (trainingDays) fame.push({ emoji: '🏋️', label: 'Training days', value: `${trainingDays}`, detail: `${s.counters.workouts} workouts total` });
 
-  const bestDay = maxBy(entries, ([k]) => dayScoreFor(s, noon(k)));
+  const bestDay = maxBy(
+    entries.filter(([, d]) => usedOn(d)),
+    ([k]) => dayScoreFor(s, noon(k)),
+  );
   if (bestDay) fame.push({ emoji: '⭐', label: 'Best day ever', value: `${bestDay.score}/100`, detail: short(bestDay.item[0]) });
 
   const steps = maxBy(entries.filter(([, d]) => d.steps != null), ([, d]) => d.steps ?? 0);
@@ -70,14 +79,13 @@ export function hallOfFame(s: State) {
   const bestTier = Math.max(s.league?.tier ?? 0, ...(s.league?.history ?? []).map((h) => h.tier));
   if (s.league) fame.push({ emoji: TIERS[bestTier].emoji, label: 'Best league', value: TIERS[bestTier].name });
   if (s.coinsEarned) fame.push({ emoji: '🪙', label: 'Coins earned', value: s.coinsEarned.toLocaleString('sv-SE') });
-  const unlocked = Object.values(THEMES).filter((t) => level >= t.level).length;
-  fame.push({ emoji: '🎨', label: 'Themes unlocked', value: `${unlocked}/${Object.keys(THEMES).length}` });
+  if (themes) fame.push({ emoji: '🎨', label: 'Themes unlocked', value: `${themes.unlocked}/${themes.total}` });
 
-  // --- Hall of Shame ---
-  const coffee = maxBy(entries, ([, d]) => coffeeOf(d).length);
+  // --- Hall of Shame (counted days only) ---
+  const coffee = maxBy(counted, ([, d]) => coffeeOf(d).length);
   if (coffee && coffee.score >= 3) shame.push({ emoji: '☕', label: 'Most coffees in a day', value: `${coffee.score} cups`, detail: short(coffee.item[0]) });
 
-  const sessions = entries.flatMap(([k, d]) => d.games.map((g) => ({ k, g })));
+  const sessions = counted.flatMap(([k, d]) => d.games.map((g) => ({ k, g })));
   const longestGame = maxBy(sessions, (x) => x.g.end - x.g.start);
   if (longestGame) {
     const { g, k } = longestGame.item;
@@ -93,7 +101,7 @@ export function hallOfFame(s: State) {
     if (end >= 23 || end < 5) shame.push({ emoji: '🌙', label: 'Latest gaming night', value: fmtTime(latest.item.g.end), detail: `${latest.item.g.game ?? 'Unnamed'} · ${short(latest.item.k)}` });
   }
   const worst = maxBy(
-    entries.filter(([k]) => k < dayKey()),
+    counted.filter(([k]) => k < dayKey()),
     ([k]) => -dayScoreFor(s, noon(k)),
   );
   if (worst) shame.push({ emoji: '💀', label: 'Worst day', value: `${-worst.score}/100`, detail: short(worst.item[0]) });

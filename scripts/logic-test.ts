@@ -30,6 +30,8 @@ import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/
 import { coinsFor, rollChest } from '../src/lib/economy';
 import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
 import { insights } from '../src/lib/insights';
+import { countedDay, firstDataDay, roughDay, usedOn } from '../src/lib/day-filters';
+import { hallOfFame } from '../src/lib/records';
 import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
 import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, waterGoalFor, waterGoalParts, waterMl, withPastHealth } from '../src/lib/selectors';
@@ -353,7 +355,7 @@ assert.ok(!ACHIEVEMENTS.some((a) => /streak|in a row/i.test(a.desc)));
 
 // report card: sane output for an empty and a busy week
 const r0 = weekReport(defaultState());
-assert.ok(['A', 'B', 'C', 'D', 'F'].includes(r0.grade));
+assert.equal(r0.grade, null); // nothing logged: nothing to grade
 assert.ok(r0.categories.length >= 7);
 for (const c of r0.categories) assert.ok(c.score == null || (c.score >= 0 && c.score <= 100), c.id);
 assert.equal(gradeOf(90), 'A');
@@ -523,7 +525,145 @@ const wEmpty = monthWrapped(defaultState(), wnow.getFullYear(), wnow.getMonth(),
 assert.deepEqual(wEmpty.slides.map((x) => x.id), ['intro', 'finale']);
 const wFull = monthWrapped(ins, wnow.getFullYear(), wnow.getMonth() - (wnow.getDate() <= 2 ? 1 : 0), wnow);
 assert.ok(wFull.slides.length >= 2);
-assert.ok(['A', 'B', 'C', 'D', 'F'].includes(wFull.grade));
+assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade));
+
+// ---------- step 2 scores ----------
+// Scores and recaps judge counted days only: something was logged, and it wasn't a rough day (sick or
+// away, a low mood, a period day). Days before the app was in use don't count, and neither mood nor
+// protein is graded.
+{
+  const noPlan = () => {
+    const s = defaultState();
+    s.plan = { 0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
+    return s;
+  };
+  const goalDay = (s: ReturnType<typeof defaultState>, key: string, extra: Partial<ReturnType<typeof emptyDay>> = {}) => {
+    s.days[key] = { ...emptyDay(), water: [{ id: `w${key}`, ml: s.settings.waterGoalMl, at: new Date(`${key}T10:00`).getTime() }], ...extra };
+  };
+  const mood = (key: string, level: 1 | 2 | 3 | 4 | 5) => [{ id: `m${key}`, level, emotions: [], at: new Date(`${key}T12:00`).getTime() }];
+
+  // usedOn: logged things count, watch/weather/phone data alone doesn't
+  assert.equal(usedOn(undefined), false);
+  assert.equal(usedOn({ ...emptyDay(), steps: 9000, sleepMin: 420, weather: { max: 5, min: 1, rainMm: 0, sunMin: 60, code: 3, pressureDrop: null } }), false);
+  assert.equal(usedOn({ ...emptyDay(), sleepRating: 4 }), true);
+  assert.equal(usedOn({ ...emptyDay(), moods: mood('2026-10-07', 3) }), true);
+
+  // 1. October from the 7th: the first six days (watch steps only) don't drag the month down
+  const oct = noPlan();
+  for (let d = 1; d <= 6; d++) oct.days[`2026-10-0${d}`] = { ...emptyDay(), steps: 4000 };
+  for (let d = 7; d <= 31; d++) goalDay(oct, `2026-10-${String(d).padStart(2, '0')}`);
+  assert.equal(firstDataDay(oct), '2026-10-07');
+  assert.equal(firstDataDay(defaultState()), null);
+  const ow = monthWrapped(oct, 2026, 9, new Date(2026, 10, 1, 10));
+  assert.equal(ow.slides.find((x) => x.id === 'water')?.sub, 'goal hit on 25 of 25 days');
+  assert.ok(ow.slides[0].sub.includes('since 10-07'), ow.slides[0].sub);
+  assert.equal(ow.score, 100);
+  assert.equal(ow.grade, 'A');
+  // a month entirely before the first logged day has nothing to grade
+  assert.equal(monthWrapped(oct, 2026, 8, new Date(2026, 10, 1, 10)).grade, null);
+
+  // 2. Mon–Wed sick, Thu–Sun on goal: 4/4, not 4/7, and no D (agent 7's case)
+  const sick = noPlan();
+  sick.pauses = [{ from: '2027-01-11', to: '2027-01-13', kind: 'sick' }];
+  for (const k of ['2027-01-11', '2027-01-12', '2027-01-13']) sick.days[k] = { ...emptyDay(), moods: mood(k, 3) };
+  for (const k of ['2027-01-14', '2027-01-15', '2027-01-16', '2027-01-17']) goalDay(sick, k);
+  const sw = weekReport(sick, 0, new Date(2027, 0, 17, 20));
+  assert.equal(sw.categories.find((c) => c.id === 'water')?.stat.startsWith('4/4 days on goal'), true, JSON.stringify(sw.categories[0]));
+  assert.equal(sw.days, 4);
+  assert.deepEqual(sw.rest, { paused: 3, low: 0, period: 0 });
+  assert.ok(sw.grade != null && sw.grade !== 'D' && sw.grade !== 'F', String(sw.grade));
+  assert.ok(sw.worst == null || !['2027-01-11', '2027-01-12', '2027-01-13'].includes(sw.worst.key));
+  const jw = monthWrapped(sick, 2027, 0, new Date(2027, 0, 17, 20));
+  assert.ok(jw.grade != null && jw.grade !== 'D' && jw.grade !== 'F', String(jw.grade));
+  assert.equal(jw.restDays, 3);
+  assert.equal(roughDay(sick, '2027-01-12'), 'paused');
+  assert.equal(countedDay(sick, '2027-01-12'), false);
+  assert.equal(countedDay(sick, '2027-01-14'), true);
+
+  // 3. Mood isn't graded: moods 3 vs 5 give the same overall; moods of 1 are rest days, never an F
+  const moodWeek = (level: 1 | 3 | 5) => {
+    const s = noPlan();
+    for (let d = 11; d <= 17; d++) goalDay(s, `2027-01-${d}`, { moods: mood(`2027-01-${d}`, level) });
+    return weekReport(s, 0, new Date(2027, 0, 17, 20));
+  };
+  assert.equal(moodWeek(3).overall, moodWeek(5).overall);
+  assert.equal(moodWeek(5).categories.find((c) => c.id === 'mood')?.score, null);
+  const awful = moodWeek(1);
+  assert.equal(awful.grade, null);
+  assert.equal(awful.rest.low, 7);
+  // a period day is a rest day too
+  const per = noPlan();
+  goalDay(per, '2027-01-14', { period: { flow: 'medium', symptoms: [] } });
+  assert.equal(roughDay(per, '2027-01-14'), 'period');
+
+  // protein: shown, never graded, and a big or small plate doesn't move the day score
+  const fedA = noPlan();
+  const fedB = noPlan();
+  goalDay(fedA, '2027-01-14', { food: [{ id: 'f1', name: 'x', kcal: 600, protein: 5, at: 0 }] });
+  goalDay(fedB, '2027-01-14', { food: [{ id: 'f1', name: 'x', kcal: 600, protein: 200, at: 0 }] });
+  assert.equal(dayScoreFor(fedA, new Date(2027, 0, 14, 20)), dayScoreFor(fedB, new Date(2027, 0, 14, 20)));
+  assert.equal(weekReport(fedB, 0, new Date(2027, 0, 17, 20)).categories.find((c) => c.id === 'protein')?.score, null);
+  // the scale is unchanged at the ends: an empty rest day 50, an empty planned-gym day 25, a full day 100
+  const emptyRest = noPlan();
+  emptyRest.days['2027-01-14'] = emptyDay();
+  assert.equal(dayScoreFor(emptyRest, new Date(2027, 0, 14, 20)), 50);
+  const gymDay = defaultState(); // Tue 12 Jan has Pull planned
+  assert.equal(dayScoreFor(gymDay, new Date(2027, 0, 12, 20)), 25);
+  assert.equal(dayScoreFor(fedB, new Date(2027, 0, 14, 20)), 100);
+
+  // 4. Tasks: no grade in a week without tasks; quests against what each day offered
+  const tq = noPlan();
+  goalDay(tq, '2027-01-14', { energy: 2 }); // low battery: one quest offered
+  tq.days['2027-01-14'].questsDone = [questsFor(tq, new Date(2027, 0, 14, 12))[0].id];
+  const tw = weekReport(tq, 0, new Date(2027, 0, 17, 20));
+  assert.equal(tw.categories.find((c) => c.id === 'tasks')?.score, null);
+  assert.equal(tw.categories.find((c) => c.id === 'quests')?.stat, '1/1 daily quests');
+  assert.equal(tw.categories.find((c) => c.id === 'quests')?.score, 100);
+  tq.tasks = [{ id: 't1', title: 'x', done: true, createdAt: new Date(2027, 0, 12).getTime(), doneAt: new Date(2027, 0, 14, 9).getTime() }];
+  assert.equal(weekReport(tq, 0, new Date(2027, 0, 17, 20)).categories.find((c) => c.id === 'tasks')?.score, 100); // 1 of the 1 there was
+
+  // 5. Respect: five awful days don't make S.P.I.D.E.R. "Disappointed"
+  const rp = defaultState();
+  for (let i = 1; i <= 5; i++) {
+    const k = dayKey(atTime(new Date(), -i, 12));
+    rp.days[k] = { ...emptyDay(), moods: mood(k, 1) };
+  }
+  assert.equal(respectFor(rp), null);
+  for (let i = 1; i <= 5; i++) rp.days[dayKey(atTime(new Date(), -i, 12))].moods = mood('x', 3);
+  assert.ok(respectFor(rp) != null);
+
+  // 6. Gentle recaps when the tone is down: a low mood today turns the jokes off
+  const tone = noPlan();
+  for (let d = 7; d <= 20; d++) goalDay(tone, `2026-10-${d}`, { moods: mood(`2026-10-${d}`, 4) });
+  const now = new Date(2026, 9, 21, 20);
+  assert.equal(monthWrapped(tone, 2026, 9, now).slides[0].quip, "Let's see what you did. And what you didn't.");
+  tone.days['2026-10-21'] = { ...emptyDay(), moods: mood('2026-10-21', 1) };
+  const gentle = monthWrapped(tone, 2026, 9, now);
+  assert.equal(gentle.slides[0].quip, "Here's your month.");
+  assert.ok(!gentle.slides.some((x) => /kidneys|espresso|missing person|part-time|draft/.test(x.quip)), JSON.stringify(gentle.slides.map((x) => x.quip)));
+  // the phone line teases the habit, not the person
+  assert.ok(!JSON.stringify(monthWrapped(tone, 2026, 9, now)).includes('than your friends'));
+  // insights keep the finding and drop the joke on a low day
+  const insKind = structuredClone(ins);
+  insKind.days[dayKey()] = { ...emptyDay(), moods: mood(dayKey(), 1) };
+  const trainKind = insights(insKind).find((x) => x.id === 'train_mood');
+  assert.equal(trainKind?.text, 'Your mood is better on days you train.');
+  assert.ok(insights(ins).find((x) => x.id === 'train_mood')?.text.includes('Science agrees'));
+
+  // 7. Hall of Shame: the worst day is never a sick or low-mood day, and themes come from the screen
+  const hs = noPlan();
+  const ago = (n: number) => dayKey(atTime(new Date(), -n, 12));
+  goalDay(hs, ago(1)); // 100
+  hs.days[ago(2)] = { ...emptyDay(), moods: mood(ago(2), 1), coffee: [1, 2, 3, 4, 5, 6].map((i) => ({ id: `c${i}`, mg: 90, at: 0 })) }; // awful day, 6 cups
+  hs.days[ago(3)] = { ...emptyDay(), coffee: [{ id: 'cc', mg: 90, at: 0 }] }; // sick day below
+  hs.pauses = [{ from: ago(3), to: ago(3), kind: 'sick' }];
+  hs.days[ago(4)] = { ...emptyDay(), water: [{ id: 'half', ml: hs.settings.waterGoalMl / 2, at: 0 }], coffee: [1, 2, 3].map((i) => ({ id: `d${i}`, mg: 90, at: 0 })) }; // an ordinary half day
+  const { fame, shame } = hallOfFame(hs);
+  assert.equal(shame.find((r) => r.label === 'Worst day')?.detail, ago(4).slice(5));
+  assert.equal(shame.find((r) => r.label === 'Most coffees in a day')?.value, '3 cups'); // the awful day's 6 don't count
+  assert.ok(!fame.some((r) => r.label === 'Themes unlocked'));
+  assert.equal(hallOfFame(hs, { unlocked: 9, total: 9 }).fame.find((r) => r.label === 'Themes unlocked')?.value, '9/9');
+}
 
 // economy: one coin per XP
 assert.equal(coinsFor(10), 10);

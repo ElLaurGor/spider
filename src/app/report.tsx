@@ -18,8 +18,13 @@ export default function ReportScreen() {
   // On Mondays, open on the week that just ended.
   const [offset, setOffset] = useState(() => (new Date().getDay() === 1 ? -1 : 0));
   const r = weekReport(state, offset);
-  const verdict = useMemo(() => quip(GRADE_LINE[r.grade]), [quip, r.grade]);
-  const color = GRADE_COLOR[r.grade];
+  // No grade when every day was a rest day (sick, away, a low mood, a period day) or nothing was logged.
+  const verdict = useMemo(
+    () => (r.grade ? quip(GRADE_LINE[r.grade]) : r.restDays ? 'Nothing to grade this week. Rest days are part of it, not a fail.' : 'Nothing logged this week yet.'),
+    [quip, r.grade, r.restDays],
+  );
+  const color = r.grade ? GRADE_COLOR[r.grade] : C.faint;
+  const restNote = r.restDays ? ` · ${r.restDays} rest day${r.restDays === 1 ? '' : 's'} left out` : '';
 
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
@@ -42,10 +47,11 @@ export default function ReportScreen() {
 
       <Card accent={color} style={{ alignItems: 'center', paddingVertical: 20 }}>
         <View style={[styles.gradeCircle, { borderColor: color }]}>
-          <Text style={[styles.grade, { color }]}>{r.grade}</Text>
+          <Text style={[styles.grade, { color }]}>{r.grade ?? '–'}</Text>
         </View>
         <T dim small mono>
-          {r.overall}/100 overall · {r.days} day{r.days === 1 ? '' : 's'} counted
+          {r.overall != null ? `${r.overall}/100 overall · ` : ''}
+          {r.days} day{r.days === 1 ? '' : 's'} counted{restNote}
         </T>
       </Card>
 
