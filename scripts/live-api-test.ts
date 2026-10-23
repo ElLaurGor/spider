@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 
 import { foodNutrients, loadFoods, searchFoods } from '../src/lib/food-db';
-import { fetchAir, fetchSmhi, fetchVma, SMHI_PAGE } from '../src/lib/outside';
+import { alertWhen, fetchAir, fetchSmhi, fetchVma, SMHI_PAGE } from '../src/lib/outside';
 import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } from '../src/lib/weather';
 
 (async () => {
@@ -27,6 +27,10 @@ import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } fr
   const drops = pastKeys.map((k) => past[k].pressureDrop).filter((x): x is number => x != null);
   console.log('pressure drops', drops.length, 'days with data, biggest', Math.max(...drops), 'hPa; yesterday', past[pastKeys[pastKeys.length - 2]].pressureDrop);
   assert.ok(drops.length >= 55, 'hourly pressure_msl gives a 24 h drop for (almost) every past day');
+  // The plain forecast API now stops ~43 days back and pads the rest with nulls; those must not turn into 0° days.
+  const blank = pastKeys.filter((k) => past[k].code == null || (past[k].max === 0 && past[k].min === 0 && !past[k].sunMin));
+  console.log('weather history blank rows', blank.length, blank.slice(0, 3));
+  assert.equal(blank.length, 0, 'no all-null history rows');
 
   const air = await fetchAir({ name: 'Stockholm', lat: 59.33, lon: 18.07 });
   console.log('air now', { aqi: air.aqi, pm25: air.pm25, pm10: air.pm10, uv: air.uv }, 'days', air.days.length);
@@ -45,7 +49,10 @@ import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } fr
     console.log(`fetchSmhi(${counties[0]}) ->`, got.length, got.slice(0, 3).map((a) => `${a.level}: ${a.title} | ${a.text.slice(0, 80)}`));
     assert.ok(got.length > 0);
   }
-  console.log('fetchSmhi(Stockholms län) ->', (await fetchSmhi('Stockholms län')).map((a) => `${a.level}: ${a.title} (updated ${a.updated})`));
+  console.log(
+    'fetchSmhi(Stockholms län) ->',
+    (await fetchSmhi('Stockholms län')).map((a) => `${a.level}: ${a.title} (${alertWhen(a) || 'no dates'}, updated ${a.updated})`),
+  );
   // "Tap for details" must land on a live page: SMHI moved theirs once and the old path 404'd.
   const page = await fetch(SMHI_PAGE);
   console.log('SMHI page', SMHI_PAGE, '->', page.status, page.url);

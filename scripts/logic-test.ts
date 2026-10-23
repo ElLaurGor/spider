@@ -41,7 +41,25 @@ import { RESPECT, respectFor } from '../src/lib/respect';
 import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
 import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
 import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/weather';
-import { aqiBand, isMine, pollenLevel } from '../src/lib/outside';
+import {
+  activeAlerts,
+  alertWhen,
+  aqiBand,
+  fetchSmhi,
+  fetchVma,
+  isMine,
+  pollenLevel,
+  sourceAfter,
+  sourceNote,
+  sourceOk,
+  triageAlerts,
+  warningsOf,
+  type Alert,
+  type AlertLevel,
+} from '../src/lib/outside';
+import { getJson } from '../src/lib/http';
+import { loadFoods } from '../src/lib/food-db';
+import { fetchWeatherHistory, weatherMissing } from '../src/lib/weather';
 // cluster D
 import { phaseOn } from '../src/lib/body';
 import { bedtimeCaffeine, bedtimeOn, caffeineCurve, caffeineLeft } from '../src/lib/caffeine';
@@ -595,6 +613,166 @@ assert.ok(!isMine({ type: 'Municipality', description: 'Malmö kommun' }, LAN, '
 assert.ok(!isMine({ type: 'County', description: 'Skåne län' }, LAN, 'Stockholm'));
 assert.ok(isMine({ type: 'Municipality', description: 'Malmö kommun' }, 'Skåne län', 'Malmö'));
 assert.ok(!isMine({ type: 'Municipality', description: 'Solna kommun' }, LAN, undefined));
+
+// SMHI/VMA: seen per level (an escalation pings again, old bare ids count as seen), when-text, source status
+{
+  const NOW = new Date(2026, 9, 23, 12).getTime();
+  const DAY = 86_400_000;
+  const al = (id: string, level: AlertLevel, extra: Partial<Alert> = {}): Alert => ({ id, source: 'SMHI', level, title: id, text: '', url: '', ...extra });
+  let r = triageAlerts([al('smhi-1-1', 'YELLOW'), al('smhi-2-2', 'MESSAGE')], {}, NOW);
+  assert.deepEqual(r.fresh.map((a) => a.id), ['smhi-1-1']); // messages never ping
+  assert.deepEqual(r.seen, { 'smhi-1-1:YELLOW': NOW });
+  assert.ok(r.changed);
+  r = triageAlerts([al('smhi-1-1', 'YELLOW')], r.seen, NOW + 60_000);
+  assert.equal(r.fresh.length, 0);
+  assert.equal(r.changed, false); // nothing to save
+  r = triageAlerts([al('smhi-1-1', 'ORANGE')], r.seen, NOW + 120_000);
+  assert.deepEqual(r.fresh.map((a) => a.level), ['ORANGE']); // yellow to orange pings again
+  const legacy = triageAlerts([al('smhi-3-3', 'YELLOW'), al('vma-x', 'VMA', { source: 'VMA' })], { 'smhi-3-3': NOW - DAY, 'vma-x': NOW - 1000 }, NOW);
+  assert.equal(legacy.fresh.length, 0); // notified before the update: not again
+  assert.deepEqual(legacy.seen, { 'smhi-3-3:YELLOW': NOW - DAY, 'vma-x:VMA': NOW - 1000 });
+  assert.ok(legacy.changed);
+  assert.equal(triageAlerts([al('smhi-3-3', 'ORANGE')], legacy.seen, NOW).fresh.length, 1); // and escalations work after
+  const pruned = triageAlerts([al('smhi-8-8', 'RED')], { 'smhi-9-9:YELLOW': NOW - 31 * DAY, 'smhi-8-8:RED': NOW - 25 * DAY }, NOW);
+  assert.deepEqual(pruned.seen, { 'smhi-8-8:RED': NOW }); // ended one goes after 30 days, a still-active one is kept alive
+  assert.equal(pruned.fresh.length, 0);
+  // two at once both ping (each has its own notification id)
+  assert.equal(triageAlerts([al('vma-a', 'VMA', { source: 'VMA' }), al('smhi-5-5', 'YELLOW')], {}, NOW).fresh.length, 2);
+
+  const iso = (...a: [number, number, number, number]) => new Date(...a).toISOString();
+  assert.equal(alertWhen({ start: iso(2026, 9, 25, 9), end: iso(2026, 9, 25, 19) }, NOW), 'Sun 25 Oct 09:00–19:00'); // DST day too
+  assert.equal(alertWhen({ start: iso(2026, 9, 24, 22), end: iso(2026, 9, 25, 6) }, NOW), 'Sat 24 Oct 22:00 – Sun 25 Oct 06:00');
+  assert.equal(alertWhen({ start: iso(2026, 9, 25, 9) }, NOW), 'from Sun 25 Oct 09:00');
+  assert.equal(alertWhen({ start: iso(2026, 6, 7, 0) }, NOW), 'since 7 Jul');
+  assert.equal(alertWhen({}, NOW), '');
+  assert.deepEqual(
+    activeAlerts([al('a', 'YELLOW', { end: iso(2026, 9, 23, 11) }), al('b', 'YELLOW', { end: iso(2026, 9, 23, 13) }), al('c', 'MESSAGE')], NOW).map((a) => a.id),
+    ['b', 'c'],
+  ); // an ended warning isn't shown even if a failing source keeps the old list
+  assert.deepEqual(warningsOf([al('a', 'MESSAGE'), al('b', 'YELLOW'), al('c', 'VMA')]).map((a) => a.id), ['b', 'c']);
+
+  const ok = sourceAfter(null, true, NOW);
+  assert.ok(sourceOk(ok, NOW));
+  assert.equal(sourceNote('SMHI', ok, NOW), null);
+  assert.equal(sourceNote('SMHI', null, NOW), 'Checking SMHI…');
+  const down = sourceAfter(sourceAfter(ok, false, NOW + 15 * 60_000), false, NOW + 17 * 60_000);
+  assert.equal(down.fails, 2);
+  assert.ok(!sourceOk(down, NOW + 17 * 60_000)); // a failure is never an all-clear
+  assert.equal(sourceNote('SMHI', down, NOW + 17 * 60_000), "Couldn't reach SMHI · last good check 12:00");
+  assert.equal(sourceNote('SMHI', sourceAfter(null, false, NOW), NOW), "Couldn't reach SMHI · no good check yet");
+  assert.ok(!sourceOk(ok, NOW + 61 * 60_000)); // nor is a check over an hour old
+  assert.equal(sourceNote('SMHI', ok, NOW + 61 * 60_000), 'SMHI last checked 12:00');
+  assert.ok(sourceOk(sourceAfter(down, true, NOW + 20 * 60_000), NOW + 20 * 60_000));
+
+  assert.ok(weatherMissing(undefined));
+  assert.ok(weatherMissing({ max: 4, min: 1, rainMm: 0, sunMin: 0, code: 3 })); // fetched before pressure was
+  assert.ok(weatherMissing({ max: 0, min: 0, rainMm: 0, sunMin: 0, code: null as unknown as number, pressureDrop: null })); // a blank row
+  assert.ok(!weatherMissing({ max: 0, min: -3, rainMm: 0, sunMin: 0, code: 71, pressureDrop: null })); // a real 0° day
+  assert.ok(!weatherMissing({ max: 0, min: 0, rainMm: 0, sunMin: 0, code: 3, pressureDrop: 2 }));
+}
+
+// Network failures and format changes (fetch stubbed): an error, never a silent empty list; requests time out
+void (async () => {
+  const realFetch = globalThis.fetch;
+  let lastUrl = '';
+  const respond = (body: unknown, status = 200) =>
+    (async (url: string) => {
+      lastUrl = url;
+      return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
+    }) as unknown as typeof fetch;
+  const SMHI = [
+    {
+      id: 3256,
+      event: { sv: 'Risk för vattenbrist', en: 'Risk for water shortage', code: 'WATER_SHORTAGE' },
+      warningAreas: [
+        {
+          id: 10251,
+          approximateStart: '2026-07-06T22:00:00.000Z',
+          published: '2026-10-20T09:31:47.894Z',
+          warningLevel: { sv: 'Meddelande', en: 'Message', code: 'MESSAGE' },
+          eventDescription: { en: 'Risk for water shortage - Watercourses' },
+          affectedAreas: [{ id: 1, sv: 'Stockholms län' }],
+          descriptions: [],
+        },
+      ],
+    },
+    {
+      id: 3378,
+      event: { en: 'Wind', code: 'WIND' },
+      warningAreas: [
+        {
+          id: 10696,
+          approximateStart: '2026-10-25T07:00:00.535Z',
+          approximateEnd: '2026-10-25T17:00:00.223Z',
+          published: '2026-10-23T09:11:36.941Z',
+          warningLevel: { en: 'Yellow', code: 'YELLOW' },
+          eventDescription: { en: 'Wind' },
+          affectedAreas: [{ id: 4, sv: 'Södermanlands län' }, { id: 1, sv: 'Stockholms län' }],
+          descriptions: [{ title: { code: 'INCIDENT' }, text: { en: 'Gusts up to 25 m/s.' } }],
+        },
+        { id: 10697, warningLevel: { code: 'YELLOW' }, eventDescription: { en: 'Wind' }, affectedAreas: [{ id: 9, sv: 'Gotlands län' }] },
+      ],
+    },
+  ];
+  try {
+    globalThis.fetch = respond(SMHI);
+    const got = await fetchSmhi(LAN);
+    assert.deepEqual(
+      got.map((a) => [a.id, a.level, a.title, a.text, a.end]),
+      [
+        ['smhi-3378-10696', 'YELLOW', 'Wind', 'Gusts up to 25 m/s.', '2026-10-25T17:00:00.223Z'], // worst first
+        ['smhi-3256-10251', 'MESSAGE', 'Risk for water shortage - Watercourses', '', undefined],
+      ],
+    );
+    assert.equal(got[1].updated, '2026-10-20T09:31:47.894Z');
+    globalThis.fetch = respond('busy', 503);
+    await assert.rejects(fetchSmhi(LAN), /SMHI failed \(503\)/);
+    globalThis.fetch = respond('<html>Log in to the Wi-Fi</html>'); // captive portal: 200 with HTML
+    await assert.rejects(fetchSmhi(LAN));
+    globalThis.fetch = respond([{ id: 1, event: { code: 'WIND' }, warningAreas: [{ id: 2, warningLevel: { code: 'YELLOW' }, areas: [] }] }]);
+    await assert.rejects(fetchSmhi(LAN)); // SMHI renamed a field: a failure, not "no warnings"
+    globalThis.fetch = respond([]);
+    assert.deepEqual(await fetchVma(LAN, 'Stockholm'), []); // a real empty list is fine
+    globalThis.fetch = respond({ message: 'maintenance' });
+    await assert.rejects(fetchVma(LAN, 'Stockholm'));
+
+    globalThis.fetch = ((_url: string, init?: { signal?: AbortSignal }) =>
+      new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))) as unknown as typeof fetch;
+    await assert.rejects(getJson('https://example.invalid', 'Slow thing', { timeoutMs: 30 }), /Slow thing timed out/);
+
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) throw new Error('offline');
+      return new Response(JSON.stringify({ livsmedel: [{ nummer: 1, namn: ' Ägg kokt ' }] }));
+    }) as unknown as typeof fetch;
+    await assert.rejects(loadFoods());
+    assert.deepEqual(await loadFoods(), [{ id: 1, name: 'Ägg kokt' }]); // the failed attempt wasn't cached
+    assert.equal(calls, 2);
+
+    globalThis.fetch = respond({
+      daily: {
+        time: ['2026-08-24', '2026-08-25'],
+        weather_code: [null, 3],
+        temperature_2m_max: [null, 18.4],
+        temperature_2m_min: [null, 9.6],
+        precipitation_sum: [null, 1.2],
+        sunshine_duration: [null, 3600],
+      },
+      hourly: { time: [], pressure_msl: [] },
+    });
+    const hist = await fetchWeatherHistory({ name: 'Stockholm', lat: 59.33, lon: 18.07 }, 2);
+    assert.ok(lastUrl.startsWith('https://historical-forecast-api.open-meteo.com/'));
+    assert.deepEqual(Object.keys(hist), ['2026-08-25']); // a day without data isn't stored as 0°
+    assert.deepEqual(hist['2026-08-25'], { max: 18, min: 10, rainMm: 1.2, sunMin: 60, code: 3, pressureDrop: null });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  console.log('outside/weather fetch checks passed');
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
 
 console.log('all logic tests passed');
 

@@ -351,8 +351,18 @@ export default function SettingsScreen() {
         </SettingRow>
         <Toggle label="Pollen alerts" hint="morning, for your allergies only" value={s.notify.pollen} onChange={(v) => setNotify('pollen', v)} />
         <Toggle label="Air quality alerts" hint="morning, when AQI hits your limit" value={s.notify.air} onChange={(v) => setNotify('air', v)} />
-        <Toggle label="SMHI weather warnings" hint="yellow, orange and red, right away" value={s.notify.smhi} onChange={(v) => setNotify('smhi', v)} />
-        <Toggle label="VMA" hint="Viktigt meddelande till allmänheten" value={s.notify.vma} onChange={(v) => setNotify('vma', v)} />
+        <Toggle
+          label="SMHI weather warnings"
+          hint="a ping for yellow, orange and red, right away. Outside lists them either way"
+          value={s.notify.smhi}
+          onChange={(v) => setNotify('smhi', v)}
+        />
+        <Toggle
+          label="VMA"
+          hint="Viktigt meddelande till allmänheten: a ping right away. Outside lists them either way"
+          value={s.notify.vma}
+          onChange={(v) => setNotify('vma', v)}
+        />
         <Btn label="Open Outside" icon="air" kind="ghost" onPress={() => router.push('/outside')} disabled={!s.weather} />
       </Card>
 

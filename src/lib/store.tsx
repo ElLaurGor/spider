@@ -88,9 +88,9 @@ import type {
   Weekday,
   WorkoutDay,
 } from './types';
-import { dayWeatherOf, fetchWeather, fetchWeatherHistory, withCounty, type Weather } from './weather';
+import { dayWeatherOf, fetchWeather, fetchWeatherHistory, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
-import { ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, type Air, type Alert } from './outside';
+import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, triageAlerts, warningsOf, type Air, type Alert, type SourceStatus } from './outside';
 import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
 // cluster B: economy & progression
 import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWorn, type Slot } from './cosmetics';
@@ -894,7 +894,7 @@ function useStoreValue() {
         const since = dayKey(addDays(new Date(), -60));
         const yesterday = dayKey(addDays(new Date(), -1));
         const missing = Object.entries(stateRef.current.days)
-          .filter(([k, d]) => k >= since && k < key && (!d.weather || d.weather.pressureDrop === undefined || k === yesterday))
+          .filter(([k, d]) => k >= since && k < key && (weatherMissing(d.weather) || k === yesterday))
           .map(([k]) => k);
         if (missing.length) {
           const past = await fetchWeatherHistory(place, 60);
@@ -921,18 +921,27 @@ function useStoreValue() {
 
   // ----- outside: air quality, pollen, SMHI warnings, VMA -----
   const [air, setAir] = useState<Air | null>(null);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const outsideAt = useRef(0);
+  // The last good list per source. A failed check keeps it and says so, instead of reading as "no warnings".
+  const [smhiAlerts, setSmhiAlerts] = useState<Alert[]>([]);
+  const [vmaAlerts, setVmaAlerts] = useState<Alert[]>([]);
+  const [alertStatus, setAlertStatus] = useState<{ smhi: SourceStatus | null; vma: SourceStatus | null }>({ smhi: null, vma: null });
+  const outsideDue = useRef(0); // when the next check may run (sooner after a failure)
+  const outsideFails = useRef(0);
   const refreshOutside = useCallback(
     async (force = false) => {
       let place = stateRef.current.settings.weather;
       if (!place) {
         setAir(null);
-        setAlerts([]);
+        setSmhiAlerts([]);
+        setVmaAlerts([]);
+        setAlertStatus({ smhi: null, vma: null });
         return;
       }
-      if (!force && Date.now() - outsideAt.current < 15 * 60_000) return;
-      outsideAt.current = Date.now();
+      if (!force && Date.now() < outsideDue.current) return;
+      // Just under the 15-minute rhythm, so a tick that lands a few ms early isn't skipped. Set before the
+      // fetches so a second call can't overlap this one.
+      outsideDue.current = Date.now() + 14 * 60_000;
+      let failed = false;
       try {
         if (!place.county) {
           const withC = await withCounty(place);
@@ -944,8 +953,8 @@ function useStoreValue() {
         const county = place.county;
         const [a, smhi, vma] = await Promise.all([
           fetchAir(place).catch(() => null),
-          county ? fetchSmhi(county).catch(() => [] as Alert[]) : Promise.resolve([] as Alert[]),
-          county ? fetchVma(county, place.name.split(',')[0]).catch(() => [] as Alert[]) : Promise.resolve([] as Alert[]),
+          county ? fetchSmhi(county).catch(() => null) : null,
+          county ? fetchVma(county, place.name.split(',')[0]).catch(() => null) : null,
         ]);
         if (a) {
           setAir(a);
@@ -955,24 +964,35 @@ function useStoreValue() {
             run((s) => patchDay(s, dayKey(), (d) => ({ ...d, air: { aqi: today.aqi, pollen: today.pollen } })));
           }
         }
-        const notify = stateRef.current.settings.notify;
-        const list = [...vma.filter(() => notify.vma), ...smhi.filter(() => notify.smhi)];
-        setAlerts(list);
-        // New warnings (yellow and up) and every VMA: notify once, right away.
-        const fresh = list.filter((x) => x.level !== 'MESSAGE' && !stateRef.current.seenAlerts[x.id]);
-        if (fresh.length) {
+        failed = !a || !county || !smhi || !vma;
+        if (county) {
+          if (smhi) setSmhiAlerts(smhi);
+          if (vma) setVmaAlerts(vma);
+          setAlertStatus((st) => ({ smhi: sourceAfter(st.smhi, !!smhi), vma: sourceAfter(st.vma, !!vma) }));
+          // New warnings (yellow and up, again when one escalates) and every VMA: notify once, right away.
+          // Everything shown is triaged, pings on or off, so turning them back on doesn't replay old ones.
+          const shown = [...(vma ?? []), ...(smhi ?? [])];
+          const now = Date.now();
+          const { fresh, changed } = triageAlerts(shown, stateRef.current.seenAlerts, now);
+          const notify = stateRef.current.settings.notify;
           for (const x of fresh) {
+            if (!notify[x.source === 'VMA' ? 'vma' : 'smhi']) continue;
             const head = x.source === 'VMA' ? '🚨 VMA' : `⚠️ ${ALERT_LABEL[x.level]}`;
-            void notifyNow(`${head}: ${x.title}`, x.text.slice(0, 200));
+            void notifyNow(x.id, `${head}: ${x.title}`, x.text.slice(0, 200));
             say(`${head}: ${x.title}`, 'bad');
           }
-          run((s) => {
-            const keep = Object.fromEntries(Object.entries(s.seenAlerts).filter(([, t]) => t > Date.now() - 30 * 86_400_000));
-            return { ...s, seenAlerts: { ...keep, ...Object.fromEntries(fresh.map((x) => [x.id, Date.now()])) } };
-          });
+          if (changed) run((s) => ({ ...s, seenAlerts: triageAlerts(shown, s.seenAlerts, now).seen }));
         }
       } catch (e) {
+        failed = true;
         console.warn('[spider] outside failed', e);
+      }
+      if (failed) {
+        // Don't sit on a failure for a quarter of an hour: try again in 2, then 5, then every 10 minutes.
+        outsideFails.current += 1;
+        outsideDue.current = Date.now() + [2, 5, 10][Math.min(outsideFails.current, 3) - 1] * 60_000;
+      } else {
+        outsideFails.current = 0;
       }
     },
     [run, say],
@@ -980,12 +1000,14 @@ function useStoreValue() {
   useEffect(() => {
     if (!ready || !state.onboarded) return;
     const first = setTimeout(() => void refreshOutside(true), 0);
-    const every = setInterval(() => void refreshOutside(false), 15 * 60_000);
+    // Every minute, but refreshOutside only fetches when it's due (14 min, or sooner after a failure).
+    const every = setInterval(() => void refreshOutside(false), 60_000);
     return () => {
       clearTimeout(first);
       clearInterval(every);
     };
   }, [ready, state.onboarded, placeKey, refreshOutside]);
+  const shownAlerts = activeAlerts([...vmaAlerts, ...smhiAlerts]);
 
   // ----- day start: fix today's quests -----
   useEffect(() => {
@@ -2032,7 +2054,9 @@ function useStoreValue() {
     tick,
     outside: {
       air,
-      alerts,
+      alerts: shownAlerts,
+      warnings: warningsOf(shownAlerts), // without SMHI's long-running messages
+      status: alertStatus, // whether SMHI and Krisinformation could be reached
       refresh: () => refreshOutside(true),
     },
     screen: {

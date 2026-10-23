@@ -1,5 +1,6 @@
 // Weather from Open-Meteo: free, no API key, no account.
 import { fmtTime } from './dates';
+import { getJson } from './http';
 import type { DayWeather } from './types';
 
 export type Place = { name: string; lat: number; lon: number; county?: string }; // county e.g. "Stockholms län"
@@ -22,9 +23,7 @@ export type Weather = { temp: number; feels: number; code: number; days: DayFore
 // Swedish names, so the county ("Stockholms län") matches SMHI and Krisinformation exactly.
 export async function findPlace(query: string): Promise<Place | null> {
   const url = `https://geocoding-api.open-meteo.com/v1/search?count=1&language=sv&format=json&name=${encodeURIComponent(query.trim())}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
-  const json = (await res.json()) as { results?: { name: string; country?: string; admin1?: string; latitude: number; longitude: number }[] };
+  const json = await getJson<{ results?: { name: string; country?: string; admin1?: string; latitude: number; longitude: number }[] }>(url, 'Geocoding');
   const r = json.results?.[0];
   return r ? { name: r.country ? `${r.name}, ${r.country}` : r.name, lat: r.latitude, lon: r.longitude, county: r.admin1 } : null;
 }
@@ -43,9 +42,7 @@ export async function fetchWeather(place: Place): Promise<Weather> {
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset,daylight_duration,sunshine_duration' +
     '&minutely_15=precipitation&forecast_minutely_15=16' +
     '&timezone=auto&forecast_days=4';
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Weather failed (${res.status})`);
-  const j = (await res.json()) as {
+  const j = await getJson<{
     current: { temperature_2m: number; apparent_temperature: number; weather_code: number };
     daily: {
       time: string[];
@@ -60,7 +57,7 @@ export async function fetchWeather(place: Place): Promise<Weather> {
       sunshine_duration: (number | null)[];
     };
     minutely_15?: { time: string[]; precipitation: (number | null)[] };
-  };
+  }>(url, 'Weather');
   return {
     temp: Math.round(j.current.temperature_2m),
     feels: Math.round(j.current.apparent_temperature),
@@ -117,34 +114,46 @@ export function pressureDrops(times: string[], hPa: (number | null)[]): Record<s
   return out;
 }
 
-/** Each day's weather over the last `days` days (the forecast API keeps recent days), for Insights. */
+/**
+ * A stored day whose weather still needs fetching: never fetched, fetched before pressure was, or a blank
+ * row (0°/0° and no weather code) saved when the forecast API stopped reaching that far back.
+ */
+export const weatherMissing = (w?: DayWeather) =>
+  !w || w.pressureDrop === undefined || (w.code == null && w.max === 0 && w.min === 0 && !w.rainMm && !w.sunMin);
+
+/**
+ * Each day's weather over the last `days` days, for Insights. The historical-forecast API: the plain forecast
+ * API now only keeps about 43 past days and returns the older ones as nulls.
+ */
 export async function fetchWeatherHistory(place: Place, days = 60): Promise<Record<string, DayWeather>> {
   const url =
-    `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}` +
+    `https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}` +
     `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration&hourly=pressure_msl` +
     `&past_days=${days}&forecast_days=1&timezone=auto`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Weather history failed (${res.status})`);
-  const j = (await res.json()) as {
+  const j = await getJson<{
     daily: {
       time: string[];
-      weather_code: number[];
-      temperature_2m_max: number[];
-      temperature_2m_min: number[];
+      weather_code: (number | null)[];
+      temperature_2m_max: (number | null)[];
+      temperature_2m_min: (number | null)[];
       precipitation_sum: (number | null)[];
       sunshine_duration: (number | null)[];
     };
     hourly?: { time: string[]; pressure_msl: (number | null)[] };
-  };
+  }>(url, 'Weather history');
   const drops = j.hourly ? pressureDrops(j.hourly.time, j.hourly.pressure_msl) : {};
   const out: Record<string, DayWeather> = {};
   j.daily.time.forEach((date, i) => {
+    const max = j.daily.temperature_2m_max[i];
+    const min = j.daily.temperature_2m_min[i];
+    const code = j.daily.weather_code[i];
+    if (max == null || min == null || code == null) return; // no data that far back: leave the day for later
     out[date] = {
-      max: Math.round(j.daily.temperature_2m_max[i]),
-      min: Math.round(j.daily.temperature_2m_min[i]),
+      max: Math.round(max),
+      min: Math.round(min),
       rainMm: j.daily.precipitation_sum[i] ?? 0,
       sunMin: Math.round((j.daily.sunshine_duration[i] ?? 0) / 60),
-      code: j.daily.weather_code[i],
+      code,
       pressureDrop: drops[date] ?? null,
     };
   });

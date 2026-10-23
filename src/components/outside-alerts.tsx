@@ -4,14 +4,21 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
-import { ALERT_COLOR, ALERT_LABEL, aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel } from '@/lib/outside';
+import { ALERT_COLOR, ALERT_LABEL, aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, sourceNote } from '@/lib/outside';
 import { useStore } from '@/lib/store';
 
 /** HQ card: only shows up when something outside actually needs attention. */
 export function OutsideAlerts() {
   const { state, outside } = useStore();
   const s = state.settings;
-  const urgent = outside.alerts.filter((a) => a.level !== 'MESSAGE');
+  const urgent = outside.warnings;
+  // Two failed checks in a row (one blip doesn't count): say so, so silence never passes for an all-clear.
+  const down = s.weather?.county
+    ? [
+        (outside.status.smhi?.fails ?? 0) >= 2 ? sourceNote('SMHI', outside.status.smhi) : null,
+        (outside.status.vma?.fails ?? 0) >= 2 ? sourceNote('Krisinformation (VMA)', outside.status.vma) : null,
+      ].filter((x): x is string => !!x)
+    : [];
   const today = outside.air?.days.find((d) => d.date === dayKey());
   const worst =
     today && s.notify.pollen
@@ -19,9 +26,9 @@ export function OutsideAlerts() {
       : undefined;
   const pollen = worst && worst.level >= s.pollenAlertLevel ? worst : null;
   const aqi = today && s.notify.air && today.aqi >= s.aqiAlert ? today.aqi : null;
-  if (!urgent.length && !pollen && aqi == null) return null;
+  if (!urgent.length && !pollen && aqi == null && !down.length) return null;
 
-  const accent = urgent.length ? ALERT_COLOR[urgent[0].level] : aqi != null ? aqiBand(aqi).color : C.yellow;
+  const accent = urgent.length ? ALERT_COLOR[urgent[0].level] : aqi != null ? aqiBand(aqi).color : pollen ? C.yellow : C.border;
   return (
     <Pressable onPress={() => router.push('/outside')} style={[styles.card, { borderColor: accent }]}>
       <View style={{ flex: 1, gap: 4 }}>
@@ -45,6 +52,11 @@ export function OutsideAlerts() {
             😷 Air quality {aqiBand(aqi).label} today (AQI {aqi})
           </Text>
         ) : null}
+        {down.map((n) => (
+          <T key={n} dim small>
+            📡 {n}
+          </T>
+        ))}
       </View>
       <Icon name="chevron_right" color={C.dim} />
     </Pressable>
