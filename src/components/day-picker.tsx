@@ -1,12 +1,13 @@
 import { Chip, Row, T } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
 import { addDays, dayKey, WEEKDAYS } from '@/lib/dates';
 
 /** Today and the 6 days before it, newest first. Past days can be fixed; they earn no XP. */
 export function DayPicker({ value, onChange }: { value: string; onChange: (key: string) => void }) {
-  const today = dayKey();
+  const today = useToday();
   const days = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(new Date(), -i);
+    const d = addDays(noonOf(today), -i);
     return { key: dayKey(d), label: i === 0 ? 'Today' : i === 1 ? 'Yesterday' : WEEKDAYS[d.getDay()] };
   });
   return (

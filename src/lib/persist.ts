@@ -12,8 +12,26 @@ export const monthKey = (month: string) => `spider:state:v2:days:${month}`;
 /** Android's CursorWindow: a single row bigger than this can be written but never read back. */
 export const ROW_LIMIT = 2 * 1024 * 1024;
 
+/**
+ * While the whole state is smaller than this, v1 is written too, in the same transaction. Code from before
+ * v2 (an APK's built-in bundle, which expo-updates falls back to when an update crashes) only reads and
+ * writes v1, so it must find current data there, and what it writes must not be ignored (see readSaved).
+ */
+export const DUAL_WRITE_LIMIT = 1024 * 1024;
+
 type Days = State['days'];
-export type Index = { months: string[]; migratedAt?: number };
+/** `v1` is the fingerprint of the v1 row written alongside, absent once v1 stopped being written. */
+export type Index = { months: string[]; migratedAt?: number; v1?: string };
+
+/** A cheap fingerprint of a string (length plus 32-bit FNV-1a): tells whether a row changed. */
+export function fingerprint(text: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${text.length}:${(h >>> 0).toString(36)}`;
+}
 /** The bits of AsyncStorage this needs (an in-memory map in the tests). */
 export type Storage = {
   getItem(key: string): Promise<string | null>;
@@ -49,16 +67,20 @@ export function changedMonths(prev: Days | null, next: Days) {
   return out;
 }
 
-/** The rows to write for `s`, given the days as last written, plus the month rows that are no longer needed. */
-export function rowsFor(s: State, prev: Days | null, prevMonths: string[], migratedAt?: number) {
+/**
+ * The rows to write for `s`, given the days as last written, plus the month rows that are no longer needed.
+ * With `v1Raw` (the whole state as JSON) the v1 row is written too and its fingerprint goes in the index.
+ */
+export function rowsFor(s: State, prev: Days | null, prevMonths: string[], migratedAt?: number, v1Raw?: string) {
   const { days, ...base } = s;
   const byMonth = daysByMonth(days);
   const months = Object.keys(byMonth).sort();
-  const index: Index = { months, ...(migratedAt ? { migratedAt } : {}) };
+  const index: Index = { months, ...(migratedAt ? { migratedAt } : {}), ...(v1Raw != null ? { v1: fingerprint(v1Raw) } : {}) };
   const pairs: [string, string][] = [
     [BASE_KEY, JSON.stringify(base)],
     [INDEX_KEY, JSON.stringify(index)],
   ];
+  if (v1Raw != null) pairs.push([V1_KEY, v1Raw]);
   for (const m of changedMonths(prev, days)) if (byMonth[m]) pairs.push([monthKey(m), JSON.stringify(byMonth[m])]);
   const gone = prevMonths.filter((m) => !byMonth[m]).map(monthKey);
   return { pairs, gone, months };
@@ -66,7 +88,8 @@ export function rowsFor(s: State, prev: Days | null, prevMonths: string[], migra
 
 export type Saved =
   | { source: 'none'; saved: null }
-  | { source: 'v1'; saved: Partial<State>; raw: string }
+  /** `newer`: v2 exists, but code from before v2 wrote v1 since, so v1 holds the latest data. */
+  | { source: 'v1'; saved: Partial<State>; raw: string; newer?: boolean }
   | { source: 'v2'; saved: Partial<State>; index: Index; sizes: Record<string, number> };
 
 /** Saved data that's there but can't be read. `stage` says which layout failed (v2 failing leaves v1 to fall back on). */
@@ -95,11 +118,25 @@ async function readV2(st: Storage, base: string, rawIndex: string | null): Promi
 
 /** Reads the saved state. Throws a ReadError when something is there but can't be read, so nothing gets saved over it. */
 export async function readSaved(st: Storage): Promise<Saved> {
+  let v2: Saved | null = null;
   try {
     const [[, base], [, rawIndex]] = await st.multiGet([BASE_KEY, INDEX_KEY]);
-    if (base != null) return await readV2(st, base, rawIndex);
+    if (base != null) v2 = await readV2(st, base, rawIndex);
   } catch (e) {
     throw new ReadError('v2', e);
+  }
+  if (v2?.source === 'v2') {
+    // v1 was written along with v2. If it no longer matches, older code ran since (a rolled-back update)
+    // and v1 has the newest data. A v1 that's missing or unreadable leaves v2 as it is.
+    if (v2.index.v1) {
+      try {
+        const raw = await st.getItem(V1_KEY);
+        if (raw != null && fingerprint(raw) !== v2.index.v1) return { source: 'v1', saved: JSON.parse(raw) as Partial<State>, raw, newer: true };
+      } catch {
+        // keep v2
+      }
+    }
+    return v2;
   }
   try {
     const raw = await st.getItem(V1_KEY);

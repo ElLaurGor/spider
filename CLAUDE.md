@@ -11,17 +11,24 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - Each action calls `run()`, which applies the change, then checks the league, quests (and the boss), then achievements and secret achievements, then saves and shows the toasts.
   - `reward()` adds XP and coins.
   - Calendar, health, weather, screen time and "outside" (air quality and alerts) live here too as non-persisted side state.
-- `src/lib/lines.ts`: every personality line, with `mild` and `savage` pools. `effectiveSavage()` caps the tone at 2 when today's latest mood is ≤ 2.
+- `src/lib/lines.ts`: every personality line, with `mild` and `savage` pools. The tone comes from `effectiveSavage()` (see below).
 - `src/lib/notifications.ts`: cancels and rebuilds every planned reminder (IDs are prefix-based) 1.5 s after any state change.
 - Pure logic:
   - Core: `selectors.ts`, `xp.ts` (levels, achievements, secret achievements), `quests.ts` (daily quests, weekly boss), `habits.ts`, `report.ts`.
   - Economy and progression: `economy.ts` (coins, chest, shop), `league.ts` (rival bots), `evolution.ts` (spider stages, themes).
   - Recaps: `insights.ts`, `wrapped.ts`, `records.ts` (Hall of Fame/Shame).
   - Other: `countdowns.ts`, `body-log.ts`, `mood.ts`.
-- Device and network code: `calendar.ts`, `health.ts`, `weather.ts` (Open-Meteo), `outside.ts` (pollen/AQI from Open-Meteo, SMHI warnings, Krisinformation VMA), `food-db.ts` (Open Food Facts), `photos.ts`, `backup.ts`.
+- Device and network code: `calendar.ts`, `health.ts`, `weather.ts` (Open-Meteo; past days come from `historical-forecast-api`, the forecast API only keeps ~43), `outside.ts` (pollen/AQI from Open-Meteo, SMHI warnings, Krisinformation VMA), `food-db.ts` (Open Food Facts), `photos.ts`, `backup.ts`.
+- Every fetch goes through `getJson()` in `http.ts` (timeout via AbortController). RN's fetch never times out on its own.
 - SMHI and VMA are matched on `settings.weather.county` ("Stockholms län"), which needs Swedish geocoding (`language=sv`). Old saves get it via `withCounty()`. Alerts are only checked while the app runs; there's no background task.
+- Alerts: a failed SMHI/VMA check keeps the last good list and says so (`sourceNote`), never "no warnings". Notification id `alert-${alert.id}`, seen key `${alert.id}:${level}` (`triageAlerts`/`alertKey` in `outside.ts`), so an escalation pings again. They use their own `spider-warnings` channel. The notify toggles only gate pings, not what's shown.
 - `modules/spider-usage/`: a **local Expo native module** (Kotlin) that reads Android usage stats for screen time and strict Web Focus. Autolinking picks it up from `modules/`. JS reaches it only through `src/lib/screentime.ts` (`requireOptionalNativeModule('SpiderUsage')`), so installs without it degrade gracefully. Any change under `modules/` needs a version bump and a new APK. There is no Android SDK on this PC, so the EAS build is the only Kotlin compile check.
-- State is persisted in AsyncStorage under `spider:state:v1`. `hydrate()` in `defaults.ts` fills in fields that old saves don't have. New fields need a default there, or must be read with `?? fallback`.
+- State is persisted by `src/lib/persist.ts` (v2): the state without `days` in `spider:state:v2:base`, each month of days in `spider:state:v2:days:YYYY-MM`, the month list in `spider:state:v2:months`. One row must stay under Android's 2 MB CursorWindow, or it can be written but never read again. Saves rewrite only changed months.
+  - While the whole state is under 1 MB, `spider:state:v1` is written too, in the same transaction, with its fingerprint in the index. Pre-v2 code (an APK's embedded bundle after a rolled-back update) still finds current data there, and if v1 changed behind v2's back, `readSaved()` loads v1 and migrates it again.
+  - A load that fails shows the recovery screen (`components/recovery.tsx`) and nothing is saved until the user picks something. A save that would drop most of the history is refused unless reset/restore allowed it (`wouldWipe`).
+  - `hydrate()` in `defaults.ts` fills in fields that old saves don't have. New fields need a default there, or must be read with `?? fallback`.
+- Tab screens stay mounted for days and the React Compiler computes a bare `dayKey()` once: use `useToday()` (`components/use-today.ts`) for "today" in screens. Day keys passed to actions must pass `isDayKey()`; never hand an action straight to `onPress` if it takes an optional argument (`onPress={actions.addCoffee}` once logged cups under "[object Object]").
+- `effectiveSavage()` returns 1 (mild only) on a low mood (carried overnight until the next check-in) and in sick mode. `quip` re-picks when it changes.
 
 ## Before calling a change done
 ```

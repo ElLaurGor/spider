@@ -3,9 +3,10 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { DayWeb } from '@/components/day-web';
 import { Btn, Card, H, Row, T, useNow } from '@/components/ui';
+import { useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { caughtCount, FLIES, FLY_BY_ID } from '@/lib/critters';
-import { dayKey, fmtClock } from '@/lib/dates';
+import { fmtClock } from '@/lib/dates';
 import { nextPageAt } from '@/lib/diary';
 import { useStore } from '@/lib/store';
 import { webParams } from '@/lib/web-art';
@@ -16,7 +17,7 @@ export function WildCard() {
   const pending = state.pendingFly;
   const now = useNow(1000, !!pending, pending?.until);
   const fly = pending && pending.until > now ? FLY_BY_ID[pending.id] : null;
-  const key = dayKey(now);
+  const key = useToday(); // `now` only ticks while a fly is buzzing
   const p = webParams(state, key);
   const pages = state.diary?.length ?? 0;
   const legend = [

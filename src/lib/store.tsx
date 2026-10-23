@@ -7,7 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from 'react-native';
 
 import { autoBackup, createBackup, keepCopy, pickAutoBackupFolder, readBackup } from './backup';
-import { olderCopy, readSaved, ReadError, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from './persist';
+import { DUAL_WRITE_LIMIT, olderCopy, readSaved, ReadError, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from './persist';
 import { autoBackupDue } from './backup-due';
 import { THEMES } from '@/constants/theme';
 
@@ -430,6 +430,8 @@ type Disk = {
   days: State['days'] | null;
   months: string[];
   migratedAt?: number;
+  /** v1 is still written alongside v2, for code that only knows v1 (until the state outgrows DUAL_WRITE_LIMIT). */
+  dual: boolean;
   /** Days in the last load or save, for the shrink guard. */
   dayCount: number;
   /** Reset, restore and "start fresh" may shrink the history; the next save clears it. */
@@ -445,6 +447,7 @@ const freshDisk = (): Disk => ({
   days: null,
   months: [],
   migratedAt: undefined,
+  dual: true,
   dayCount: 0,
   allowShrink: false,
   warnedShrink: false,
@@ -548,7 +551,16 @@ function useStoreValue() {
       await AsyncStorage.setItem(V1_KEY, raw);
       d.sizes = { [V1_KEY]: utf8Bytes(raw) };
     } else {
-      const { pairs, gone, months } = rowsFor(s, d.days, d.months, d.migratedAt);
+      let v1Raw: string | undefined;
+      if (d.dual) {
+        const raw = JSON.stringify(s);
+        if (utf8Bytes(raw) <= DUAL_WRITE_LIMIT) v1Raw = raw;
+        else {
+          d.dual = false; // too close to the row limit: v2 only from now on (v1 keeps its last copy)
+          delete d.sizes[V1_KEY];
+        }
+      }
+      const { pairs, gone, months } = rowsFor(s, d.days, d.months, d.migratedAt, v1Raw);
       await AsyncStorage.multiSet(pairs);
       if (gone.length) await AsyncStorage.multiRemove(gone);
       for (const [k, v] of pairs) d.sizes[k] = utf8Bytes(v);
@@ -604,16 +616,22 @@ function useStoreValue() {
   const moveToV2 = useCallback(async (raw: string, s: State) => {
     const d = disk.current;
     const migratedAt = Date.now();
-    const { pairs, months } = rowsFor(s, null, [], migratedAt);
+    const v1Raw = utf8Bytes(raw) <= DUAL_WRITE_LIMIT ? raw : undefined;
+    const { pairs, months } = rowsFor(s, null, [], migratedAt, v1Raw);
     try {
-      keepCopy('spider-state-v1.json', raw);
+      try {
+        keepCopy('spider-state-v1.json', raw);
+      } catch (e) {
+        // Only an extra copy: the v1 row itself stays in storage untouched, so the move can go ahead.
+        console.warn('[spider] no file copy of the v1 state', e);
+      }
       if (!(await writeVerified(AsyncStorage, pairs))) throw new Error('read-back mismatch');
-      Object.assign(d, { mode: 'v2', days: s.days, months, migratedAt, sizes: Object.fromEntries(pairs.map(([k, v]) => [k, utf8Bytes(v)])) });
+      Object.assign(d, { mode: 'v2', days: s.days, months, migratedAt, dual: v1Raw != null, sizes: Object.fromEntries(pairs.map(([k, v]) => [k, utf8Bytes(v)])) });
     } catch (e) {
       // Stay on v1 for this run (saves keep going there) and try again next launch. Rows half-written
-      // here would be read first next time, so they go.
+      // here would be read first next time, so they go (never the v1 row itself).
       console.warn('[spider] moving to v2 failed, staying on v1', e);
-      await AsyncStorage.multiRemove(pairs.map(([k]) => k)).catch(() => {});
+      await AsyncStorage.multiRemove(pairs.map(([k]) => k).filter((k) => k !== V1_KEY)).catch(() => {});
       Object.assign(d, { mode: 'v1', days: null, months: [], sizes: { [V1_KEY]: utf8Bytes(raw) } });
     }
   }, []);
@@ -632,8 +650,9 @@ function useStoreValue() {
       Object.assign(d, freshDisk(), { dayCount: Object.keys(next.days).length });
       if (got.source === 'v2') {
         // The days as stored: anything hydrate() changed goes out with the next save.
-        Object.assign(d, { days: got.saved.days ?? {}, months: got.index.months, migratedAt: got.index.migratedAt, sizes: got.sizes });
+        Object.assign(d, { days: got.saved.days ?? {}, months: got.index.months, migratedAt: got.index.migratedAt, dual: !!got.index.v1, sizes: got.sizes });
       } else if (got.source === 'v1') {
+        if (got.newer) console.warn('[spider] v1 changed since the last v2 save (older code ran): moving it over again');
         await moveToV2(got.raw, next);
       }
       loaded.current = true;
@@ -2038,7 +2057,12 @@ function useStoreValue() {
     return () => clearTimeout(t);
   }, [activeFocus, tick, actions]);
 
-  const quip = useCallback((key: LineKey, vars: Record<string, string | number> = {}) => L(stateRef.current, key, vars), []);
+  // Screens memoize their lines on `quip`, so it changes with the tone: a low mood or sick mode re-picks them gently.
+  const savage = effectiveSavage(state);
+  const quip = useCallback(
+    (key: LineKey, vars: Record<string, string | number> = {}) => freshLine(key, savage, { name: stateRef.current.settings.userName || 'boss', ...vars }),
+    [savage],
+  );
 
   return {
     ready,

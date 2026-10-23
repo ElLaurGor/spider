@@ -1,17 +1,19 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { T, useNow } from '@/components/ui';
+import { useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { BED_MG, bedtimeCaffeine, bedtimeOn, caffeineCurve, caffeineLeft, cupsAround } from '@/lib/caffeine';
 import { coffeeOf, dayOf } from '@/lib/selectors';
-import { dayKey, fmtTime, pad } from '@/lib/dates';
+import { fmtTime, pad } from '@/lib/dates';
 import type { State } from '@/lib/types';
 
 const H = 52;
 
 /** Caffeine still in the body across the day, with bedtime marked. "About" numbers: half-lives vary. */
 export function CaffeineCurve({ state, day }: { state: State; day: string }) {
-  const isToday = day === dayKey();
+  const today = useToday();
+  const isToday = day === today;
   const now = useNow(60_000, isToday);
   const cups = coffeeOf(dayOf(state, day));
   if (!cups.length) return null;

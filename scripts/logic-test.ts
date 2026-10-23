@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 
 import { addDays, atTime, dayKey, fmtClock, fmtDuration, isDayKey, MIN, startOfWeek } from '../src/lib/dates';
 import { defaultState, emptyDay, hydrate, idTime, withRealDays } from '../src/lib/defaults';
-import { BASE_KEY, changedMonths, daysByMonth, INDEX_KEY, monthKey, olderCopy, readSaved, ReadError, ROW_LIMIT, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from '../src/lib/persist';
-import { freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
+import { BASE_KEY, changedMonths, daysByMonth, fingerprint, INDEX_KEY, monthKey, olderCopy, readSaved, ReadError, ROW_LIMIT, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from '../src/lib/persist';
+import { fillLine, freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
 import {
   avgMood,
   caffeineMg,
@@ -74,6 +74,7 @@ import { webDays, webGeometry, webParams } from '../src/lib/web-art';
 import { bestiary, lastKillDay, LORE } from '../src/lib/bestiary';
 import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
+import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // cluster B
@@ -235,11 +236,40 @@ assert.equal(totalCoffees(m), 2);
 assert.equal(avgMood(m.days[k]), 3);
 assert.equal(moodDays(m), 1);
 assert.deepEqual(emotionCounts(m), [{ emotion: 'Tired', n: 2 }, { emotion: 'Happy', n: 1 }]);
-// latest mood is low (2) -> roasts dialed down to 2 even at savage 10
+// latest mood is low (2) -> roasts paused (mild only) even at savage 10
 assert.equal(m.settings.savageLevel, 10);
-assert.equal(effectiveSavage(m), 2);
+assert.equal(effectiveSavage(m), 1);
+{
+  const mild = new Set(LINES.gymShame.mild.map((t) => fillLine(t, { workout: 'Push' })));
+  for (let i = 0; i < 1000; i++) assert.ok(mild.has(line('gymShame', effectiveSavage(m), { workout: 'Push' })), 'a roast slipped through a low mood');
+}
 m.days[k].moods!.push({ id: 'm3', level: 5, emotions: [], at: 3 });
 assert.equal(effectiveSavage(m), 10);
+// sick mode holds the roasts too ("I will hold the roasts"); away mode only stops the nagging
+{
+  const sick = startPause(defaultState(), 'sick', 3);
+  assert.equal(effectiveSavage(sick), 1);
+  const mild = new Set(LINES.spiderTap.mild.map((t) => fillLine(t, {})));
+  for (let i = 0; i < 1000; i++) assert.ok(mild.has(line('spiderTap', effectiveSavage(sick))), 'a roast slipped through sick mode');
+  assert.equal(effectiveSavage(startPause(defaultState(), 'away', 3)), 10);
+  assert.equal(effectiveSavage(endPause(sick)), 10);
+}
+// a low mood late last night keeps the roasts paused until today's first check-in
+{
+  const night = defaultState();
+  const at = new Date(2027, 0, 13, 7, 30);
+  const day = (moods: { level: 1 | 2 | 3 | 4 | 5; at: number }[]) => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0, moods: moods.map((x, i) => ({ id: `n${i}`, emotions: [], ...x })) });
+  night.days['2027-01-12'] = day([{ level: 4, at: new Date(2027, 0, 12, 13).getTime() }, { level: 1, at: new Date(2027, 0, 12, 23, 30).getTime() }]);
+  assert.equal(effectiveSavage(night, at), 1);
+  night.days['2027-01-13'] = day([{ level: 4, at: at.getTime() }]); // today's check-in takes over
+  assert.equal(effectiveSavage(night, at), 10);
+  night.days['2027-01-12'] = day([{ level: 1, at: 1 }, { level: 3, at: 2 }]); // yesterday ended okay
+  delete night.days['2027-01-13'];
+  assert.equal(effectiveSavage(night, at), 10);
+  night.days['2027-01-11'] = day([{ level: 1, at: 1 }]); // two days ago doesn't carry
+  delete night.days['2027-01-12'];
+  assert.equal(effectiveSavage(night, at), 10);
+}
 // old saved days without coffee/moods still work
 const old = defaultState();
 old.days[k] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
@@ -774,7 +804,6 @@ void (async () => {
   process.exit(1);
 });
 
-console.log('all logic tests passed');
 
 // respect meter: a rolling 7-day average of day scores (today excluded), silent until 3 days exist
 {
@@ -1956,9 +1985,60 @@ console.log('all logic tests passed');
     const tooBig = { ...memStore(), multiGet: () => Promise.reject(new Error('Row too big to fit into CursorWindow')) };
     await assert.rejects(readSaved(tooBig), /CursorWindow/);
     assert.equal(await olderCopy(memStore({ [BASE_KEY]: '{}' })), null); // no v1 to fall back on
+
+    // v1 written along with v2: code that only knows v1 (a rolled-back update) finds current data, and what it writes wins
+    assert.notEqual(fingerprint('{"xp":1}'), fingerprint('{"xp":2}'));
+    assert.equal(fingerprint('abc'), fingerprint('abc'));
+    const v1Now = JSON.stringify(s0);
+    const dual = rowsFor(s0, null, [], 111, v1Now);
+    assert.deepEqual(dual.pairs.find(([k]) => k === V1_KEY), [V1_KEY, v1Now]); // in the same multiSet as the v2 rows
+    assert.equal(JSON.parse(dual.pairs[1][1]).v1, fingerprint(v1Now));
+    assert.ok(!rowsFor(s0, null, [], 111).pairs.some(([k]) => k === V1_KEY)); // without v1Raw, v1 is left alone
+    const both = memStore(Object.fromEntries(dual.pairs));
+    const same = await readSaved(both);
+    assert.equal(same.source, 'v2'); // v1 unchanged since: v2 is read
+    both.m.set(V1_KEY, JSON.stringify({ ...s0, xp: 9999 })); // older code saved to v1 only
+    const rolled = await readSaved(both);
+    assert.ok(rolled.source === 'v1' && rolled.newer && rolled.saved.xp === 9999);
+    both.m.set(V1_KEY, '{"days": {'); // an unreadable v1 never hides a good v2
+    assert.equal((await readSaved(both)).source, 'v2');
+    both.m.delete(V1_KEY);
+    assert.equal((await readSaved(both)).source, 'v2');
+    const noDual = memStore(Object.fromEntries(first.pairs)); // v1 no longer written alongside: v2 wins whatever v1 holds
+    noDual.m.set(V1_KEY, JSON.stringify({ ...s0, xp: 1 }));
+    assert.equal((await readSaved(noDual)).source, 'v2');
     console.log('persistence tests passed');
   })().catch((e) => {
     console.error(e);
     process.exit(1);
   });
 }
+
+// reminder times: the period heads-up survives a replan on its own morning; Wrapped on the 1st before 10:00
+{
+  const cyc = defaultState();
+  for (const start of ['2026-09-01', '2026-09-29']) cyc.days[start] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, period: { flow: 'medium', symptoms: [] } };
+  const headsUp = (now: Date) => {
+    const info = cycleInfo(cyc, now)!;
+    return cycleHeadsUpAt(info);
+  };
+  assert.equal(dayKey(cycleInfo(cyc, new Date(2026, 9, 23, 12))!.nextStart), '2026-10-27');
+  // Sun 25 Oct is the DST day (25 hours): the heads-up is still 10:00 local that Sunday
+  for (const now of [new Date(2026, 9, 23, 20), new Date(2026, 9, 25, 7, 30)]) {
+    const at = headsUp(now)!;
+    assert.equal(dayKey(at), '2026-10-25');
+    assert.equal(fmtTime(at), '10:00');
+  }
+  assert.equal(headsUp(new Date(2026, 9, 26, 8)), null); // one day to go: too late
+  const w = (now: Date) => {
+    const { at, month } = wrappedReminder(now);
+    return `${dayKey(at)} ${fmtTime(at)} ${month}`;
+  };
+  assert.equal(w(new Date(2026, 9, 23, 12)), '2026-11-01 10:00 October');
+  assert.equal(w(new Date(2026, 10, 1, 8)), '2026-11-01 10:00 October'); // Sun 1 Nov before 10:00: still October's
+  assert.equal(w(new Date(2026, 10, 1, 11)), '2026-12-01 10:00 November');
+  assert.equal(w(new Date(2026, 11, 20, 12)), '2027-01-01 10:00 December');
+}
+
+// The async blocks above (persistence, fetch checks) report on their own once they finish.
+console.log('synchronous logic tests passed');

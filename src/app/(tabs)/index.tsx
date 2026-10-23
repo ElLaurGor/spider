@@ -15,6 +15,7 @@ import { WildCard } from '@/components/hq-wild';
 import { SleepCheckIn } from '@/components/sleep-checkin';
 import { SpiderAvatar } from '@/components/spider-avatar';
 import { Bar, Btn, Card, H, Icon, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { OutsideAlerts } from '@/components/outside-alerts';
 import { WeatherRow } from '@/components/weather-row';
 import { C, MONO } from '@/constants/theme';
@@ -35,6 +36,7 @@ import {
   caffeineMg,
   coffeeOf,
   dayOf,
+  effectiveSavage,
   eventsOn,
   gamingBudgetMin,
   gamingUsedMs,
@@ -66,15 +68,20 @@ function greetingKey(): LineKey {
 
 export default function HQ() {
   const { state, actions, quip, cal, health } = useStore();
-  const [bubble, setBubble] = useState(() => {
+  const savage = effectiveSavage(state);
+  const greet = () => {
     // Mornings, half the time: a remark about how yesterday actually went.
     const callback = timeOfDay() === 'morning' && Math.random() < 0.5 ? yesterdayHighlight(state) : null;
     return callback ? quip(callback.key, callback.vars) : quip(greetingKey());
-  });
+  };
+  const [bubble, setBubble] = useState(() => ({ text: greet(), savage }));
+  // A change of tone (a low mood, sick mode) picks the greeting again, so it never stays savage.
+  if (bubble.savage !== savage) setBubble({ text: greet(), savage });
   const now = useNow(30_000);
+  const todayKey = useToday();
 
   const s = state.settings;
-  const today = dayOf(state);
+  const today = dayOf(state, todayKey);
   const lvl = levelProgress(state.xp);
   const water = waterMl(today);
   const plan = workoutFor(state, now);
@@ -95,7 +102,8 @@ export default function HQ() {
   const stage = stageFor(lvl.level);
   const next = nextStage(lvl.level);
   const insight = insightOfTheDay(state);
-  const lastMonth = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toLocaleDateString('en-GB', { month: 'long' });
+  const date = noonOf(todayKey);
+  const lastMonth = new Date(date.getFullYear(), date.getMonth() - 1, 1).toLocaleDateString('en-GB', { month: 'long' });
   const vKey = verdictKey(score);
   const verdict = useMemo(() => quip(vKey), [quip, vKey]);
   const emptyKey = cal.status === 'granted' ? 'calFree' : 'tasksEmpty';
@@ -104,8 +112,8 @@ export default function HQ() {
   // A tap on the spider: a random jab, its opinion of your week, or a word about the task that won't die.
   const tapSpider = () => {
     const zombie = immortalTask(state);
-    if (zombie && Math.random() < 0.3) return setBubble(quip('immortalTask', { task: zombie.task.title, days: zombie.days }));
-    setBubble(quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'));
+    if (zombie && Math.random() < 0.3) return setBubble({ text: quip('immortalTask', { task: zombie.task.title, days: zombie.days }), savage });
+    setBubble({ text: quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'), savage });
   };
 
   // The movable cards, by id (lib/hq-layout.ts sets their order and which are hidden).
@@ -356,12 +364,12 @@ export default function HQ() {
         </Pressable>
       }>
       {/* Pinned: these can't be moved or hidden. */}
-      <SpiderSays text={bubble} onPress={tapSpider} />
+      <SpiderSays text={bubble.text} onPress={tapSpider} />
       <OutsideAlerts />
       <PauseBanner />
       <LowBatteryCard />
 
-      {new Date().getDate() <= 5 ? (
+      {date.getDate() <= 5 ? (
         <Pressable onPress={() => router.push('/wrapped')} style={styles.banner}>
           <Text style={{ fontSize: 26 }}>🎁</Text>
           <View style={{ flex: 1 }}>
