@@ -80,7 +80,7 @@ import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // step 2 game
 import { gentleQuestFor, KING_REMATCH_WEEKS, kingRematchFor, kingWeeksOf, reducedDay, weaknessOf } from '../src/lib/quests';
 import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
-import { gamingBudgetMin, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
+import { gamesInTimerMin, gamingBudgetMin, gamingUsedMs as usedMs, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
 import { areaScores } from '../src/lib/weak-spot';
 import { chestShelf, SHELF_MAX, withChestGold } from '../src/lib/loot';
 import { applyFixes, recheckCoffeeGremlin } from '../src/lib/fixes';
@@ -1531,6 +1531,18 @@ void (async () => {
   assert.ok(completionist.test(comp));
   comp.habits = [{ id: 'h', name: 'H', emoji: 'x', days: [], remindHour: null, createdAt: 0 }];
   assert.ok(!completionist.test(comp), 'a habit due and not done');
+
+  // phone games played while the gaming timer ran count once (the timer has them)
+  const t0 = new Date(`${gk(3)}T19:00`).getTime();
+  const spans = [
+    { packageName: 'com.game', start: t0 + 10 * MIN, end: t0 + 40 * MIN }, // 30 min, all inside the session
+    { packageName: 'com.game', start: t0 + 70 * MIN, end: t0 + 90 * MIN }, // 20 min, 10 inside
+    { packageName: 'com.chat', start: t0, end: t0 + 60 * MIN }, // not a game
+  ];
+  assert.equal(gamesInTimerMin(spans, new Set(['com.game']), [{ start: t0, end: t0 + 80 * MIN }]), 40);
+  const both = defaultState();
+  both.days[gk(3)] = { ...empty(), games: [{ start: t0, end: t0 + 80 * MIN }], screen: { totalMin: 90, doomMin: 0, gamesMin: 50, top: [] }, phoneGamesInTimerMin: 40 };
+  assert.equal(usedMs(both, gk(3)), 90 * MIN, '80 on the timer + 10 phone-only minutes, not 130');
 
   // red days off count in this week's planned workouts
   const red = defaultState();

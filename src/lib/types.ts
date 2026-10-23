@@ -159,6 +159,7 @@ export type DayLog = {
   sleepStages?: SleepStages;
   // step 2
   goals?: DayGoals; // what the day asked for, frozen once it's over (lib/goals.ts)
+  phoneGamesInTimerMin?: number; // phone-game minutes (usage stats) played while the gaming timer ran: counted once
 };
 
 /** A finished day's goals: settings, plan and habits as they were that day. */

@@ -57,6 +57,7 @@ import {
   coffeeOf,
   dayOf,
   effectiveSavage,
+  gamesInTimerMin,
   gamePenalty,
   gamingBudgetMin,
   gamingUsedMs,
@@ -935,6 +936,18 @@ function useStoreValue() {
     screenTimeSupported ? 'needs-permission' : 'unsupported',
   );
   const screenHistoryDone = useRef(false); // past days' final screen time, once per app run
+  /** Phone games played while the gaming timer ran are already in the timer: remembers how many minutes to take off. */
+  const refreshGameOverlap = useCallback(async () => {
+    const s0 = stateRef.current;
+    const from = startOfDay().getTime();
+    const now = Date.now();
+    const sessions = [...dayOf(s0).games, ...(s0.activeGame ? [{ start: s0.activeGame.start, end: now }] : [])].filter((g) => g.end > from);
+    if (!sessions.length || !s0.settings.phoneGamesCount) return;
+    const games = new Set((await usageBetween(from, now)).filter((a) => a.isGame).map((a) => a.packageName));
+    const overlap = games.size ? gamesInTimerMin(await spansBetween(from, now), games, sessions) : 0;
+    if (overlap !== (dayOf(stateRef.current).phoneGamesInTimerMin ?? 0)) run((s) => patchDay(s, dayKey(), (d) => ({ ...d, phoneGamesInTimerMin: overlap })));
+  }, [run]);
+
   const refreshScreen = useCallback(async () => {
     if (!screenTimeSupported) return;
     if (!hasUsageAccess()) {
@@ -972,10 +985,11 @@ function useStoreValue() {
         const night = nightPhone(await spansBetween(bed, end), bed, end);
         run((s) => patchDay(s, dayKey(), (d) => ({ ...d, night })));
       }
+      await refreshGameOverlap();
     } catch (e) {
       console.warn('[spider] screen time failed', e);
     }
-  }, [run]);
+  }, [run, refreshGameOverlap]);
   useEffect(() => {
     if (!ready || !state.onboarded || !screenTimeSupported) return;
     const first = setTimeout(() => void refreshScreen(), 0);

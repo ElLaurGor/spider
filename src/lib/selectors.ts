@@ -147,13 +147,26 @@ export const gamingBudgetMin = (s: State, key = dayKey()) => (s.days[key]?.goals
 /** XP lost for gaming `overMs` past the budget: 2 per started 5 minutes, the first minute is free. */
 export const gamePenalty = (overMs: number) => (overMs > 60_000 ? Math.ceil(overMs / (5 * 60_000)) : 0);
 
-/** Gaming time used on a day, including a running session that started that day. */
+/**
+ * Gaming time used on a day, including a running session that started that day. Phone games count too
+ * (if enabled), minus the minutes played while the timer was running, which the timer already has.
+ */
 export function gamingUsedMs(s: State, key = dayKey(), now = Date.now()) {
   const d = dayOf(s, key);
   let ms = d.games.reduce((a, g) => a + (g.end - g.start), 0);
   if (s.activeGame && dayKey(s.activeGame.start) === key) ms += now - s.activeGame.start;
-  if (s.settings.phoneGamesCount) ms += (d.screen?.gamesMin ?? 0) * 60_000;
+  if (s.settings.phoneGamesCount) ms += Math.max(0, (d.screen?.gamesMin ?? 0) - (d.phoneGamesInTimerMin ?? 0)) * 60_000;
   return ms;
+}
+
+/** Minutes of foreground time in game apps (`games`, package names) that fall inside timer sessions. */
+export function gamesInTimerMin(spans: { packageName: string; start: number; end: number }[], games: Set<string>, sessions: { start: number; end: number }[]) {
+  let ms = 0;
+  for (const sp of spans) {
+    if (!games.has(sp.packageName)) continue;
+    for (const g of sessions) ms += Math.max(0, Math.min(sp.end, g.end) - Math.max(sp.start, g.start));
+  }
+  return Math.round(ms / 60_000);
 }
 
 export function workoutsThisWeek(s: State, now = new Date()) {
