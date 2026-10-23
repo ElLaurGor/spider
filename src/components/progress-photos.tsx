@@ -41,7 +41,7 @@ export function ProgressPhotos() {
       ) : (
         <T dim small>
           {photos.length === 0
-            ? 'Take one now and one every week. In a month you will see what the mirror hides.'
+            ? 'Take one now and one every week. They stay private on this phone, for comparing over time.'
             : 'One down. Take another next week and the before/after comparison appears here.'}
         </T>
       )}

@@ -1,6 +1,6 @@
 import { addDays, atTime, dayKey, startOfDay, startOfWeek } from './dates';
 import { emptyDay } from './defaults';
-import { pauseOn } from './pause';
+import { toneOn } from './tone';
 import { holidayOn } from './swedish-days';
 import type { CalEvent, DayLog, SetEntry, State, Weekday, WorkoutDay } from './types';
 
@@ -50,18 +50,12 @@ export function avgMood(d: DayLog) {
 }
 
 /**
- * How savage S.P.I.D.E.R. may be right now, whatever the setting. A low mood and sick mode pause the
- * roasts (1 = mild lines only), and a low mood keeps them paused overnight until the next check-in.
- * A period day (if enabled) and low-battery mode only turn the tone down.
+ * How savage S.P.I.D.E.R. may be right now, whatever the setting: today's tone (tone.ts). A low mood (kept
+ * overnight until the next check-in), sick mode and a period day pause the roasts (1 = mild lines only);
+ * low-battery mode only turns the tone down.
  */
 export function effectiveSavage(s: State, now = new Date()) {
-  const key = dayKey(now);
-  const today = dayOf(s, key);
-  const latest = moodsOf(today).at(-1) ?? moodsOf(dayOf(s, dayKey(addDays(now, -1)))).at(-1);
-  if ((latest && latest.level <= 2) || pauseOn(s, key)?.kind === 'sick') return 1;
-  if (s.settings.easyOnPeriod && onPeriod(today)) return Math.min(s.settings.savageLevel, 4);
-  if (lowBattery(today)) return Math.min(s.settings.savageLevel, 5);
-  return s.settings.savageLevel;
+  return toneOn(s, dayKey(now), now).level;
 }
 
 /** Games played recently, most recent first (for one-tap picking). */

@@ -7,7 +7,7 @@ import { Alert, DevSettings, Pressable, ScrollView, Switch, Text, View } from 'r
 import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
-import { pad } from '@/lib/dates';
+import { dayKey, pad } from '@/lib/dates';
 import { hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
 import { ACRONYM_REAL, line } from '@/lib/lines';
 import { openHealthSettings } from '@/lib/health';
@@ -17,6 +17,7 @@ import { findPlace } from '@/lib/weather';
 import { levelForXp } from '@/lib/xp';
 import { sendTestRoast } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
+import { toneOn } from '@/lib/tone';
 import { PauseCard } from '@/components/pause-card';
 import type { NotifyPrefs, Settings } from '@/lib/types';
 
@@ -152,7 +153,8 @@ export default function SettingsScreen() {
           />
         </SettingRow>
         <SpiderSays text={preview} onPress={() => setPreview(line('spiderTap', s.savageLevel, { name: s.userName || 'boss' }))} />
-        <Toggle label="Go easy on period days" hint="roasts drop to level 4" value={s.easyOnPeriod} onChange={(v) => set({ easyOnPeriod: v })} />
+        <TodayTone />
+        <Toggle label="Go easy on period days" hint="no roasts on period days" value={s.easyOnPeriod} onChange={(v) => set({ easyOnPeriod: v })} />
       </Card>
 
       <Card>
@@ -481,6 +483,28 @@ function StorageRow() {
       {info.rows ? ` · ${kb(info.bytes)} in ${info.rows} part${info.rows === 1 ? '' : 's'}, the biggest ${kb(info.largest)} of the 2 MB a part can hold.` : ''}
     </T>
   );
+}
+
+/** Under the savage preview: whether today's tone is held down, since the preview shows a normal day. */
+function TodayTone() {
+  const { state } = useStore();
+  const tone = toneOn(state, dayKey());
+  const chosen = state.settings.savageLevel;
+  if (tone.kind) {
+    return (
+      <T dim small>
+        Roasts are paused today (a low mood, sick mode or a period day). The preview shows how level {chosen} sounds on a normal day.
+      </T>
+    );
+  }
+  if (tone.level < chosen) {
+    return (
+      <T dim small>
+        Low-battery mode today: roasts are capped at level {tone.level}.
+      </T>
+    );
+  }
+  return null;
 }
 
 function SettingRow({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {

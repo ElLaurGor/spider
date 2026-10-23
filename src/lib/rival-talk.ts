@@ -1,9 +1,9 @@
 // The league bots talk back: a rival who passes you gloats, one you pass sulks. At most two a day, and
-// they keep quiet on low-mood and period days. Their lines are about themselves and the race, never your body.
+// they keep quiet on low-mood, period and paused days. Their lines are about themselves and the race, never your body.
 import { dayKey } from './dates';
 import { standings } from './league';
 import { fillLine } from './lines';
-import { dayOf, moodsOf, onPeriod } from './selectors';
+import { gentleDay } from './tone';
 import type { State } from './types';
 
 export type RivalTalkState = { week: string; rank: number; day: string; n: number };
@@ -118,8 +118,7 @@ export function rivalTalk(s: State, now = new Date(), roll = Math.random): { tal
   if (prev.rank === rank) return null;
   const n = prev.day === day ? prev.n : 0;
   const talk = { week: l.week, rank, day, n };
-  const today = dayOf(s, day);
-  const quiet = (moodsOf(today).at(-1)?.level ?? 5) <= 2 || onPeriod(today);
+  const quiet = gentleDay(s, day);
   if (quiet || n >= RIVAL_TALK_PER_DAY) return { talk, line: null };
   const climbed = rank < prev.rank;
   const other = table[climbed ? rank : rank - 2]; // just below you (you passed them) or just above you (they passed you)

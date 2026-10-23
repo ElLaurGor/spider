@@ -2,10 +2,11 @@ import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Bar, Big, Btn, Card, H, Icon, Row, SpiderSays, T } from '@/components/ui';
+import { Bar, Big, Btn, Card, H, Icon, Row, SpiderSays, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { fmtDuration, fmtTime, WEEKDAYS } from '@/lib/dates';
 import { openHealthSettings } from '@/lib/health';
+import { stepsLineKey } from '@/lib/line-context';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 
@@ -18,7 +19,9 @@ export function WatchCard() {
   const d = health.data;
 
   const steps = d?.steps ?? 0;
-  const stepKey = steps >= goal ? 'stepsHigh' : steps >= goal / 2 ? 'stepsMid' : 'stepsLow';
+  const now = useNow(60_000);
+  // Paced by the time of day: 3 000 steps at 10:00 is on pace, at 21:00 it isn't.
+  const stepKey = stepsLineKey(steps, goal, new Date(now), state.settings.wakeHour, state.settings.sleepHour);
   const slept = dayOf(state).sleepMin; // the watch's number, unless typed in by hand
   const sleepKey = slept != null ? (slept < 6 * 60 ? 'sleepShort' : 'sleepGood') : null;
   const sleepText = slept != null ? fmtDuration(slept * 60_000) : '';

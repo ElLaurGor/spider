@@ -7,6 +7,7 @@ import { Bar, Big, Btn, Card, Chip, Field, H, Row, Screen, SpiderSays, T, useNow
 import { HiddenEgg } from '@/components/swedish-year';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtClock, fmtDuration, fmtTime, MIN, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
+import { gameLineKey } from '@/lib/line-context';
 import { bankRate, workoutBonusMin } from '@/lib/perks';
 import { dayOf, gameTotals, gamingBudgetMin, gamingUsedMs, recentGames } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
@@ -34,15 +35,18 @@ export default function Game() {
   const left = budgetMs - usedMs;
 
   const idleLine = useMemo(
-    () => (over ? quip('gameOver') : `Today's budget: ${fmtDuration(budgetMs)}. Spend it wisely. Or don't, and hear about it.`),
+    () => (over ? quip('gameOver') : quip('gameIdle', { budget: fmtDuration(budgetMs) })),
     [quip, over, budgetMs],
   );
   // Picked once per session (and again if it tips over budget), not every second.
   const sessionStart = active?.start;
   const leftAtStart = sessionStart ? budgetMs - gamingUsedMs(state, undefined, sessionStart) : 0;
+  // Picked again when it tips over budget, then every 30 minutes over ({over} rounds down to those steps).
+  const overKey = gameLineKey(usedMs - budgetMs);
+  const overStepMin = overKey === 'gameWayOver' ? Math.floor((usedMs - budgetMs) / (30 * MIN)) * 30 : 0;
   const activeLine = useMemo(
-    () => (over ? quip('gameWayOver') : quip('gameStart', { left: fmtDuration(Math.max(0, leftAtStart)) })),
-    [quip, over, leftAtStart],
+    () => (overKey ? quip(overKey, { over: fmtDuration(overStepMin * MIN) }) : quip('gameStart', { left: fmtDuration(Math.max(0, leftAtStart)) })),
+    [quip, overKey, overStepMin, leftAtStart],
   );
 
   const week = Array.from({ length: 7 }, (_, i) => {

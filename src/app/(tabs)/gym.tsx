@@ -9,12 +9,14 @@ import { ProgressPhotos } from '@/components/progress-photos';
 import { Big, Btn, Card, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { WatchCard } from '@/components/watch-card';
 import { HiddenEgg } from '@/components/swedish-year';
+import { useToday } from '@/components/use-today';
 import { WorkoutHeartCard } from '@/components/workout-heart';
 import { C } from '@/constants/theme';
 import { fmtClock, WEEK_ORDER, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { changeOver, fmtChange, latest } from '@/lib/body-log';
 import { dayOf, lastSession, prFor, trainMinutes, workoutFor, workoutsThisWeek } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import { gentleDay, toneOn } from '@/lib/tone';
 import type { SetEntry, Weekday } from '@/lib/types';
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -87,11 +89,16 @@ export default function Gym() {
   );
 }
 
+/** The Gym tab's line: today's plan (all day, no "in 30 minutes"), or one kind line on a pause or period day. */
 function GymSpider({ workout, minutes, sets }: { workout: string | null; minutes: number; sets: number }) {
-  const { quip } = useStore();
-  const pick = useMemo(() => (workout ? quip('gymRemind', { workout }) : quip('restDay')), [quip, workout]);
+  const { quip, state } = useStore();
+  const today = useToday();
+  const easy = toneOn(state, today).kind || gentleDay(state, today);
   const done = [minutes ? `${minutes} min` : '', sets ? `${sets} sets` : ''].filter(Boolean).join(' and ');
-  const text = done ? `${done} logged today. Keep going or go home. Those are the options.` : pick;
+  const text = useMemo(() => {
+    if (done) return quip(easy ? 'gymEasyLogged' : 'gymLogged', { done });
+    return easy ? quip('gymEasy') : workout ? quip('gymToday', { workout }) : quip('restDay');
+  }, [quip, workout, easy, done]);
   return <SpiderSays text={text} />;
 }
 

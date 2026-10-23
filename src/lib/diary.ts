@@ -1,9 +1,12 @@
 // S.P.I.D.E.R.'s secret observation log. A page unlocks for every 10 quests completed (a total,
 // never days in a row). Each page is written once, from one of the last 7 days, and kept.
-// It never mentions food, kcal, the body or weight. Low-mood and period days get kind pages.
+// It never mentions food, kcal, the body or weight. Low-mood, period and paused days get kind pages.
+// It calls the owner {name} (no pronouns), filled in when the page is written.
 import { addDays, dayKey, fmtDuration, MIN } from './dates';
 import { habitsDone } from './habits';
-import { dayOf, gamingBudgetMin, gamingUsedMs, moodsOf, onPeriod, trainMinutes, trainedOn, waterMl } from './selectors';
+import { fillLine } from './lines';
+import { dayOf, gamingBudgetMin, gamingUsedMs, moodsOf, trainMinutes, trainedOn, waterGoalFor, waterMl } from './selectors';
+import { gentleDay } from './tone';
 import type { DayLog, DiaryPage, State } from './types';
 
 export const QUESTS_PER_PAGE = 10;
@@ -30,13 +33,13 @@ function factsOf(s: State, key: string, d: DayLog, kind: boolean, seed: string):
 
   const ml = waterMl(d);
   if (ml > 0) {
-    const goal = ml >= s.settings.waterGoalMl;
+    const goal = ml >= waterGoalFor(s, key);
     say(
       'water',
       goal
-        ? [`The human drank ${liters(ml)} L of water. For a carbon-based unit, that is a personal best.`, `${liters(ml)} L of water consumed. The houseplants are jealous.`]
+        ? [`Today {name} drank ${liters(ml)} L of water. For a carbon-based unit, that is a personal best.`, `${liters(ml)} L of water consumed. The houseplants are jealous.`]
         : [`Water intake: ${liters(ml)} L. The houseplants have started a petition.`, `${liters(ml)} L of water. A cactus would call that a dry spell.`],
-      [`She drank ${liters(ml)} L of water. Small sips count too.`],
+      [`Today {name} drank ${liters(ml)} L of water. Small sips count too.`],
     );
   }
   if (d.steps != null && d.steps > 0) {
@@ -44,9 +47,9 @@ function factsOf(s: State, key: string, d: DayLog, kind: boolean, seed: string):
     say(
       'steps',
       d.steps >= s.settings.stepGoal
-        ? [`${steps} steps recorded. She moves. Voluntarily.`, `${steps} steps. I suspect she is training for something. Or fleeing.`]
-        : [`${steps} steps. The couch logged heavy usage.`, `Only ${steps} steps. The floor barely noticed her.`],
-      [`${steps} steps today. Moving at her own pace.`],
+        ? [`${steps} steps recorded. Yes, {name} moves. Voluntarily.`, `${steps} steps. I suspect {name} is training for something. Or fleeing.`]
+        : [`${steps} steps. The couch logged heavy usage.`, `Only ${steps} steps. The floor barely noticed.`],
+      [`${steps} steps today, at {name}'s own pace.`],
     );
   }
   if (trainedOn(d)) {
@@ -54,16 +57,16 @@ function factsOf(s: State, key: string, d: DayLog, kind: boolean, seed: string):
     say(
       'train',
       d.sets.length
-        ? [`She lifted heavy objects ${d.sets.length} times. On purpose. I checked.`, `${d.sets.length} sets logged. The barbell has filed a complaint.`]
-        : [`${min} minutes of training. Nobody forced her. I would know.`],
-      [`She trained today. ${d.sets.length ? `${d.sets.length} sets` : `${min} minutes`}, logged with care.`],
+        ? [`Today {name} lifted heavy objects ${d.sets.length} times. On purpose. I checked.`, `${d.sets.length} sets logged. The barbell has filed a complaint.`]
+        : [`${min} minutes of training. Nobody forced {name}. I would know.`],
+      [`Today {name} trained: ${d.sets.length ? `${d.sets.length} sets` : `${min} minutes`}, logged with care.`],
     );
   }
   const tasks = s.tasks.filter((t) => t.done && t.doneAt && dayKey(t.doneAt) === key).length;
   if (tasks > 0) {
     say(
       'tasks',
-      [`${tasks} task${tasks === 1 ? '' : 's'} completed. The to-do list is nervous.`, `${tasks} task${tasks === 1 ? '' : 's'} eliminated. I have upgraded her threat level.`],
+      [`${tasks} task${tasks === 1 ? '' : 's'} completed. The to-do list is nervous.`, `${tasks} task${tasks === 1 ? '' : 's'} eliminated. I have upgraded {name}'s threat level.`],
       [`${tasks} task${tasks === 1 ? '' : 's'} done. Each one counts.`],
     );
   }
@@ -91,7 +94,7 @@ function factsOf(s: State, key: string, d: DayLog, kind: boolean, seed: string):
         : d.sleepMin >= 8 * 60
           ? [`${sleep} of sleep. Fully recharged. Dangerous.`]
           : [`${sleep} of sleep. Adequate. I will allow it.`],
-      [`She slept ${sleep}. Rest is part of the work.`],
+      [`Last night {name} slept ${sleep}. Rest is part of the work.`],
     );
   }
   const habits = habitsDone(s, key).length;
@@ -99,20 +102,20 @@ function factsOf(s: State, key: string, d: DayLog, kind: boolean, seed: string):
     say('habits', [`${habits} habit${habits === 1 ? '' : 's'} checked off. Routine detected.`], [`${habits} habit${habits === 1 ? '' : 's'} kept. Steady.`]);
   }
   if (d.questsAllDone) say('quests', ['Every quest cleared. I am updating my threat assessment.'], ['Every quest done, even on a slow day.']);
-  if (!kind && moodsOf(d).some((m) => m.level >= 4)) say('mood', ['She reported feeling good. I logged it as an anomaly.'], []);
+  if (!kind && moodsOf(d).some((m) => m.level >= 4)) say('mood', ['Today {name} reported feeling good. Filed under highlights.'], []);
   return out;
 }
 
 const OPENERS = ['Observation log, day {day}.', 'Field notes, day {day}.', 'Classified. Day {day}.'];
 const CLOSERS = [
-  'Conclusion: she is planning something.',
+  'Conclusion: {name} is planning something.',
   'Further observation required.',
-  'End of log. Do not tell her I keep this.',
-  'I suspect she knows I am watching. Good.',
+  'End of log. Do not tell {name} I keep this.',
+  'I suspect {name} knows I am watching. Good.',
   'Note to self: increase surveillance.',
 ];
-const KIND_OPENERS = ['Observation log, day {day}. A quieter day.', 'Field notes, day {day}. She was running low.'];
-const KIND_CLOSERS = ['I turned my sarcasm module down and kept watch.', 'Conclusion: she is doing more than she thinks.', 'Rest logged. That counts too.'];
+const KIND_OPENERS = ['Observation log, day {day}. A quieter day.', 'Field notes, day {day}. Today {name} was running low.'];
+const KIND_CLOSERS = ['I turned my sarcasm module down and kept watch.', 'Conclusion: {name} is doing more than it feels like.', 'Rest logged. That counts too.'];
 
 /** Day number since the first day S.P.I.D.E.R. has data for. */
 export function dayNumber(s: State, key: string) {
@@ -120,17 +123,17 @@ export function dayNumber(s: State, key: string) {
   return Math.round((new Date(`${key}T12:00`).getTime() - new Date(`${first}T12:00`).getTime()) / 86_400_000) + 1;
 }
 
-/** A gentle page: the day's latest mood was low, or it was a period day. */
-export const kindDay = (d: DayLog) => (moodsOf(d).at(-1)?.level ?? 5) <= 2 || onPeriod(d);
+/** A gentle page: the day's latest mood was low, it was a period day (logged or still running), or a paused day. */
+export const kindDay = (s: State, key: string) => gentleDay(s, key);
 
 /** Writes page `n` from the busiest of the last 7 days (today if nothing else has data). */
 export function writePage(s: State, n: number, now = new Date()): DiaryPage {
   const keys = Array.from({ length: 7 }, (_, i) => dayKey(addDays(now, -(i + 1))));
-  const scored = keys.map((key) => ({ key, facts: factsOf(s, key, dayOf(s, key), kindDay(dayOf(s, key)), `${n}:${key}`).length }));
+  const scored = keys.map((key) => ({ key, facts: factsOf(s, key, dayOf(s, key), kindDay(s, key), `${n}:${key}`).length }));
   const best = scored.reduce((a, b) => (b.facts > a.facts ? b : a), { key: dayKey(now), facts: 0 });
   const key = best.facts > 0 ? best.key : dayKey(now);
   const d = dayOf(s, key);
-  const kind = kindDay(d);
+  const kind = kindDay(s, key);
   const seed = `${n}:${key}`;
   const facts = factsOf(s, key, d, kind, seed);
   // Up to three facts, in a stable shuffled order.
@@ -139,10 +142,11 @@ export function writePage(s: State, n: number, now = new Date()): DiaryPage {
     .sort((a, b) => a.r - b.r)
     .slice(0, 3)
     .map((x) => x.f.text);
-  const opener = pick(kind ? KIND_OPENERS : OPENERS, `${seed}:open`).replace('{day}', String(dayNumber(s, key)));
+  const opener = pick(kind ? KIND_OPENERS : OPENERS, `${seed}:open`);
   const closer = pick(kind ? KIND_CLOSERS : CLOSERS, `${seed}:close`);
   const body = chosen.length ? chosen.join(' ') : 'Nothing logged. The human went dark. I waited.';
-  return { n, at: now.getTime(), day: key, text: `${opener} ${body} ${closer}` };
+  const text = fillLine(`${opener} ${body} ${closer}`, { day: dayNumber(s, key), name: s.settings.userName || 'boss' });
+  return { n, at: now.getTime(), day: key, text };
 }
 
 /** Adds every page that's due (a few at most at once, for saves from before the diary existed). */

@@ -6,17 +6,19 @@ import { Btn, Card, Field, H, Icon, Row, SpiderSays, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
 import { habitsDone, habitsFor } from '@/lib/habits';
+import { nightVerdictKey } from '@/lib/line-context';
 import { eveningKey, tomorrowKey } from '@/lib/memory';
 import { MOOD_LEVELS, moodInfo } from '@/lib/mood';
 import { dayScoreFor, gradeOf } from '@/lib/report';
-import { dayOf, moodsOf, verdictKey } from '@/lib/selectors';
+import { dayOf, moodsOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import { gentleDay, toneOn } from '@/lib/tone';
 
 /** The evening debrief: mood, loose ends, tomorrow's top 3, then the day's verdict. */
 export default function Debrief() {
   const { state, actions, quip } = useStore();
   const [intro] = useState(() => quip('debriefIntro'));
-  const [verdict, setVerdict] = useState<{ text: string; done: string } | null>(null);
+  const [verdict, setVerdict] = useState<{ text: string; done: string; kind: boolean } | null>(null);
   const [flip] = useState(() => new Animated.Value(0));
   const [draft, setDraft] = useState('');
 
@@ -31,6 +33,8 @@ export default function Debrief() {
   const picks = state.topTomorrow?.day === tomorrow ? state.topTomorrow.ids.filter((id) => state.tasks.some((t) => t.id === id && !t.done)) : [];
   const open = state.tasks.filter((t) => !t.done);
   const score = dayScoreFor(state, date);
+  // A low-mood (an awful check-in a minute ago included), sick, away or period day gets no grade at all.
+  const kind = toneOn(state, key).kind || gentleDay(state, key);
 
   useEffect(() => {
     if (!verdict) return;
@@ -140,17 +144,19 @@ export default function Debrief() {
               opacity: flip,
               transform: [{ perspective: 800 }, { rotateX: flip.interpolate({ inputRange: [0, 1], outputRange: ['90deg', '0deg'] }) }],
             }}>
-            <Row style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.score}>{score}</Text>
-              <Text style={styles.grade}>{gradeOf(score)}</Text>
-            </Row>
+            {verdict.kind ? null : (
+              <Row style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.score}>{score}</Text>
+                <Text style={styles.grade}>{gradeOf(score)}</Text>
+              </Row>
+            )}
             <T style={{ color: C.yellow }}>{verdict.text}</T>
             <T dim small>
               {verdict.done}
             </T>
           </Animated.View>
         ) : (
-          <Btn label="Reveal the verdict" icon="gavel" onPress={() => setVerdict({ text: quip(verdictKey(score)), done: quip('debriefDone') })} />
+          <Btn label="Reveal the verdict" icon="gavel" onPress={() => setVerdict({ text: quip(nightVerdictKey(score, kind)), done: quip('debriefDone'), kind })} />
         )}
       </Card>
     </ScrollView>

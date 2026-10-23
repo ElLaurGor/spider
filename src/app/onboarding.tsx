@@ -40,7 +40,7 @@ export default function Onboarding() {
         <Text style={styles.real}>(Unofficially: {ACRONYM_REAL})</Text>
 
         <Card style={{ alignSelf: 'stretch' }}>
-          <T>I track your calendar, gym, water, food and gaming — and I will roast you about all of it.</T>
+          <T>I track your calendar, gym, water, food and gaming. I roast habits. Never your body or what you eat.</T>
           <T dim small>
             What should I call you?
           </T>
