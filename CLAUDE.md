@@ -108,3 +108,5 @@ The owner's work Wi-Fi blocks LAN connections, and the default `--tunnel` (share
 
 ## Tooling note (this Windows machine)
 Bash heredocs containing emoji fail to parse here. Put multi-line edit scripts in a file and run them with `PYTHONUTF8=1 python script.py`.
+- Node network calls (`npx expo install`, `npm ci`, `eas-cli`, `npm run test:live`) can hit ETIMEDOUT here. Prefix them with `NODE_OPTIONS="--network-family-autoselection-attempt-timeout=3000 --dns-result-order=ipv4first"`.
+- Worktrees with their own `node_modules` can be too deep for `git worktree remove` ("Filename too long"). After checking it is not a junction, delete the folder with `cmd /c rd /s /q "\?\<absolute path>"`.
