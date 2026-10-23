@@ -489,10 +489,23 @@ export function StoreProvider({ children, recovery: Recovery }: { children: Reac
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
+const TAB_PATHS = ['/', '/plan', '/gym', '/fuel', '/game'];
+const isTab = (href: Href) => TAB_PATHS.includes((typeof href === 'string' ? href : href.pathname).split('?')[0]);
+
+/**
+ * Goes to a screen from anywhere. A tab pops back to the tabs already at the bottom of the stack (dismissTo),
+ * because navigating or replacing from a stack screen put a second copy of all the tabs on top, with its own
+ * timers, and Back had to get through both. Anything else is pushed as usual.
+ */
+export function goTo(href: Href) {
+  if (isTab(href)) router.dismissTo(href);
+  else router.navigate(href);
+}
+
 /** Opens a tapped notification's screen. On a cold start the navigator may still be mounting, so it retries for a few seconds. */
 export function openSoon(href: Href, tries = 20) {
   try {
-    router.navigate(href);
+    goTo(href);
   } catch {
     if (tries > 0) setTimeout(() => openSoon(href, tries - 1), 150);
   }

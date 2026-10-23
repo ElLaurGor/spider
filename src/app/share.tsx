@@ -1,5 +1,4 @@
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
 import { useShareIntentContext } from 'expo-share-intent';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -7,7 +6,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { Btn, Card, H, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { importPhoto } from '@/lib/photos';
-import { useStore } from '@/lib/store';
+import { goTo, useStore } from '@/lib/store';
 
 /** A title for a task from shared text: the page title if the other app sent one, else the first line. */
 function taskTitle(text: string | null, url: string | null, title?: string | null) {
@@ -29,7 +28,7 @@ export default function ShareScreen() {
 
   const done = (to: '/' | '/plan' = '/') => {
     resetShareIntent();
-    router.replace(to);
+    goTo(to); // back to the tabs underneath, not a second copy of them
   };
 
   const asTask = (prefix = '') => {
@@ -45,10 +44,10 @@ export default function ShareScreen() {
       const saved = await importPhoto(kind, image.path);
       resetShareIntent();
       if (kind === 'meal') {
-        router.replace({ pathname: '/fuel', params: { photo: saved } });
+        goTo({ pathname: '/fuel', params: { photo: saved } });
       } else {
         actions.addProgressPhotoFrom(saved);
-        router.replace('/');
+        goTo('/');
       }
     } catch {
       say("Couldn't save that picture. Try sharing it again.", 'bad');
