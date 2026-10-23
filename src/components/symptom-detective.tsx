@@ -17,7 +17,7 @@ export function SymptomDetective({ state }: { state: State }) {
       <H>🔎 Symptom detective</H>
       {!tracker ? (
         <T dim small>
-          Add a tracker on HQ, like 🤕 Headache or 🤧 Allergy, and log it for a couple of weeks. Then I&apos;ll line up the suspects: short sleep, late caffeine,
+          Add a tracker on Mood, like 🤕 Headache or 🤧 Allergy, and log it for a couple of weeks. Then I&apos;ll line up the suspects: short sleep, late caffeine,
           water, pollen, air pressure, hot days, social apps, late gaming, rest days and your cycle.
         </T>
       ) : (

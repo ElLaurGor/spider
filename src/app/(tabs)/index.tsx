@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
   coins: { color: C.yellow, fontSize: 13, fontWeight: '800', fontFamily: MONO },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: {
-    width: '48.5%',
+    width: '47%', // 48.5% + the 10 px gap fell to one column on 360 dp phones
     flexGrow: 1,
     backgroundColor: C.card,
     borderRadius: 16,

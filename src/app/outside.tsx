@@ -63,7 +63,7 @@ export default function OutsideScreen() {
       <Card>
         <H
           right={
-            <Pressable onPress={outside.refresh} hitSlop={8}>
+            <Pressable onPress={outside.refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Check again">
               <Icon name="refresh" size={20} color={C.dim} />
             </Pressable>
           }>
