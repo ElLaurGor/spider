@@ -4,15 +4,15 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import { Btn, Card, H, Icon, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, WEEKDAYS } from '@/lib/dates';
-import { ALERT_COLOR, ALERT_LABEL, aqiBand, LEVEL_LABEL, POLLEN, pollenLevel, type Alert } from '@/lib/outside';
+import { ALERT_COLOR, ALERT_LABEL, alertWhen, aqiBand, LEVEL_LABEL, POLLEN, pollenLevel, shortDate, sourceNote, sourceOk, type Alert } from '@/lib/outside';
 import { useStore } from '@/lib/store';
 
 const LEVEL_COLOR = ['#545C6E', '#33D17A', '#FFC53D', '#E23636'];
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 export function AlertRow({ a }: { a: Alert }) {
+  const when = alertWhen(a);
   return (
-    <Pressable onPress={() => Linking.openURL(a.url)} style={[styles.alert, { borderLeftColor: ALERT_COLOR[a.level] }]}>
+    <Pressable onPress={() => Linking.openURL(a.url).catch(() => {})} style={[styles.alert, { borderLeftColor: ALERT_COLOR[a.level] }]}>
       <Text style={[styles.badge, { color: ALERT_COLOR[a.level] }]}>
         {a.source === 'VMA' ? '🚨 VMA' : `⚠️ ${ALERT_LABEL[a.level]}`}
       </Text>
@@ -24,7 +24,7 @@ export function AlertRow({ a }: { a: Alert }) {
       ) : null}
       <T dim small>
         {a.source === 'VMA' ? 'krisinformation.se' : 'SMHI'}
-        {a.start ? ` · from ${shortDate(a.start)}` : ''}
+        {when ? ` · ${when}` : ''}
         {a.updated ? ` · updated ${shortDate(a.updated)}` : ''} · tap for details
       </T>
     </Pressable>
@@ -52,6 +52,11 @@ export default function OutsideScreen() {
   }
   const a = outside.air;
   const band = a ? aqiBand(a.aqi) : null;
+  // A failed check is never an all-clear: the green check needs both sources reached within the hour.
+  const notes = place.county
+    ? [sourceNote('SMHI', outside.status.smhi), sourceNote('Krisinformation (VMA)', outside.status.vma)].filter((x): x is string => !!x)
+    : ['Looking up your county, so I know which SMHI warnings and VMA are yours…'];
+  const allClear = !!place.county && sourceOk(outside.status.smhi) && sourceOk(outside.status.vma);
 
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
@@ -64,13 +69,19 @@ export default function OutsideScreen() {
           }>
           Warnings · {place.county ?? place.name}
         </H>
-        {outside.alerts.length === 0 ? (
+        {outside.alerts.map((x) => (
+          <AlertRow key={x.id} a={x} />
+        ))}
+        {notes.map((n) => (
+          <T key={n} dim small>
+            📡 {n}
+          </T>
+        ))}
+        {outside.alerts.length === 0 && allClear ? (
           <T dim small>
             ✓ No SMHI warnings or VMA for your county right now.
           </T>
-        ) : (
-          outside.alerts.map((x) => <AlertRow key={x.id} a={x} />)
-        )}
+        ) : null}
       </Card>
 
       {a && band ? (

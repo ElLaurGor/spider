@@ -53,7 +53,7 @@ export function WeatherRow() {
           <Text style={styles.dim}>
             <Text style={{ color: aqiBand(outside.air.aqi).color }}>AQI {outside.air.aqi}</Text>
             {worst && worst.level > 0 ? ` · ${pollenInfo(worst.t).label.split(' ')[0]} pollen ${LEVEL_LABEL[worst.level]}` : ''}
-            {outside.alerts.length ? ` · \u26A0\uFE0F ${outside.alerts.length} warning${outside.alerts.length > 1 ? 's' : ''}` : ''}
+            {outside.warnings.length ? ` · \u26A0\uFE0F ${outside.warnings.length} warning${outside.warnings.length > 1 ? 's' : ''}` : ''}
           </Text>
         ) : null}
       </View>

@@ -35,7 +35,7 @@ import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outsi
 import { bossFor, questsFor } from './quests';
 import { upcomingDays } from './swedish-days';
 
-const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status' } as const;
+const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings' } as const;
 
 // Notifications re-planned on every app change; gaming/rest alerts are managed separately.
 const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-'];
@@ -96,6 +96,14 @@ export async function initNotifications(askIfNeeded: boolean) {
       await Notifications.setNotificationChannelAsync(CH.remind, { name: 'Reminders & roasts', ...base });
       await Notifications.setNotificationChannelAsync(CH.gym, { name: 'Gym', ...base });
       await Notifications.setNotificationChannelAsync(CH.game, { name: 'Gaming timer', ...base });
+      // Its own channel, so muting the roasts never silences an SMHI warning or a VMA.
+      await Notifications.setNotificationChannelAsync(CH.warn, {
+        name: 'Warnings (SMHI & VMA)',
+        description: 'Weather warnings for your county and Viktigt meddelande till allmänheten',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 400, 200, 400],
+        lightColor: C.red,
+      });
       await Notifications.setNotificationChannelAsync(CH.status, {
         name: 'Status line',
         importance: Notifications.AndroidImportance.LOW,
@@ -483,13 +491,16 @@ export async function scheduleFocusDone(s: State, endsAt: number) {
 
 export const cancelFocusDone = () => Notifications.cancelScheduledNotificationAsync(FOCUS_ID);
 
-/** Shows a notification right away (used for new SMHI warnings and VMA). */
-export async function notifyNow(title: string, body: string) {
+/**
+ * Shows an SMHI warning or a VMA right away. One notification per alert (`alert-<alert id>`), so several at
+ * once all show up and an escalation replaces that alert's older one. Opens Outside (linkFor).
+ */
+export async function notifyNow(alertId: string, title: string, body: string) {
   if (!permitted) return;
   await Notifications.scheduleNotificationAsync({
-    identifier: `alert-${Date.now()}`, // opens Outside (linkFor)
+    identifier: `alert-${alertId}`,
     content: { title, body, color: C.red },
-    trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 1, channelId: channelsOk ? CH.remind : undefined },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 1, channelId: channelsOk ? CH.warn : undefined },
   });
 }
 
