@@ -1,6 +1,7 @@
-// The spider's wardrobe: things to wear, bought with coins, found in season or dropped by legendary
-// chests. Purely for looks: nothing here changes XP, the boss or the league.
+// The spider's wardrobe: things to wear, bought with coins, found in season, dropped by legendary
+// chests or unlocked on the monthly Silk Track. Purely for looks: nothing here changes XP, the boss or the league.
 import { seasonOn, type SeasonId } from './seasons';
+import { SILK_ITEMS, silkTitles } from './silk-track';
 import type { State } from './types';
 import { levelForXp, titleFor } from './xp';
 
@@ -10,9 +11,10 @@ export type Cosmetic = {
   slot: Slot;
   name: string;
   emoji: string;
-  source: 'shop' | 'season' | 'legendary';
+  source: 'shop' | 'season' | 'legendary' | 'silk';
   price?: number;
   season?: SeasonId;
+  edition?: string; // Silk Track items: the edition that hands it out
   ring?: string; // auras recolor the avatar's ring
 };
 
@@ -43,7 +45,10 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'unicorn', slot: 'held', name: 'Pocket unicorn', emoji: '🦄', source: 'legendary' },
 ];
 
-export const cosmeticOf = (id: string | undefined) => (id ? COSMETICS.find((c) => c.id === id) : undefined);
+/** Silk Track hats, held items and auras (seasonal pieces it hands out are in COSMETICS already). */
+export const SILK_COSMETICS: Cosmetic[] = SILK_ITEMS.map((x) => ({ ...x, source: 'silk' }));
+
+export const cosmeticOf = (id: string | undefined) => (id ? (COSMETICS.find((c) => c.id === id) ?? SILK_COSMETICS.find((c) => c.id === id)) : undefined);
 export const owns = (s: State, id: string) => (s.cosmetics?.owned ?? []).includes(id);
 
 /** Can be bought right now: shop items always, seasonal ones while their season is on, legendary ones never. */
@@ -58,6 +63,7 @@ const SEASON_NOTE: Partial<Record<SeasonId, string>> = { halloween: 'Spooky seas
 /** Where to find an item you can't buy right now. */
 export function whereToGet(c: Cosmetic) {
   if (c.source === 'legendary') return 'Legendary chests only';
+  if (c.source === 'silk') return `Silk Track · ${c.edition ?? 'a monthly edition'}`;
   if (c.source === 'season') return (c.season && SEASON_NOTE[c.season]) ?? 'Seasonal';
   return '';
 }
@@ -78,8 +84,8 @@ export function legendaryDrop(s: State, r = Math.random()): Cosmetic | null {
   return left.length ? left[Math.floor(r * left.length)] : null;
 }
 
-/** Every title earned so far: one per level reached. */
-export const titlesEarned = (s: State) => [...new Set(Array.from({ length: levelForXp(s.xp) }, (_, i) => titleFor(i + 1)))];
+/** Every title earned so far: one per level reached, plus those unlocked on the Silk Track. */
+export const titlesEarned = (s: State) => [...new Set([...Array.from({ length: levelForXp(s.xp) }, (_, i) => titleFor(i + 1)), ...silkTitles(s)])];
 
 /** The title shown on HQ: the one picked, if it's still earned, or the current level's. */
 export function shownTitle(s: State) {

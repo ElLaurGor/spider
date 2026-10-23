@@ -98,7 +98,8 @@ import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
 import { bankRate, focusBonusMin, healShare, perkBlocker, perkPoints, workoutBonusMin } from '../src/lib/perks';
 import { restedAfter, restedGain, restedSplit, RESTED_CAP } from '../src/lib/rested';
-import { buyable, COSMETICS, legendaryDrop, shownTitle, titlesEarned, worn, withOwned, withWorn } from '../src/lib/cosmetics';
+import { buyable, COSMETICS, cosmeticOf, legendaryDrop, shownTitle, titlesEarned, whereToGet, worn, withOwned, withWorn } from '../src/lib/cosmetics';
+import { checkSilkTrack, editionFor, grantSilk, monthXp, SILK_TIERS, silkBadges, silkStatus, tierForXp, tierXp } from '../src/lib/silk-track';
 import { goldChest } from '../src/lib/loot';
 import { xpForLevel } from '../src/lib/xp';
 // cluster F
@@ -2075,6 +2076,92 @@ void (async () => {
   g.settings.proteinGoal = 0;
   g.days[dayKey()] = { ...emptyB(), water: [{ id: 'w', ml: g.settings.waterGoalMl, at: Date.now() }], sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: Date.now() }] };
   assert.ok(goldChest(g));
+}
+
+// ---------- step 2b silk ----------
+{
+  // tiers: quick early, 3 600 XP for all 20, never paid as XP
+  assert.equal(tierXp(0), 0);
+  assert.equal(tierXp(1), 90);
+  assert.equal(tierXp(3), 290);
+  assert.equal(tierXp(10), 1300);
+  assert.equal(tierXp(SILK_TIERS), 3600);
+  for (let n = 1; n <= SILK_TIERS; n++) assert.ok(tierXp(n) > tierXp(n - 1));
+  assert.deepEqual([0, 89, 90, 289, 290, 3599, 3600, 99_999].map(tierForXp), [0, 0, 1, 2, 3, 19, 20, 20]);
+
+  // editions: one per month from the table, 20 rewards each, 10 items and 10 dated badges
+  const oct = editionFor('2026-10');
+  assert.equal(oct.name, 'Halloween edition');
+  assert.equal(oct.rewards.length, 20);
+  assert.equal(oct.rewards[2].id, 'pumpkin'); // the pumpkin hat sits at tier 3 (the seasonal one)
+  assert.equal(oct.rewards[0].id, 'silk_badge_2026-10_1');
+  assert.ok(oct.rewards[0].name.endsWith('October 2026'));
+  assert.equal(oct.rewards[19].kind, 'aura');
+  assert.equal(editionFor('2026-11').name, 'Mys edition');
+  assert.equal(editionFor('2027-12').name, 'Lucia & jul edition');
+  const ids = new Set<string>();
+  for (let m = 1; m <= 12; m++) {
+    const ed = editionFor(`2027-${String(m).padStart(2, '0')}`);
+    assert.equal(ed.rewards.length, SILK_TIERS, ed.name);
+    assert.equal(ed.rewards.filter((r) => r.kind === 'badge').length, 10, ed.name);
+    for (const r of ed.rewards) {
+      assert.ok(!ids.has(r.id), `duplicate ${r.id}`);
+      ids.add(r.id);
+    }
+  }
+
+  // the month's earned XP fills it; gaming penalties (xpLost) don't drain it; other months don't count
+  const sk = defaultState();
+  sk.days['2026-10-07'] = { ...emptyDay(), xpEarned: 200, xpLost: 50 };
+  sk.days['2026-10-20'] = { ...emptyDay(), xpEarned: 100 };
+  sk.days['2026-09-30'] = { ...emptyDay(), xpEarned: 999 };
+  assert.equal(monthXp(sk, '2026-10'), 300);
+
+  // grant: tiers 1–3 (badge, title, pumpkin), once
+  const g1 = grantSilk(sk, '2026-10');
+  assert.deepEqual(g1.unlocked.map((r) => r.tier), [1, 2, 3]);
+  assert.deepEqual(g1.state.silk, { month: '2026-10', tier: 3 });
+  assert.ok(g1.state.cosmetics!.owned.includes('pumpkin'));
+  assert.ok(titlesEarned(g1.state).includes('Trick-or-Treater')); // track titles join the level titles
+  assert.equal(grantSilk(g1.state, '2026-10').unlocked.length, 0);
+  assert.equal(g1.state.xp, sk.xp); // no XP paid out
+  // a piece bought earlier still counts as the tier's reward
+  const bought = grantSilk(withOwned(sk, 'pumpkin'), '2026-10');
+  assert.ok(bought.unlocked.find((r) => r.id === 'pumpkin')!.had);
+  // more XP: only the new tier; an undo later never takes a tier back
+  const more = { ...g1.state, days: { ...g1.state.days, '2026-10-21': { ...emptyDay(), xpEarned: 100 } } };
+  assert.deepEqual(grantSilk(more, '2026-10').unlocked.map((r) => r.tier), [4]);
+  const undone = { ...g1.state, days: { ...g1.state.days, '2026-10-20': { ...emptyDay(), xpEarned: 0 } } };
+  assert.equal(silkStatus(undone, '2026-10').tier, 3);
+  assert.equal(silkStatus(undone, '2026-10').next?.reward.tier, 4);
+
+  // month change: last month's late XP still pays while it's on record, then the new edition takes over
+  const late = { ...g1.state, days: { ...g1.state.days, '2026-10-31': { ...emptyDay(), xpEarned: 400 } } }; // 700 in October
+  const nov1 = checkSilkTrack(late, '2026-11-01');
+  assert.deepEqual(nov1.unlocked.map((u) => [u.edition.name, u.tier]), [['Halloween edition', 6]]);
+  assert.equal(nov1.state.silk?.month, '2026-10'); // nothing earned in November yet
+  const nov2 = checkSilkTrack({ ...nov1.state, days: { ...nov1.state.days, '2026-11-02': { ...emptyDay(), xpEarned: 100 } } }, '2026-11-02');
+  assert.deepEqual(nov2.unlocked.map((u) => [u.edition.name, u.tier]), [['Mys edition', 1]]);
+  assert.deepEqual(nov2.state.silk, { month: '2026-11', tier: 1 });
+  assert.equal(checkSilkTrack(nov2.state, '2026-11-02').unlocked.length, 0);
+  // a record two months old isn't caught up: that edition is over
+  assert.deepEqual(checkSilkTrack(late, '2026-12-05').unlocked, []);
+
+  // wardrobe: track pieces wear like any other, can't be bought, and say where they come from
+  const veil = cosmeticOf('silk_halloween_5')!;
+  assert.equal(veil.name, 'Cobweb veil');
+  assert.equal(veil.slot, 'hat');
+  assert.ok(!buyable(veil));
+  assert.equal(whereToGet(veil), 'Silk Track · Halloween edition');
+  assert.equal(worn(withWorn(withOwned(sk, veil.id), 'hat', veil.id)).hat?.emoji, '🕸️');
+  assert.equal(cosmeticOf('silk_halloween_9')?.ring, '#C7B8FF'); // the ghost aura recolours the ring
+  // badges: dated, listed in tier order
+  const bd = { ...sk, cosmetics: { owned: ['silk_badge_2026-10_10', 'silk_badge_2026-10_4', 'cap'], worn: {} } };
+  assert.deepEqual(silkBadges(bd).map((b) => b.tier), [4, 10]);
+
+  // the toasts fill every placeholder
+  for (const k of ['silkTier', 'silkTiers', 'silkDone'] as const)
+    for (const t of [...LINES[k].mild, ...LINES[k].savage]) assert.ok(!fillLine(t, { tier: 3, reward: '🎃 Pumpkin hat', month: 'Halloween edition', count: 3 }).includes('{'), t);
 }
 
 // ---- cluster F ----
