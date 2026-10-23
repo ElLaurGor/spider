@@ -288,6 +288,7 @@ export type State = {
   topTomorrow?: { day: string; ids: string[] } | null; // task ids picked in an evening debrief for that day's top 3 (memory.ts)
   // step 2
   maxLevel?: number; // the highest level ever reached: only a new one gets the level-up toasts
+  fixes?: string[]; // one-time repairs already applied to this save (lib/fixes.ts)
 };
 
 export type DiaryPage = { n: number; at: number; day: string; text: string };

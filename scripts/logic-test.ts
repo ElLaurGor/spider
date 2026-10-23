@@ -83,6 +83,7 @@ import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
 import { gamingBudgetMin, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
 import { areaScores } from '../src/lib/weak-spot';
 import { chestShelf, SHELF_MAX, withChestGold } from '../src/lib/loot';
+import { applyFixes, recheckCoffeeGremlin } from '../src/lib/fixes';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -1182,7 +1183,7 @@ void (async () => {
   assert.equal(late.state.pendingFly, null);
 
   // no fly is about food: logging food only ever turns up the "log anything" fly
-  const ctx = { now: at, day: empty(), prevDay: empty(), season: undefined };
+  const ctx = { now: at, day: empty(), prevDay: empty(), season: undefined, noHabits: true };
   const foodFlies = FLIES.filter((x) => x.when({ kind: 'food', key: 'food:0', at: at.getTime(), xp: 1 }, ctx)).map((x) => x.id);
   assert.deepEqual(foodFlies, ['house_fly']);
   for (const x of FLIES) assert.ok(!/food|meal|\b(eat|eats|ate|eating)\b|kcal|calor|weigh(?!ts)|body/i.test(`${x.name} ${x.hint}`), x.id);
@@ -1489,6 +1490,47 @@ void (async () => {
   assert.equal(frozenGold.days[gk(1)].chestGold, undefined, 'an opened chest needs no gold status');
   assert.equal(withChestGold(frozenGold, gk(4)), frozenGold);
   assert.equal(SHELF_MAX, 3);
+
+  // the limit-breaking secrets are badges of shame: still listed and counted, they pay nothing
+  const badges = SECRET_ACHIEVEMENTS.filter((a) => a.badge).map((a) => a.id).sort();
+  assert.deepEqual(badges, ['s_coffee_gremlin', 's_night_owl', 's_no_life', 's_overhydrated']);
+  const timer = defaultState();
+  timer.activeGame = { start: Date.now() - 6 * 3_600_000 };
+  assert.ok(!SECRET_ACHIEVEMENTS.find((a) => a.id === 's_no_life')!.test(timer), 'a timer still running (or forgotten) is not 5 h of gaming yet');
+
+  // Coffee Gremlin, once: kept if a real day has 6+ cups, else revoked with what it paid
+  const cup = (n: number, key: string) => ({ id: `c${key}${n}`, mg: 90, at: new Date(`${key}T0${n}:30`).getTime() });
+  const cg = defaultState();
+  cg.xp = 1120; // level 5 (1000), 120 into it
+  cg.coins = 60;
+  cg.coinsEarned = 900;
+  cg.secrets = { s_coffee_gremlin: 1, s_zen_master: 2 };
+  cg.days[gk(0)] = { ...empty(), coffee: [1, 2, 3, 4, 5].map((n) => cup(n, gk(0))) };
+  const revoked = recheckCoffeeGremlin(cg);
+  assert.ok(!revoked.secrets.s_coffee_gremlin && revoked.secrets.s_zen_master);
+  assert.equal(revoked.xp, 1070);
+  assert.equal(revoked.coins, 0, 'never below 0 coins');
+  assert.equal(revoked.coinsEarned, 800);
+  assert.equal(recheckCoffeeGremlin({ ...cg, xp: 1010 }).xp, 1000, 'never below the highest level reached');
+  assert.equal(recheckCoffeeGremlin({ ...cg, xp: 980, maxLevel: 5 }).xp, 980, 'already under it: nothing more taken, nothing given');
+  cg.days[gk(1)] = { ...empty(), coffee: [1, 2, 3, 4, 5, 6].map((n) => cup(n, gk(1))) };
+  assert.equal(recheckCoffeeGremlin(cg), cg, 'a real day with 6 cups keeps it');
+  // it runs once: hydrate marks it done, a new save starts with it done
+  const once = hydrate({ ...cg, days: { [gk(0)]: cg.days[gk(0)] }, fixes: undefined });
+  assert.ok(!once.secrets.s_coffee_gremlin && once.fixes?.includes('coffee-gremlin'));
+  assert.equal(applyFixes(once), once);
+  assert.ok(defaultState().fixes?.includes('coffee-gremlin'));
+  assert.equal(hydrate({ ...cg, days: { [gk(0)]: cg.days[gk(0)] }, fixes: ['coffee-gremlin'] }).secrets.s_coffee_gremlin, 1, 'not again');
+  assert.equal(xpForLevel(5), 1000);
+
+  // Completionist: no habits due, or no protein goal, counts as done
+  const comp = defaultState();
+  comp.settings.proteinGoal = 0;
+  comp.days[gk(2)] = { ...empty(), waterGoalHit: true, questsAllDone: true, sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: 0 }] };
+  const completionist = SECRET_ACHIEVEMENTS.find((a) => a.id === 's_completionist')!;
+  assert.ok(completionist.test(comp));
+  comp.habits = [{ id: 'h', name: 'H', emoji: 'x', days: [], remindHour: null, createdAt: 0 }];
+  assert.ok(!completionist.test(comp), 'a habit due and not done');
 
   // red days off count in this week's planned workouts
   const red = defaultState();

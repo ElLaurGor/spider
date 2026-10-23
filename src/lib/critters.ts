@@ -3,6 +3,7 @@
 // and re-logging gives the same roll (nothing to farm). Never about food amounts or the body.
 import { dayKey, startOfWeek } from './dates';
 import { isSnow, seasonOn, type SeasonId } from './seasons';
+import { habitsFor } from './habits';
 import { activitiesOf, coffeeOf, dayOf, moodsOf, trainedOn } from './selectors';
 import type { DayLog, State } from './types';
 import { activityXp, focusXp, XP } from './xp';
@@ -111,12 +112,13 @@ export const LEGENDARY_BOMB = 100;
 export const CATCH_MS = 5 * 60_000;
 export const MAX_SPAWNS = 2;
 
-type Ctx = { now: Date; day: DayLog; prevDay: DayLog; season: SeasonId | undefined };
+type Ctx = { now: Date; day: DayLog; prevDay: DayLog; season: SeasonId | undefined; noHabits: boolean };
 export type Fly = { id: string; name: string; emoji: string; rarity: Rarity; hint: string; chance: number; when: (e: LogEvent, c: Ctx) => boolean };
 
 const rainy = (d: DayLog) => !!d.weather && (d.weather.rainMm >= 1 || (d.weather.code >= 51 && d.weather.code <= 67) || (d.weather.code >= 80 && d.weather.code <= 82) || d.weather.code >= 95);
 const training = (e: LogEvent) => e.kind === 'set' || e.kind === 'activity';
-const completeDay = (d: DayLog) => !!d.waterGoalHit && trainedOn(d) && !!d.habitsAllDone && !!d.questsAllDone;
+/** Water, training, every habit (or none due) and every quest. */
+const completeDay = (d: DayLog, noHabits: boolean) => !!d.waterGoalHit && trainedOn(d) && (!!d.habitsAllDone || noHabits) && !!d.questsAllDone;
 
 // Chances are per logged thing that meets the condition. Nothing here is about food amounts or the body.
 export const FLIES: Fly[] = [
@@ -148,7 +150,7 @@ export const FLIES: Fly[] = [
   { id: 'solstice_moth', name: 'Solstice Moth', emoji: '🌑', rarity: 'epic', hint: 'The darkest day of the year.', chance: 0.2, when: (_e, c) => c.season === 'solstice' },
 
   { id: 'golden_scarab', name: 'Golden Scarab', emoji: '🏆', rarity: 'legendary', hint: 'Rare. Very rare. Busy days help.', chance: 0.02, when: (_e, c) => !!c.day.questsAllDone },
-  { id: 'phantom_fly', name: 'Phantom Fly', emoji: '🌟', rarity: 'legendary', hint: 'Water, training, every habit and every quest, in one day.', chance: 0.6, when: (_e, c) => completeDay(c.day) && !completeDay(c.prevDay) },
+  { id: 'phantom_fly', name: 'Phantom Fly', emoji: '🌟', rarity: 'legendary', hint: 'Water, training, every habit and every quest, in one day.', chance: 0.6, when: (_e, c) => completeDay(c.day, c.noHabits) && !completeDay(c.prevDay, c.noHabits) },
 ];
 export const FLY_BY_ID: Record<string, Fly> = Object.fromEntries(FLIES.map((f) => [f.id, f]));
 const ORDER: Rarity[] = ['legendary', 'epic', 'rare', 'common'];
@@ -188,7 +190,8 @@ export function rollCritters(prev: State, next: State, now = new Date()): { stat
   const msgs: CritterMsg[] = [];
   let day = dayOf(next, key);
   let pendingFly = next.pendingFly ?? null;
-  const ctx = (): Ctx => ({ now, day, prevDay: dayOf(prev, key), season: seasonOn(now)?.id });
+  const noHabits = habitsFor(next, now).length === 0;
+  const ctx = (): Ctx => ({ now, day, prevDay: dayOf(prev, key), season: seasonOn(now)?.id, noHabits });
 
   for (const e of events) {
     const critKeys = day.critKeys ?? [];

@@ -92,7 +92,7 @@ import type {
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
 import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, triageAlerts, warningsOf, type Air, type Alert, type SourceStatus } from './outside';
-import { ACHIEVEMENTS, activityXp, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
+import { ACHIEVEMENTS, activityXp, BADGE_NOTE, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
 // cluster B: economy & progression
 import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWorn, type Slot } from './cosmetics';
 import { chestShelf, SHELF_MAX, withChestGold } from './loot';
@@ -337,6 +337,10 @@ function checkAchievements(s: State, msgs: Msg[]): State {
   for (const a of SECRET_ACHIEVEMENTS) {
     if (next.secrets[a.id] || !a.test(next)) continue;
     next = { ...next, secrets: { ...next.secrets, [a.id]: Date.now() } };
+    if (a.badge) {
+      msgs.push({ text: `🏷️ ${a.title}: ${a.desc}. ${BADGE_NOTE}`, tone: 'info' });
+      continue;
+    }
     msgs.push({ text: `🔓 SECRET ACHIEVEMENT: ${a.title}! ${a.desc}. +${XP.secret} XP +${SECRET_COINS} 🪙`, tone: 'epic' });
     next = reward(next, msgs, XP.secret);
     next = { ...next, coins: next.coins + SECRET_COINS, coinsEarned: next.coinsEarned + SECRET_COINS };

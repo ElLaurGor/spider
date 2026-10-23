@@ -1,8 +1,10 @@
 import type { AndroidSymbol } from 'expo-symbols';
 
+import { habitsFor } from './habits';
+import { levelForXp, xpForLevel } from './levels';
 import { seasonOn } from './seasons';
 import { allEggsSomeYear } from './traditions';
-import { coffeeOf, gamingUsedMs, moodDays, moodsOf, totalCoffees, trainedOn, waterMl } from './selectors';
+import { coffeeOf, gamingUsedMs, moodDays, moodsOf, proteinGoalOn, totalCoffees, trainedOn, waterMl } from './selectors';
 import type { State } from './types';
 
 // Everyday actions give about half of what they did before 2026-10-14 (it came too easy); milestones
@@ -52,14 +54,7 @@ const TITLES = [
   "S.P.I.D.E.R.'s Equal (allegedly)",
 ];
 
-/** Total XP needed to reach `level`: 0, 100, 300, 600, 1000, … */
-export const xpForLevel = (level: number) => 50 * (level - 1) * level;
-
-export function levelForXp(xp: number) {
-  let level = 1;
-  while (xp >= xpForLevel(level + 1)) level++;
-  return level;
-}
+export { levelForXp, xpForLevel } from './levels';
 
 export const titleFor = (level: number) => TITLES[Math.min(level, TITLES.length) - 1];
 
@@ -105,15 +100,25 @@ export const ACHIEVEMENTS: Achievement[] = [
 
 // ---- Secret achievements: hidden until unlocked, a cryptic hint while locked ----
 
-export type SecretAchievement = Achievement & { hint: string };
+/** `badge`: a badge of shame for going past a limit. Listed and counted like the others, but it pays nothing. */
+export type SecretAchievement = Achievement & { hint: string; badge?: boolean };
 export const SECRET_COINS = 100;
+export const BADGE_NOTE = 'Badge of shame. No prize.';
 
 const hourOf = (t: number) => new Date(t).getHours();
 const allDays = (s: State) => Object.entries(s.days);
 const between = (t: number, from: number, to: number) => hourOf(t) >= from && hourOf(t) < to;
 
 export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
-  { id: 's_night_owl', title: 'Night Owl', desc: 'Logged water between 02:00 and 05:00', hint: 'Hydration has no bedtime.', icon: 'bedtime', test: (s) => allDays(s).some(([, d]) => d.water.some((w) => between(w.at, 2, 5))) },
+  {
+    id: 's_night_owl',
+    title: 'Night Owl',
+    desc: 'Logged water between 02:00 and 05:00',
+    hint: 'Hydration has no bedtime. Sleep does.',
+    icon: 'bedtime',
+    badge: true,
+    test: (s) => allDays(s).some(([, d]) => d.water.some((w) => between(w.at, 2, 5))),
+  },
   { id: 's_speedrunner', title: 'Speedrunner', desc: 'All daily quests done before 10:00', hint: 'Beat the quests before the coffee kicks in.', icon: 'bolt', test: (s) => allDays(s).some(([, d]) => d.questsAllDoneAt != null && hourOf(d.questsAllDoneAt) < 10) },
   {
     id: 's_early_bird',
@@ -123,9 +128,34 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
     icon: 'flag',
     test: (s) => allDays(s).some(([, d]) => [...d.water, ...d.food, ...coffeeOf(d), ...moodsOf(d)].some((e) => between(e.at, 4, 6))),
   },
-  { id: 's_coffee_gremlin', title: 'Coffee Gremlin', desc: '6+ coffees in one day', hint: 'One more cup. And another.', icon: 'coffee', test: (s) => allDays(s).some(([, d]) => coffeeOf(d).length >= 6) },
-  { id: 's_overhydrated', title: 'Overhydrated', desc: '4+ liters of water in one day', hint: 'More than a houseplant drinks in a month.', icon: 'water_full', test: (s) => allDays(s).some(([, d]) => waterMl(d) >= 4000) },
-  { id: 's_no_life', title: 'No-Life Speedrun', desc: '5+ hours of gaming in one day', hint: 'Touch grass? Never heard of it.', icon: 'sports_esports', test: (s) => allDays(s).some(([k]) => gamingUsedMs(s, k) >= 5 * 3_600_000) },
+  {
+    id: 's_coffee_gremlin',
+    title: 'Coffee Gremlin',
+    desc: '6+ coffees in one day',
+    hint: 'Your coffee limit, but as a dare. It is not one.',
+    icon: 'coffee',
+    badge: true,
+    test: (s) => allDays(s).some(([, d]) => coffeeOf(d).length >= 6),
+  },
+  {
+    id: 's_overhydrated',
+    title: 'Overhydrated',
+    desc: '4+ liters of water in one day',
+    hint: 'More than a houseplant drinks in a month. More is not better.',
+    icon: 'water_full',
+    badge: true,
+    test: (s) => allDays(s).some(([, d]) => waterMl(d) >= 4000),
+  },
+  {
+    id: 's_no_life',
+    title: 'No-Life Speedrun',
+    desc: '5+ hours of gaming in one day',
+    hint: 'Touch grass? Never heard of it.',
+    icon: 'sports_esports',
+    badge: true,
+    // finished sessions only: a timer still running (or forgotten) doesn't count yet
+    test: (s) => allDays(s).some(([k]) => gamingUsedMs({ ...s, activeGame: null }, k) >= 5 * 3_600_000),
+  },
   { id: 's_zen_master', title: 'Zen Master', desc: '5 breathing sessions', hint: 'Breathe. Again. And again.', icon: 'air', test: (s) => allDays(s).reduce((a, [, d]) => a + (d.breaths ?? 0), 0) >= 5 },
   { id: 's_web_weaver', title: 'Web Weaver', desc: 'Finished a 90-minute Web Focus', hint: 'The longest web.', icon: 'center_focus_strong', test: (s) => allDays(s).some(([, d]) => (d.focus ?? []).some((f) => !f.snapped && f.minutes >= 90)) },
   { id: 's_butterfingers', title: 'Butterfingers', desc: 'Snapped a web by opening another app', hint: 'Webs are fragile. So is your focus.', icon: 'close', test: (s) => allDays(s).some(([, d]) => (d.focus ?? []).some((f) => !!f.snapped && f.snapped !== 'gave up')) },
@@ -141,7 +171,16 @@ export const SECRET_ACHIEVEMENTS: SecretAchievement[] = [
     desc: 'Water, workout, protein, all habits and all quests in one day',
     hint: 'Everything. In one day.',
     icon: 'task_alt',
-    test: (s) => allDays(s).some(([, d]) => !!d.waterGoalHit && trainedOn(d) && !!d.proteinGoalHit && !!d.habitsAllDone && !!d.questsAllDone),
+    // No habits due, or no protein goal set: that part counts as done.
+    test: (s) =>
+      allDays(s).some(
+        ([k, d]) =>
+          !!d.waterGoalHit &&
+          trainedOn(d) &&
+          (!!d.proteinGoalHit || proteinGoalOn(s, k) <= 0) &&
+          (!!d.habitsAllDone || habitsFor(s, new Date(`${k}T12:00`)).length === 0) &&
+          !!d.questsAllDone,
+      ),
   },
   { id: 's_rage_quit', title: 'Rage Quit', desc: 'A gaming session under 2 minutes', hint: 'Game over. Very over. Very fast.', icon: 'undo', test: (s) => allDays(s).some(([, d]) => d.games.some((g) => g.end - g.start > 0 && g.end - g.start < 120_000)) },
   {
