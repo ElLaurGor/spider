@@ -8,6 +8,7 @@ import { ALERT_COLOR, ALERT_LABEL, aqiBand, LEVEL_LABEL, POLLEN, pollenLevel, ty
 import { useStore } from '@/lib/store';
 
 const LEVEL_COLOR = ['#545C6E', '#33D17A', '#FFC53D', '#E23636'];
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 export function AlertRow({ a }: { a: Alert }) {
   return (
@@ -22,7 +23,9 @@ export function AlertRow({ a }: { a: Alert }) {
         </T>
       ) : null}
       <T dim small>
-        {a.source === 'VMA' ? 'krisinformation.se' : 'SMHI'} · tap for details
+        {a.source === 'VMA' ? 'krisinformation.se' : 'SMHI'}
+        {a.start ? ` · from ${shortDate(a.start)}` : ''}
+        {a.updated ? ` · updated ${shortDate(a.updated)}` : ''} · tap for details
       </T>
     </Pressable>
   );

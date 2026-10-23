@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 
 import { foodNutrients, loadFoods, searchFoods } from '../src/lib/food-db';
-import { fetchAir, fetchSmhi, fetchVma } from '../src/lib/outside';
+import { fetchAir, fetchSmhi, fetchVma, SMHI_PAGE } from '../src/lib/outside';
 import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } from '../src/lib/weather';
 
 (async () => {
@@ -45,7 +45,11 @@ import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } fr
     console.log(`fetchSmhi(${counties[0]}) ->`, got.length, got.slice(0, 3).map((a) => `${a.level}: ${a.title} | ${a.text.slice(0, 80)}`));
     assert.ok(got.length > 0);
   }
-  console.log('fetchSmhi(Stockholms län) ->', (await fetchSmhi('Stockholms län')).map((a) => `${a.level}: ${a.title}`));
+  console.log('fetchSmhi(Stockholms län) ->', (await fetchSmhi('Stockholms län')).map((a) => `${a.level}: ${a.title} (updated ${a.updated})`));
+  // "Tap for details" must land on a live page: SMHI moved theirs once and the old path 404'd.
+  const page = await fetch(SMHI_PAGE);
+  console.log('SMHI page', SMHI_PAGE, '->', page.status, page.url);
+  assert.ok(page.ok, `SMHI page ${SMHI_PAGE} answered ${page.status}`);
 
   const vRaw = await (await fetch('https://api.krisinformation.se/v3/vmas?format=json')).json();
   console.log('VMA raw count', Array.isArray(vRaw) ? vRaw.length : typeof vRaw, Array.isArray(vRaw) && vRaw[0] ? Object.keys(vRaw[0]) : '');

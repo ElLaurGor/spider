@@ -68,13 +68,16 @@ export async function fetchAir(place: Place): Promise<Air> {
 }
 
 export type AlertLevel = 'MESSAGE' | 'YELLOW' | 'ORANGE' | 'RED' | 'VMA';
-export type Alert = { id: string; source: 'SMHI' | 'VMA'; level: AlertLevel; title: string; text: string; start?: string; url: string };
+export type Alert = { id: string; source: 'SMHI' | 'VMA'; level: AlertLevel; title: string; text: string; start?: string; updated?: string; url: string };
 
 export const ALERT_COLOR: Record<AlertLevel, string> = { MESSAGE: '#3FA9FF', YELLOW: '#FFC53D', ORANGE: '#FF8A3D', RED: '#E23636', VMA: '#E23636' };
 export const ALERT_LABEL: Record<AlertLevel, string> = { MESSAGE: 'Message', YELLOW: 'Yellow warning', ORANGE: 'Orange warning', RED: 'Red warning', VMA: 'VMA' };
 
 type Lang = { sv?: string; en?: string };
 const txt = (t?: Lang) => t?.en || t?.sv || '';
+
+// SMHI's short link survived their site move (the old long path now 404s), so link to that.
+export const SMHI_PAGE = 'https://www.smhi.se/varningar';
 
 /** SMHI impact-based warnings for one county (MESSAGE = information, then YELLOW/ORANGE/RED). */
 export async function fetchSmhi(county: string): Promise<Alert[]> {
@@ -86,6 +89,7 @@ export async function fetchSmhi(county: string): Promise<Alert[]> {
     warningAreas: {
       id: number;
       approximateStart?: string;
+      published?: string;
       warningLevel: Lang & { code: AlertLevel };
       eventDescription?: Lang;
       affectedAreas: Lang[];
@@ -104,7 +108,8 @@ export async function fetchSmhi(county: string): Promise<Alert[]> {
         title: txt(a.eventDescription) || txt(w.event),
         text: txt(incident?.text),
         start: a.approximateStart,
-        url: 'https://www.smhi.se/vader/varningar-och-brandrisk/varningar-och-meddelanden',
+        updated: a.published,
+        url: SMHI_PAGE,
       });
     }
   }
