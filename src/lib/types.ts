@@ -269,6 +269,8 @@ export type State = {
   bossPhaseSeen?: string; // week key whose boss rage (phase 2) was announced
   bossKilledAt?: Record<string, number>; // week key -> when its boss fell, for the bestiary
   finalBossWeek?: string; // week key of the Couch King fight, once all 8 bosses have fallen
+  kingWeeks?: string[]; // step 2: every Couch King week, his first and each rematch (unset = just finalBossWeek)
+  kingAnnounced?: string; // step 2: the Couch King week whose arrival was announced
   syndicateBroken?: number; // when the Couch King fell: unlocks its theme
   pauses?: Pause[]; // sick/away periods (pause.ts)
   // cluster B: economy & progression

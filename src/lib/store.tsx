@@ -15,7 +15,7 @@ import { activityInfo } from './body';
 import { calendarPermission, calendarSupported, loadCalendars, loadEvents } from './calendar';
 import { bankFor, coinsFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
 import { stageFor, themesUnlockedBetween } from './evolution';
-import { addDays, dayKey, fmtDuration, isDayKey, MIN, startOfDay, uid, WEEKDAYS_LONG } from './dates';
+import { addDays, atTime, dayKey, fmtDuration, isDayKey, MIN, startOfDay, startOfWeek, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, readHealth, type HealthData, type HealthStatus } from './health';
 import { withGoals } from './goals';
@@ -39,7 +39,7 @@ import {
   snoozeWater,
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
-import { bossFor, finalBossDue, gentleQuestFor, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_COST, questsFor, reducedDay, rerollFor, weekKey } from './quests';
+import { bossFor, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_COST, questsFor, reducedDay, rerollFor, weekKey } from './quests';
 import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
 import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
@@ -134,7 +134,8 @@ const bump = (s: State, counter: keyof State['counters'], by = 1): State => ({
   counters: { ...s.counters, [counter]: Math.max(0, s.counters[counter] + by) },
 });
 
-function reward(s: State, msgs: Msg[], rawXp: number, bonusMin = 0): State {
+/** XP (and coins, bonus gaming minutes) credited to day `key`, today unless said otherwise. */
+function reward(s: State, msgs: Msg[], rawXp: number, bonusMin = 0, key = dayKey()): State {
   const before = levelForXp(s.xp);
   const base = rawXp > 0 && s.doubleXpUntil && Date.now() < s.doubleXpUntil ? rawXp * 2 : rawXp;
   const rested = restedSplit(s.rested ?? 0, rawXp); // back from a break: +50 % until the pool is used up
@@ -142,8 +143,8 @@ function reward(s: State, msgs: Msg[], rawXp: number, bonusMin = 0): State {
   const coins = coinsFor(xp);
   let next: State = { ...s, xp: Math.max(0, s.xp + xp), coins: s.coins + coins, coinsEarned: s.coinsEarned + coins };
   if (rested.extra) next = { ...next, rested: rested.left };
-  next = patchDay(next, dayKey(), (d) => ({ ...d, xpEarned: Math.max(0, (d.xpEarned ?? 0) + xp) }));
-  if (bonusMin) next = patchDay(next, dayKey(), (d) => ({ ...d, bonusGameMin: Math.max(0, d.bonusGameMin + bonusMin) }));
+  next = patchDay(next, key, (d) => ({ ...d, xpEarned: Math.max(0, (d.xpEarned ?? 0) + xp) }));
+  if (bonusMin) next = patchDay(next, key, (d) => ({ ...d, bonusGameMin: Math.max(0, d.bonusGameMin + bonusMin) }));
   const after = levelForXp(next.xp);
   if (after > before) {
     msgs.push({ text: L(next, 'levelUp', { level: after, title: titleFor(after) }), tone: 'epic' });
@@ -197,7 +198,7 @@ function checkLeague(s: State, msgs: Msg[]): State {
   return { ...s, league: newLeague(r.tier, week, history), coins: s.coins + r.prize, coinsEarned: s.coinsEarned + r.prize };
 }
 
-/** Fixes today's quests, completes any that are done, and settles the weekly boss. */
+/** Fixes today's quests, completes any that are done, and settles the weekly boss (checkBoss). */
 function checkQuests(s: State, msgs: Msg[]): State {
   if (!s.onboarded) return s;
   const key = dayKey();
@@ -227,28 +228,71 @@ function checkQuests(s: State, msgs: Msg[]): State {
     next = reward(next, msgs, XP.questsAll, BONUS_MIN.questsAll);
   }
 
-  // The week after all 8 bosses have fallen, the Lazy Syndicate's ruler shows up instead.
+  return checkBoss(next, msgs);
+}
+
+type Boss = ReturnType<typeof bossFor>;
+
+/**
+ * Marks a boss as beaten and pays for it. `late`: last week's, finished off by numbers that only came in
+ * after its week (a watch sync, a binge day that's now over). Its XP goes to that week's Sunday, so this
+ * week's boss doesn't take the hit; the bonus gaming minutes are today's, where they can still be used.
+ */
+function slay(s: State, msgs: Msg[], boss: Boss, late = false): State {
+  const sunday = addDays(new Date(`${boss.key}T12:00`), 6);
+  const when = late ? atTime(sunday, 0, 23, 59) : new Date();
+  let next = bump(
+    { ...s, bossesDefeated: { ...s.bossesDefeated, [boss.key]: boss.id }, bossKilledAt: { ...s.bossKilledAt, [boss.key]: when.getTime() } },
+    'bosses',
+  );
+  const season = seasonOn(when);
+  if (season) next = { ...next, seasonWins: [...(next.seasonWins ?? []), `${season.id}-${when.getFullYear()}`] };
+  if (late) {
+    msgs.push({ text: `${boss.emoji} ${L(next, 'bossLateKill', { boss: boss.name, xp: XP.boss })}`, tone: 'epic' });
+    next = reward(next, msgs, XP.boss, 0, dayKey(sunday));
+    next = patchDay(next, dayKey(), (d) => ({ ...d, bonusGameMin: d.bonusGameMin + BONUS_MIN.boss }));
+  } else {
+    msgs.push({ text: `${boss.emoji} ${L(next, 'bossDefeated', { boss: boss.name })}`, tone: 'epic' });
+    next = reward(next, msgs, XP.boss, BONUS_MIN.boss);
+  }
+  if (boss.final) {
+    next = { ...next, syndicateBroken: Date.now(), coins: next.coins + 500, coinsEarned: next.coinsEarned + 500 };
+    msgs.push({ text: `👑 ${L(next, 'syndicateBroken', { boss: boss.name })}`, tone: 'epic' });
+  }
+  return next;
+}
+
+/**
+ * The weekly boss: a late kill for last week, the Couch King's weeks (his first once all 8 have fallen,
+ * then a rematch every 8 weeks while he stands), this week's kill, its rage and the henchmen after it.
+ * Runs after the quests and again after crits and achievements, so their damage can finish it too.
+ */
+function checkBoss(s: State, msgs: Msg[]): State {
+  if (!s.onboarded) return s;
+  let next = s;
+  const lastWeek = bossFor(next, addDays(startOfWeek(new Date()), -7));
+  if (!lastWeek.defeated && lastWeek.hp <= 0) next = slay(next, msgs, lastWeek, true);
+
   const week = weekKey();
-  if (finalBossDue(next, week) && !next.bossesDefeated[week]) {
-    next = { ...next, finalBossWeek: week };
+  if (finalBossDue(next, week) && !next.bossesDefeated[week]) next = { ...next, finalBossWeek: week, kingWeeks: [week] };
+  const rematch = kingRematchFor(next, week);
+  if (rematch) {
+    next = { ...next, kingWeeks: [...kingWeeksOf(next), rematch] };
+    const day = new Date(`${rematch}T12:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+    if (rematch !== week) msgs.push({ text: `👑 ${L(next, 'kingEscaped', { boss: FINAL_BOSS.name, day })}`, tone: 'info' });
+  }
+  // Announced once per Couch King week (a save from before kingAnnounced already announced its first one).
+  const announced = next.kingAnnounced ?? (s.finalBossWeek === week ? week : undefined);
+  const kings = kingWeeksOf(next);
+  if (kings.includes(week) && announced !== week && !next.bossesDefeated[week]) {
+    next = { ...next, kingAnnounced: week };
     const king = bossFor(next);
-    msgs.push({ text: `${king.emoji} ${L(next, 'finalBossArrives', { boss: king.name })}`, tone: 'epic' });
+    msgs.push({ text: `${king.emoji} ${L(next, kings.indexOf(week) === 0 ? 'finalBossArrives' : 'kingReturns', { boss: king.name })}`, tone: 'epic' });
   }
 
   const boss = bossFor(next);
   if (!boss.defeated && boss.hp <= 0) {
-    next = bump(
-      { ...next, bossesDefeated: { ...next.bossesDefeated, [boss.key]: boss.id }, bossKilledAt: { ...next.bossKilledAt, [boss.key]: Date.now() } },
-      'bosses',
-    );
-    const season = seasonOn();
-    if (season) next = { ...next, seasonWins: [...(next.seasonWins ?? []), `${season.id}-${new Date().getFullYear()}`] };
-    msgs.push({ text: `${boss.emoji} ${L(next, 'bossDefeated', { boss: boss.name })}`, tone: 'epic' });
-    next = reward(next, msgs, XP.boss, BONUS_MIN.boss);
-    if (boss.final) {
-      next = { ...next, syndicateBroken: Date.now(), coins: next.coins + 500, coinsEarned: next.coinsEarned + 500 };
-      msgs.push({ text: `👑 ${L(next, 'syndicateBroken', { boss: boss.name })}`, tone: 'epic' });
-    }
+    next = slay(next, msgs, boss);
   } else if (!boss.defeated && boss.rageWeakness && next.bossPhaseSeen !== boss.key) {
     next = { ...next, bossPhaseSeen: boss.key };
     msgs.push({ text: `${boss.emoji} ${L(next, 'bossEnraged', { boss: boss.name, weakness: boss.rageWeakness })}`, tone: 'epic' });
@@ -727,7 +771,9 @@ function useStoreValue() {
       const msgs: Msg[] = [];
       const rolled = checkDayRollover(prev, msgs);
       const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(fn(rolled, msgs), msgs), msgs), msgs), msgs);
-      const next = checkRivalTalk(checkDiary(checkGolden(checkRespect(checkAchievements(checked, msgs), msgs), msgs), msgs), msgs);
+      // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
+      const scored = checkBoss(checkAchievements(checked, msgs), msgs);
+      const next = checkRivalTalk(checkDiary(checkGolden(checkRespect(scored, msgs), msgs), msgs), msgs);
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone, m.action));
       // Earned bonus minutes mid-session move the gaming alerts.
@@ -1691,6 +1737,11 @@ function useStoreValue() {
           const item = SHOP_ITEMS.find((i) => i.id === id);
           if (!item) return s;
           const cost = shopPrice(id, s.perks);
+          const boss = bossFor(s);
+          if (id === 'bomb' && boss.defeated) {
+            msgs.push({ text: L(s, 'bombNoBoss', { boss: boss.name }), tone: 'info' });
+            return s;
+          }
           if (s.coins < cost) {
             msgs.push({ text: L(s, 'tooPoor', { missing: cost - s.coins }), tone: 'bad' });
             return s;

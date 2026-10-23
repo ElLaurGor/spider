@@ -281,7 +281,7 @@ export const BOSSES = [
   { id: 'snooze', name: 'The Snooze Button', emoji: '⏰' },
   { id: 'dehydration', name: 'Captain Dehydration', emoji: '🏜️' },
   { id: 'leg_day', name: 'Sir Skips-Leg-Day', emoji: '🦵' },
-  { id: 'sugar_baron', name: 'The Sugar Baron', emoji: '🍩' },
+  { id: 'sugar_baron', name: 'The Shortcut Baron', emoji: '🎩' }, // id kept from its old name: saved wins point at it
   { id: 'binge', name: 'The Binge Necromancer', emoji: '📺' },
 ] as const;
 
@@ -290,8 +290,26 @@ export const weekKey = (date: Date | number = new Date()) => dayKey(startOfWeek(
 /** The Lazy Syndicate's ruler: the week after all 8 bosses have fallen at least once. Every weakness hurts it. */
 export const FINAL_BOSS = { id: 'couch_king', name: 'The Couch King', emoji: '👑' } as const;
 export type BossId = (typeof BOSSES)[number]['id'] | typeof FINAL_BOSS.id;
-/** The Couch King's HP compared to an ordinary boss. */
+/** The Couch King's HP compared to an ordinary boss, and how much each rematch adds. */
 export const FINAL_HP = 1.5;
+export const KING_RANK_HP = 0.25;
+/** Weeks between Couch King rematches while he's still standing. */
+export const KING_REMATCH_WEEKS = 8;
+
+/** Weeks the Couch King was (or will be) your boss: his first week, then every rematch. */
+export const kingWeeksOf = (s: State) => s.kingWeeks ?? (s.finalBossWeek ? [s.finalBossWeek] : []);
+
+/**
+ * The week of the Couch King's next rematch, once his last week is over and he's still standing (null
+ * otherwise). Every 8 weeks from his last fight; a long break skips ahead to the next one still to come.
+ */
+export function kingRematchFor(s: State, week: string): string | null {
+  const last = kingWeeksOf(s).at(-1);
+  if (s.syndicateBroken || !last || last >= week || s.bossesDefeated[last]) return null;
+  let next = addDays(new Date(`${last}T12:00`), 7 * KING_REMATCH_WEEKS);
+  while (dayKey(startOfWeek(next)) < week) next = addDays(next, 7 * KING_REMATCH_WEEKS);
+  return dayKey(startOfWeek(next));
+}
 
 /** Coins per wave of henchmen after the boss has fallen, and a wave's size as a share of the boss's HP. */
 export const MINION_COINS = 20;
@@ -379,7 +397,7 @@ const HALLOWEEN: Record<(typeof BOSSES)[number]['id'], { name: string; emoji: st
   snooze: { name: 'The Snooze Banshee', emoji: '😱' },
   dehydration: { name: 'Captain Dehydration, Skeleton Crew', emoji: '💀' },
   leg_day: { name: 'Sir Skips-Leg-Day the Headless', emoji: '🎃' },
-  sugar_baron: { name: 'The Sugar Phantom', emoji: '🕯️' },
+  sugar_baron: { name: 'The Shortcut Phantom', emoji: '🕯️' },
   binge: { name: 'The Binge Necromancer, Unholy Edition', emoji: '⚰️' },
 };
 
@@ -387,6 +405,9 @@ const ANY_WEAKNESS = {
   label: "any boss's weakness",
   hit: (s: State, d: DayLog, key: string) => BOSSES.some((b) => WEAKNESS[b.id].hit(s, d, key)),
 };
+
+/** A boss's weakness: its own, or every one of them for the Couch King. */
+export const weaknessOf = (id: BossId) => (id === FINAL_BOSS.id ? ANY_WEAKNESS : WEAKNESS[id]);
 
 /** The second weakness a boss shows once it's below half HP: another boss's, picked by the week. */
 export const rageWeaknessOf = (id: string, week: string) => {
@@ -398,12 +419,13 @@ export const rageWeaknessOf = (id: string, week: string) => {
 export function bossFor(s: State, date: Date | number = new Date(), now: Date | number = Date.now()) {
   const monday = startOfWeek(date);
   const key = dayKey(monday);
-  const final = s.finalBossWeek === key;
+  const kings = kingWeeksOf(s);
+  const final = kings.includes(key);
   const base = final ? FINAL_BOSS : BOSSES[weekIndexOf(monday) % BOSSES.length];
   // Halloween dresses every boss up; at nyår the boss is the Old Year itself.
   const season = final ? undefined : seasonOn(date)?.id;
   const skin = season === 'halloween' ? HALLOWEEN[base.id as (typeof BOSSES)[number]['id']] : season === 'nyar' ? { name: 'The Old Year', emoji: '🕰️' } : null;
-  const rank = final ? 1 : bossRank(s, monday);
+  const rank = final ? kings.indexOf(key) + 1 : bossRank(s, monday);
   const name = (skin?.name ?? base.name) + (rank > 1 ? ` ${roman(rank)}` : '');
   const weakness = final ? ANY_WEAKNESS : WEAKNESS[base.id as (typeof BOSSES)[number]['id']];
   const rage = final ? null : rageWeaknessOf(base.id, key);
@@ -417,7 +439,7 @@ export function bossFor(s: State, date: Date | number = new Date(), now: Date | 
   healed = Math.round(healed * healShare(s)); // the Thick Silk ability halves it (perks.ts)
   const pace = xpPace(s, monday);
   const full = pace == null ? 500 + 50 * levelForXp(s.xp) : Math.max(500, Math.round((pace * 7 * BOSS_PACE) / 50) * 50);
-  const sized = Math.round((full * (final ? FINAL_HP : 1) * Math.max(1, 7 - paused)) / 7 / 50) * 50;
+  const sized = Math.round((full * (final ? FINAL_HP + KING_RANK_HP * (rank - 1) : 1) * Math.max(1, 7 - paused)) / 7 / 50) * 50;
   const maxHp = Math.max(50, sized) + healed;
 
   // Day by day: a day that hits the weakness does 50 % more. Below half HP the boss rages, and from the

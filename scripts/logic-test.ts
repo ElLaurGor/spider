@@ -78,7 +78,7 @@ import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // step 2 game
-import { gentleQuestFor, reducedDay } from '../src/lib/quests';
+import { gentleQuestFor, KING_REMATCH_WEEKS, kingRematchFor, kingWeeksOf, reducedDay, weaknessOf } from '../src/lib/quests';
 import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
 import { gamingBudgetMin, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
 import { areaScores } from '../src/lib/weak-spot';
@@ -1450,6 +1450,30 @@ void (async () => {
   assert.ok(roughWeek(rw, rwc, addDays(gMon, 6)));
   // the progress-photo quest is gone (body tracking stays neutral)
   for (let i = 0; i < 30; i++) assert.ok(!pickQuests(defaultState(), addDays(gMon, i)).includes('progress_photo'));
+
+  // the Couch King comes back every 8 weeks, a rank stronger, until he falls
+  const kg = defaultState();
+  for (let i = 1; i <= 10; i++) kg.days[gk(-i)] = { ...empty(), xpEarned: 100 }; // pace 100/day: 750 HP
+  kg.finalBossWeek = gk(0);
+  assert.deepEqual(kingWeeksOf(kg), [gk(0)]);
+  assert.equal(kingRematchFor(kg, gk(0)), null, 'his week is still on');
+  assert.equal(kingRematchFor(kg, gk(7)), gk(7 * KING_REMATCH_WEEKS));
+  assert.equal(kingRematchFor(kg, gk(7 * 20)), gk(7 * 24), 'a long break skips to the next one still ahead');
+  assert.equal(kingRematchFor({ ...kg, syndicateBroken: 1 }, gk(7)), null);
+  assert.equal(kingRematchFor({ ...kg, bossesDefeated: { [gk(0)]: 'couch_king' } }, gk(7)), null);
+  kg.kingWeeks = [gk(0), gk(56)];
+  for (let i = 1; i <= 28; i++) kg.days[gk(56 - i)] = { ...empty(), xpEarned: 100 }; // 4 weeks at 100/day before the rematch
+  const rematch = bossFor(kg, addDays(gMon, 56), addDays(gMon, 62));
+  assert.equal(rematch.id, FINAL_BOSS.id);
+  assert.equal(rematch.rank, 2);
+  assert.ok(rematch.name.endsWith(' II'));
+  assert.equal(rematch.maxHp, 1300, '750 x 1.75 = 1313 -> 1300');
+  assert.notEqual(bossFor(kg, addDays(gMon, 7)).id, FINAL_BOSS.id, 'an ordinary boss in between');
+  assert.equal(bestiary(kg, addDays(gMon, 60)).find((r) => r.id === FINAL_BOSS.id)?.fights, 2);
+  // every weakness hurts the King, so a King week can still earn a gold chest
+  const kd = { ...empty(), sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: 0 }] };
+  assert.ok(weaknessOf(FINAL_BOSS.id).hit(kg, kd, gk(1)));
+  assert.equal(BOSSES.find((b) => b.id === 'sugar_baron')?.name, 'The Shortcut Baron', 'renamed, same id');
 
   // red days off count in this week's planned workouts
   const red = defaultState();

@@ -1116,6 +1116,23 @@ export const LINES = {
       '{app} again. Your focus has the attention span of a goldfish. Prove me wrong.',
     ],
   },
+  // step 2 game
+  kingEscaped: {
+    mild: ["{boss} got away this time. He'll be back the week of {day}, a little stronger."],
+    savage: ["{boss} slipped out the back. He returns the week of {day}, stronger. Be ready."],
+  },
+  kingReturns: {
+    mild: ['{boss} is back for another round. Every weakness counts again this week.'],
+    savage: ['{boss} has left the couch again. Same rules: every weakness hurts him. Finish it this time.'],
+  },
+  bossLateKill: {
+    mild: ["Last week's late numbers just came in, and they finished {boss}. +{xp} XP."],
+    savage: ["Late delivery: last week's numbers just finished {boss}. +{xp} XP. Even your paperwork hits hard."],
+  },
+  bombNoBoss: {
+    mild: ['{boss} has already fallen this week. Keep the coins for the next one.'],
+    savage: ['{boss} is already down. Bombing the body is just littering. Keep your coins.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

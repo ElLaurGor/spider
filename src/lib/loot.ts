@@ -1,6 +1,6 @@
 // Which loot chest a day earns. The chest itself (prizes, pity) is in economy.ts.
 import { dayKey } from './dates';
-import { bossFor, WEAKNESS } from './quests';
+import { bossFor, weaknessOf } from './quests';
 import { dayScoreFor } from './report';
 import { dayOf } from './selectors';
 import type { State } from './types';
@@ -12,6 +12,5 @@ export const GOLD_SCORE = 85;
 export function goldChest(s: State, date = new Date()) {
   if (dayScoreFor(s, date) >= GOLD_SCORE) return true;
   const key = dayKey(date);
-  const weakness = WEAKNESS[bossFor(s, date).id as keyof typeof WEAKNESS];
-  return !!weakness?.hit(s, dayOf(s, key), key);
+  return weaknessOf(bossFor(s, date).id).hit(s, dayOf(s, key), key);
 }
