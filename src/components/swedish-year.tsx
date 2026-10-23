@@ -3,6 +3,7 @@
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, T } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { seasonOn } from '@/lib/seasons';
 import { useStore } from '@/lib/store';
 import { upcomingDays } from '@/lib/swedish-days';
@@ -10,7 +11,8 @@ import { eggsThisYear, staleTasks, STALE_DAYS, type EggId } from '@/lib/traditio
 
 /** HQ: today's holiday or payday and the next red day or klämdag, plus HQ's own Easter egg. */
 export function SwedishDaysRow() {
-  const notes = upcomingDays(new Date());
+  const today = useToday();
+  const notes = upcomingDays(noonOf(today));
   return (
     <>
       {notes.length ? (
@@ -30,7 +32,8 @@ export function SwedishDaysRow() {
 /** One of the five Easter eggs: shows only during Easter season until it's found that year. */
 export function HiddenEgg({ id, align = 'flex-end' }: { id: EggId; align?: 'flex-start' | 'center' | 'flex-end' }) {
   const { state, actions } = useStore();
-  if (seasonOn()?.id !== 'easter' || id in eggsThisYear(state)) return null;
+  const today = useToday();
+  if (seasonOn(noonOf(today))?.id !== 'easter' || id in eggsThisYear(state)) return null;
   return (
     <Pressable
       onPress={() => actions.findEgg(id)}

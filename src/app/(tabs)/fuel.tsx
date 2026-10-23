@@ -9,7 +9,8 @@ import { EntryEditor } from '@/components/entry-editor';
 import { FoodSuggestions } from '@/components/food-search';
 import { PhotoViewer } from '@/components/photo-viewer';
 import { ReadinessCard } from '@/components/readiness-card';
-import { Bar, Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T } from '@/components/ui';
+import { Bar, Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { HiddenEgg } from '@/components/swedish-year';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtTime, WEEKDAYS } from '@/lib/dates';
@@ -23,29 +24,31 @@ export default function Fuel() {
   const { photo: sharedPhoto } = useLocalSearchParams<{ photo?: string }>();
   const s = state.settings;
   const [picked, setPicked] = useState<string | null>(null); // a past day being fixed; null = today
-  const day = picked ?? dayKey();
-  const isToday = day === dayKey();
-  const today = dayOf(state);
+  const todayKey = useToday();
+  const now = useNow(60_000);
+  const day = picked ?? todayKey;
+  const isToday = day === todayKey;
+  const today = dayOf(state, todayKey);
   const shown = dayOf(state, day);
   const water = waterMl(shown);
   const goal = waterGoalParts(state, day);
   const pct = water / goal.ml;
-  const next = nextWaterReminder(state);
+  const next = nextWaterReminder(state, new Date(now));
 
-  const hour = new Date().getHours();
-  const todayPct = waterMl(today) / waterGoalFor(state); // the spider talks about today, whichever day is shown
+  const hour = new Date(now).getHours();
+  const todayPct = waterMl(today) / waterGoalFor(state, todayKey); // the spider talks about today, whichever day is shown
   const lineKey = today.food.length === 0 && hour >= 11 ? 'foodNone' : todayPct >= 1 ? 'waterGoal' : 'waterRemind';
   const spiderLine = useMemo(() => quip(lineKey), [quip, lineKey]);
 
   const week = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(new Date(), i - 6);
+    const d = addDays(noonOf(todayKey), i - 6);
     return { label: WEEKDAYS[d.getDay()][0], ml: waterMl(dayOf(state, dayKey(d))), goal: waterGoalFor(state, dayKey(d)) };
   });
 
   return (
     <Screen title="FUEL" subtitle="Water · coffee · food">
       <SpiderSays text={spiderLine} />
-      <DayPicker value={day} onChange={(k) => setPicked(k === dayKey() ? null : k)} />
+      <DayPicker value={day} onChange={(k) => setPicked(k === todayKey ? null : k)} />
       {isToday ? <ReadinessCard /> : null}
 
       <Card accent={C.water}>
