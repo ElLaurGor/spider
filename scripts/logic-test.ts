@@ -94,6 +94,7 @@ import { workoutFor } from '../src/lib/selectors';
 import { clockLabel, nightClock, nightOf, rhythmOf, withNights } from '../src/lib/sleep';
 import { nightWindow as sleepWindow, ZEPP } from '../src/lib/sleep';
 import { allDayLocal } from '../src/lib/calendar-days';
+import { pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
 import { isDoomscroll } from '../src/lib/doomscroll';
 import { eventsOn } from '../src/lib/selectors';
 import { meteoTime, needsPlaceInfo, samePlace } from '../src/lib/weather';
@@ -1870,6 +1871,17 @@ void (async () => {
   const leap = { id: 'l', title: 'Leap', emoji: '🎂', date: '2024-02-29', yearly: true, createdAt: 0 };
   assert.equal(dayKey(nextDate(leap, new Date(2027, 1, 20, 12))), '2027-02-28');
   assert.equal(dayKey(nextDate(leap, new Date(2027, 2, 1, 12))), '2028-02-29');
+
+  // auto-backup folder: the newest file that reads and isn't a near-empty post-wipe copy
+  const files = (days: (number | null)[]) => days.map((d, i) => ({ name: `data-2026-10-0${i + 1}-10-00.json`, days: d }));
+  assert.equal(pickBackup(files([40, 47, 54, 61])), 'data-2026-10-04-10-00.json'); // the newest
+  assert.equal(pickBackup(files([40, 47, 54, null])), 'data-2026-10-03-10-00.json'); // newest cut off mid-write
+  assert.equal(pickBackup(files([47, 54, 61, 1])), 'data-2026-10-03-10-00.json'); // newest written right after a wipe
+  assert.equal(pickBackup(files([null, null])), null);
+  assert.equal(pickBackup(files([1, 1])), 'data-2026-10-02-10-00.json'); // a small history is still a history
+  assert.ok(skipAutoBackup(61, 1)); // a wiped phone doesn't push the good backups out
+  assert.ok(!skipAutoBackup(61, 62));
+  assert.ok(!skipAutoBackup(null, 1)); // the first backup ever
 }
 
 // morning readiness: sleep and resting heart rate against her own normal, plus her ratings

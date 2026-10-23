@@ -1116,6 +1116,11 @@ function useStoreValue() {
       autoBackupTried.current = dayKey();
       try {
         const r = await autoBackup(s, uri);
+        if (r.skipped) {
+          // The phone holds far fewer days than the last backup (a wipe?): the good backups stay as they are.
+          say("💾 Skipped this week's backup: it would hold far fewer days than the last one. Restore from it in Settings → Backup if your history is missing.", 'bad');
+          return;
+        }
         commit({ ...stateRef.current, lastBackupAt: Date.now() });
         say(`💾 Weekly backup saved${r.photos ? ` (+${r.photos} new photo${r.photos === 1 ? '' : 's'})` : ''}.`, 'info');
       } catch (e) {
