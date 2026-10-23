@@ -36,6 +36,7 @@ type QuestDef = {
   id: string;
   xp: number;
   season?: SeasonId; // only during that season, and then one of the day's three is always seasonal
+  reduced?: boolean; // only ever the one quest of a reduced day (GENTLE), never in the normal draw
   available: (s: State, date: Date) => boolean;
   build: (s: State, d: DayLog, date: Date) => { title: string; progress: number; target: number };
 };
@@ -116,6 +117,10 @@ const QUESTS: QuestDef[] = [
       target: 1,
     }),
   },
+
+  // ---- reduced days (sick, away, low battery): one gentle quest instead of three ----
+  { id: 'checkin', xp: 8, reduced: true, available: () => true, build: (_s, d) => ({ title: 'Check in once: how are you doing?', progress: moodsOf(d).length, target: 1 }) },
+  { id: 'sip', xp: 5, reduced: true, available: () => true, build: (_s, d) => ({ title: 'Drink one glass of water', progress: d.water.length, target: 1 }) },
 
   // ---- seasonal (seasons.ts) ----
   { id: 'hw_potion', xp: 15, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Brew the potion: 4 glasses of water before 15:00', progress: before(d, 15), target: 4 }) },
@@ -200,7 +205,7 @@ const hash = (str: string) => {
 export function pickQuestsWithFocus(s: State, date = new Date()) {
   const key = dayKey(date);
   const season = seasonOn(date)?.id;
-  const pool = QUESTS.filter((q) => (!q.season || q.season === season) && q.available(s, date));
+  const pool = QUESTS.filter((q) => !q.reduced && (!q.season || q.season === season) && q.available(s, date));
   const ranked = (qs: QuestDef[]) => qs.map((q) => ({ id: q.id, r: hash(`${key}:${q.id}`) })).sort((a, b) => a.r - b.r);
   const seasonal = ranked(pool.filter((q) => q.season)).slice(0, 1);
   const rest = ranked(pool.filter((q) => !q.season));
@@ -231,18 +236,46 @@ export function rerollFor(s: State, id: string, date = new Date()): string | nul
   if (!picked?.includes(id) || d.questRerolled || (d.questsDone ?? []).includes(id)) return null;
   const def = QUESTS.find((q) => q.id === id);
   if (!def || def.season || def.build(s, d, date).progress > 0) return null;
-  const next = QUESTS.filter((q) => !q.season && !picked.includes(q.id) && q.available(s, date))
+  const next = QUESTS.filter((q) => !q.season && !q.reduced && !picked.includes(q.id) && q.available(s, date))
     .map((q) => ({ q, r: hash(`${key}:${q.id}`) }))
     .sort((a, b) => a.r - b.r)
     .find(({ q }) => q.build(s, d, date).progress === 0);
   return next?.q.id ?? null;
 }
 
-export function questsFor(s: State, date = new Date()): Quest[] {
+/** Gentlest first: what a reduced day asks for. A seasonal one keeps the season's flavour without asking for more. */
+const GENTLE = ['hw_seance', 'checkin', 'sip'];
+
+/**
+ * A reduced day's one quest: the gentlest that fits the date and isn't already met (so going easy never
+ * hands out an instant chest), or the gentlest at all when every one is.
+ */
+export function gentleQuestFor(s: State, date = new Date()): string {
   const d = dayOf(s, dayKey(date));
+  const season = seasonOn(date)?.id;
+  const fits = GENTLE.map((id) => QUESTS.find((q) => q.id === id)!).filter((q) => (!q.season || q.season === season) && q.available(s, date));
+  const open = fits.find((q) => {
+    const b = q.build(s, d, date);
+    return b.progress < b.target;
+  });
+  return (open ?? fits[0]).id;
+}
+
+/**
+ * Low-battery mode and sick/away days ask for one gentle quest. A day whose quests were all done before it
+ * turned reduced keeps them (the count is frozen once they're done).
+ */
+export function reducedDay(s: State, key = dayKey()) {
+  const d = dayOf(s, key);
+  if (d.questReduced) return true;
+  return (lowBattery(d) || pausedOn(s, key)) && !d.questsAllDone;
+}
+
+export function questsFor(s: State, date = new Date()): Quest[] {
+  const key = dayKey(date);
+  const d = dayOf(s, key);
   const picked = d.quests ?? pickQuests(s, date);
-  // Low-battery mode and sick/away days: just one quest.
-  const ids = lowBattery(d) || pausedOn(s, dayKey(date)) ? picked.slice(0, 1) : picked;
+  const ids = reducedDay(s, key) ? [d.questReduced ?? gentleQuestFor(s, date)] : picked;
   return ids.flatMap((id) => {
     const def = QUESTS.find((q) => q.id === id);
     if (!def) return [];

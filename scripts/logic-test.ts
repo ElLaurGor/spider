@@ -77,6 +77,8 @@ import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
+// step 2 game
+import { gentleQuestFor, reducedDay } from '../src/lib/quests';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -1360,6 +1362,40 @@ void (async () => {
   assert.equal(bestiary(bs, monday).filter((r) => r.fights > 0).length, 3, 'three weeks, three bosses');
   assert.equal(lastKillDay(bs, first.id, mk(0)), WEEKDAYS_LONG[new Date(`${mk(-10)}T12:00`).getDay()]);
   assert.equal(lastKillDay(bs, first.id, mk(-14)), null);
+}
+
+// ---------- step 2 game ----------
+{
+  const empty = () => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+  const mood = (at: Date, level: 1 | 2 | 3 | 4 | 5 = 3) => ({ id: `m${at.getTime()}`, level, emotions: [], at: at.getTime() });
+
+  // reduced days get one gentle quest, never the seasonal "train or walk 8 000 steps"
+  const sat = new Date(2026, 9, 24, 12); // first day of spooky season
+  const sk = dayKey(sat);
+  const sick = defaultState();
+  sick.days[sk] = { ...empty(), quests: ['hw_crypt', 'water_goal', 'meals'] };
+  sick.pauses = [{ from: sk, to: sk, kind: 'sick' }];
+  assert.ok(reducedDay(sick, sk));
+  assert.deepEqual(questsFor(sick, sat).map((q) => q.id), ['hw_seance']);
+  sick.days[sk].moods = [mood(sat)];
+  assert.equal(gentleQuestFor(sick, sat), 'sip', 'the séance is already met: no instant chest');
+  sick.days[sk].questReduced = 'hw_seance';
+  assert.deepEqual(questsFor(sick, sat).map((q) => q.id), ['hw_seance'], 'fixed once picked');
+  const lowNov = defaultState();
+  const nov = new Date(2026, 10, 10, 12);
+  lowNov.days[dayKey(nov)] = { ...empty(), quests: ['steps_hard', 'water_goal', 'meals'], energy: 1 };
+  assert.equal(gentleQuestFor(lowNov, nov), 'checkin');
+  // every quest done before the day turned reduced: the count stays frozen at three
+  const allDone = defaultState();
+  allDone.days[sk] = { ...empty(), quests: ['hw_crypt', 'water_goal', 'meals'], questsDone: ['hw_crypt', 'water_goal', 'meals'], questsAllDone: true };
+  allDone.pauses = [{ from: sk, to: sk, kind: 'away' }];
+  assert.ok(!reducedDay(allDone, sk));
+  assert.equal(questsFor(allDone, sat).length, 3);
+  // the gentle quests never turn up on an ordinary day
+  for (let i = 0; i < 60; i++) {
+    const d = addDays(nov, i);
+    assert.ok(!pickQuests(defaultState(), d).some((id) => id === 'checkin' || id === 'sip'));
+  }
 }
 
 // ---- cluster B ----

@@ -146,6 +146,7 @@ export type DayLog = {
   // cluster A
   questRerolled?: boolean; // today's one paid quest swap is used (quests.ts rerollFor)
   questFocus?: { id: string; spot: string }; // the quest aimed at the week's weak spot (weak-spot.ts)
+  questReduced?: string; // a reduced day's one gentle quest, fixed once picked (quests.ts gentleQuestFor)
   // cluster B
   banked?: number; // coins paid at day rollover for that day's unused bonus gaming minutes (set once)
   // cluster F

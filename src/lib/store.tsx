@@ -38,7 +38,7 @@ import {
   snoozeWater,
 } from './notifications';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
-import { bossFor, finalBossDue, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_COST, questsFor, rerollFor, weekKey } from './quests';
+import { bossFor, finalBossDue, gentleQuestFor, MINION_COINS, pickQuestsWithFocus, QUEST_REROLL_COST, questsFor, reducedDay, rerollFor, weekKey } from './quests';
 import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
 import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
@@ -204,6 +204,11 @@ function checkQuests(s: State, msgs: Msg[]): State {
   if (!dayOf(next, key).quests) {
     const picked = pickQuestsWithFocus(next);
     next = patchDay(next, key, (d) => ({ ...d, quests: picked.ids, questFocus: picked.focus ?? undefined }));
+  }
+  // A reduced day's gentle quest is fixed the first time the day is reduced, so it can't change under you.
+  if (reducedDay(next, key) && !dayOf(next, key).questReduced) {
+    const id = gentleQuestFor(next);
+    next = patchDay(next, key, (d) => ({ ...d, questReduced: id }));
   }
 
   for (const q of questsFor(next)) {
