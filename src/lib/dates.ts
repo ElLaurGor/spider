@@ -22,6 +22,9 @@ export function dayKey(d: Date | number = new Date()) {
   return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
 }
 
+/** "2026-10-23" and nothing else (a press event once got passed as a day). */
+export const isDayKey = (k: unknown): k is string => typeof k === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(k);
+
 export function startOfDay(d: Date | number = new Date()) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);

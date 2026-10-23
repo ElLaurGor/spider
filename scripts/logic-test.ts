@@ -2,8 +2,9 @@
 // Offline logic checks for the pure modules in src/lib. Run: npm run test:logic
 import assert from 'node:assert/strict';
 
-import { addDays, atTime, dayKey, fmtClock, fmtDuration, MIN, startOfWeek } from '../src/lib/dates';
-import { defaultState, hydrate } from '../src/lib/defaults';
+import { addDays, atTime, dayKey, fmtClock, fmtDuration, isDayKey, MIN, startOfWeek } from '../src/lib/dates';
+import { defaultState, emptyDay, hydrate, idTime, withRealDays } from '../src/lib/defaults';
+import { BASE_KEY, changedMonths, daysByMonth, INDEX_KEY, monthKey, olderCopy, readSaved, ReadError, ROW_LIMIT, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from '../src/lib/persist';
 import { freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
 import {
   avgMood,
@@ -1652,4 +1653,134 @@ console.log('all logic tests passed');
   assert.deepEqual(stillestHour(mm, 7, 23), { hour: 14, steps: 50 }); // 20:00 is past the desk hours
   assert.equal(stillestHour(movementMap(slots.filter((x) => new Date(x.at).getDay() === 1)), 7, 23), null); // one workday
   assert.equal(new Date(mon).getDay(), 1);
+}
+
+// ---------- persistence (persist.ts): v2 rows, migration, read errors, the shrink guard, junk day keys ----------
+{
+  const memStore = (init: Record<string, string> = {}) => {
+    const m = new Map(Object.entries(init));
+    return {
+      m,
+      getItem: async (k: string) => m.get(k) ?? null,
+      multiGet: async (keys: readonly string[]) => keys.map((k) => [k, m.get(k) ?? null] as const),
+      multiSet: async (pairs: readonly (readonly [string, string])[]) => {
+        for (const [k, v] of pairs) m.set(k, v);
+      },
+      multiRemove: async (keys: readonly string[]) => {
+        for (const k of keys) m.delete(k);
+      },
+    };
+  };
+  const day = (ml: number) => ({ ...emptyDay(), water: [{ id: `w${ml}`, ml, at: 0 }] });
+  const s0 = hydrate({ ...defaultState(), onboarded: true, xp: 1234, days: { '2026-09-29': day(250), '2026-09-30': day(500), '2026-10-01': day(750), '2026-10-23': day(1000) } });
+
+  assert.deepEqual(Object.keys(daysByMonth(s0.days)).sort(), ['2026-09', '2026-10']);
+  assert.deepEqual(Object.keys(daysByMonth({ ...s0.days, '[object Object]': day(1) })).sort(), ['2026-09', '2026-10']); // junk keys never get a row
+  // only months with a replaced, added or removed day are rewritten
+  assert.deepEqual([...changedMonths(null, s0.days)].sort(), ['2026-09', '2026-10']);
+  assert.deepEqual([...changedMonths(s0.days, { ...s0.days, '2026-10-23': day(1250) })], ['2026-10']);
+  assert.deepEqual([...changedMonths(s0.days, { ...s0.days, '2026-11-01': day(1) })], ['2026-11']);
+  const octOnly = Object.fromEntries(Object.entries(s0.days).filter(([k]) => k.startsWith('2026-10')));
+  assert.deepEqual([...changedMonths(s0.days, octOnly)], ['2026-09']);
+  assert.equal(changedMonths(s0.days, { ...s0.days }).size, 0);
+  const first = rowsFor(s0, null, [], 111);
+  assert.deepEqual(
+    first.pairs.map(([k]) => k),
+    [BASE_KEY, INDEX_KEY, monthKey('2026-09'), monthKey('2026-10')],
+  );
+  assert.ok(!JSON.parse(first.pairs[0][1]).days); // the base row holds no days
+  assert.deepEqual(JSON.parse(first.pairs[1][1]), { months: ['2026-09', '2026-10'], migratedAt: 111 });
+  assert.deepEqual(rowsFor({ ...s0, days: octOnly }, s0.days, first.months).gone, [monthKey('2026-09')]);
+  assert.deepEqual(rowsFor({ ...s0, days: {} }, s0.days, first.months).gone, [monthKey('2026-09'), monthKey('2026-10')]); // reset: every month row goes
+
+  assert.equal(utf8Bytes('ab'), 2);
+  assert.equal(utf8Bytes('é'), 2);
+  assert.equal(utf8Bytes('☕'), 3);
+  assert.equal(utf8Bytes('🕷'), 4);
+  assert.equal(ROW_LIMIT, 2 * 1024 * 1024);
+
+  // the shrink guard: refuses a save that throws most of a real history away
+  assert.ok(!wouldWipe(0, 0)); // a new install
+  assert.ok(!wouldWipe(6, 0)); // too little history to tell
+  assert.ok(wouldWipe(16, 0) && wouldWipe(16, 1) && wouldWipe(16, 3));
+  assert.ok(!wouldWipe(16, 4) && !wouldWipe(16, 17));
+  assert.ok(wouldWipe(400, 79) && !wouldWipe(400, 80));
+
+  // junk day keys: the HQ coffee tile's press event became the day; the cups go back to the day they were drunk
+  const at1 = new Date(2026, 9, 12, 8, 30).getTime();
+  const at2 = new Date(2026, 9, 14, 13, 5).getTime();
+  const cid = (t: number) => t.toString(36) + 'abcde';
+  assert.equal(idTime(cid(at1)), at1);
+  assert.equal(idTime('x1'), null);
+  assert.equal(idTime('zzzzzzzzzzzzz'), null); // far future: not a time
+  const noTime = null as unknown as number; // NaN, once saved as JSON
+  const junk = {
+    ...s0.days,
+    '2026-10-14': { ...emptyDay(), coffee: [{ id: cid(at2), mg: 90, at: at2 }] }, // already there: not doubled
+    '[object Object]': {
+      ...emptyDay(),
+      coffee: [
+        { id: cid(at1), mg: 90, at: noTime, late: true },
+        { id: cid(at2), mg: 90, at: noTime, late: true },
+        { id: 'bad', mg: 90, at: 0 },
+      ],
+    },
+  };
+  const fixed = withRealDays(junk);
+  assert.ok(!('[object Object]' in fixed));
+  assert.deepEqual(fixed['2026-10-12'].coffee, [{ id: cid(at1), mg: 90, at: at1, late: true }]);
+  assert.equal(fixed['2026-10-14'].coffee?.length, 1);
+  assert.equal(fixed['2026-10-23'], s0.days['2026-10-23']); // untouched days keep their identity
+  assert.equal(withRealDays(s0.days), s0.days);
+  assert.ok(!('[object Object]' in hydrate({ ...s0, days: junk }).days));
+  assert.ok(isDayKey('2026-10-23') && !isDayKey('[object Object]') && !isDayKey({}) && !isDayKey(undefined) && !isDayKey('2026-1-3'));
+
+  void (async () => {
+    // a new install
+    assert.deepEqual(await readSaved(memStore()), { source: 'none', saved: null });
+
+    // v1 -> v2: read the old row, write the months, read them back, and the state comes back the same
+    const disk = memStore({ [V1_KEY]: JSON.stringify(s0) });
+    const v1 = await readSaved(disk);
+    assert.equal(v1.source, 'v1');
+    const rows = rowsFor(hydrate(v1.saved), null, [], 222).pairs;
+    assert.ok(await writeVerified(disk, rows));
+    const v2 = await readSaved(disk);
+    assert.equal(v2.source, 'v2');
+    assert.deepEqual(hydrate(v2.saved), s0);
+    if (v2.source === 'v2') {
+      assert.deepEqual(v2.index, { months: ['2026-09', '2026-10'], migratedAt: 222 });
+      assert.equal(Object.keys(v2.sizes).length, 3);
+    }
+    assert.ok(disk.m.has(V1_KEY)); // the old row stays as a fallback
+    assert.deepEqual(await olderCopy(disk), { at: 222 });
+
+    // a later save rewrites only the month that changed, and the result still reads back whole
+    const s1 = { ...s0, xp: 1300, days: { ...s0.days, '2026-10-23': day(1500) } };
+    const next = rowsFor(s1, s0.days, ['2026-09', '2026-10'], 222);
+    assert.deepEqual(
+      next.pairs.map(([k]) => k),
+      [BASE_KEY, INDEX_KEY, monthKey('2026-10')],
+    );
+    await disk.multiSet(next.pairs);
+    assert.deepEqual(hydrate((await readSaved(disk)).saved), s1);
+
+    // a read-back that differs from what was written is caught
+    const liar = { ...memStore(), multiGet: async (keys: readonly string[]) => keys.map((k) => [k, 'x'] as const) };
+    assert.equal(await writeVerified(liar, rows), false);
+
+    // something saved that can't be read throws, and says which layout broke
+    const broken = memStore(Object.fromEntries(rows));
+    broken.m.delete(monthKey('2026-09'));
+    await assert.rejects(readSaved(broken), (e: unknown) => e instanceof ReadError && e.stage === 'v2');
+    await assert.rejects(readSaved(memStore({ [BASE_KEY]: '{}' })), (e: unknown) => e instanceof ReadError && e.stage === 'v2'); // no month list
+    await assert.rejects(readSaved(memStore({ [V1_KEY]: '{"days": {' })), (e: unknown) => e instanceof ReadError && e.stage === 'v1');
+    const tooBig = { ...memStore(), multiGet: () => Promise.reject(new Error('Row too big to fit into CursorWindow')) };
+    await assert.rejects(readSaved(tooBig), /CursorWindow/);
+    assert.equal(await olderCopy(memStore({ [BASE_KEY]: '{}' })), null); // no v1 to fall back on
+    console.log('persistence tests passed');
+  })().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
 }

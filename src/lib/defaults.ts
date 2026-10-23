@@ -1,3 +1,4 @@
+import { dayKey, isDayKey } from './dates';
 import type { DayLog, State } from './types';
 
 export function emptyDay(): DayLog {
@@ -80,6 +81,36 @@ export function defaultState(): State {
   };
 }
 
+/** When an entry was made: uid() starts with Date.now() in base 36 (8 digits until 2059). */
+export function idTime(id: string) {
+  const t = parseInt(id.slice(0, 8), 36);
+  return Number.isFinite(t) && t > 1.5e12 && t < Date.now() + 86_400_000 ? t : null;
+}
+
+/**
+ * Days saved under a key that isn't a date. The HQ coffee tile once passed its press event as the
+ * day, so cups landed in "[object Object]" with no time. They go back to the day they were drunk
+ * (the time comes from the id), marked `late` like any entry added afterwards: they count in that
+ * day's totals but never for quests, bosses or contracts, and earn nothing now.
+ */
+export function withRealDays(days: State['days']): State['days'] {
+  const junk = Object.keys(days).filter((k) => !isDayKey(k));
+  if (!junk.length) return days;
+  const out = { ...days };
+  for (const k of junk) {
+    for (const c of out[k]?.coffee ?? []) {
+      const at = idTime(c.id);
+      if (at == null) continue;
+      const key = dayKey(at);
+      const d = out[key] ?? emptyDay();
+      if ((d.coffee ?? []).some((x) => x.id === c.id)) continue;
+      out[key] = { ...d, coffee: [...(d.coffee ?? []), { ...c, at, late: true }].sort((a, b) => a.at - b.at) };
+    }
+    delete out[k];
+  }
+  return out;
+}
+
 /** Fills in fields added in newer versions so old saves keep working. */
 export function hydrate(saved: Partial<State> | null): State {
   const base = defaultState();
@@ -87,6 +118,7 @@ export function hydrate(saved: Partial<State> | null): State {
   return {
     ...base,
     ...saved,
+    days: withRealDays(saved.days ?? base.days),
     settings: {
       ...base.settings,
       ...saved.settings,

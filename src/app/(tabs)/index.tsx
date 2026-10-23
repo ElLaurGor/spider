@@ -223,7 +223,7 @@ export default function HQ() {
           </Text>
           <Bar pct={usedMs / (budgetMin * 60_000)} color={usedMs > budgetMin * 60_000 ? C.red : C.purple} height={6} />
         </Tile>
-        <Tile icon="coffee" color={C.yellow} label="Coffee" onPress={actions.addCoffee}>
+        <Tile icon="coffee" color={C.yellow} label="Coffee" onPress={() => actions.addCoffee()}>
           <Text style={styles.tileVal}>
             {coffees}
             <Text style={styles.tileUnit}> / {s.coffeeLimit} cups</Text>
