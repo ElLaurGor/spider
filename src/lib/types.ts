@@ -1,7 +1,18 @@
 // 0 = Sunday … 6 = Saturday (same as Date.getDay()).
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
-export type WorkoutDay = { name: string; exercises: string[] };
+/** A gym day's optional "When ___, I will ___" (if-then.ts), e.g. a plan B for rain at gym time. */
+export type WorkoutDay = { name: string; exercises: string[]; plan?: IfThen | null };
+
+/** What sets off an if-then plan (if-then.ts). `training`: 15 minutes after the last set, or a logged activity. */
+export type CueEvent = 'coffee' | 'training' | 'focus' | 'gaming' | 'checkin';
+export type Cue =
+  | { kind: 'event'; event: CueEvent }
+  | { kind: 'calendar'; match: string } // a calendar event ending whose title contains `match` ('' = the day's last meeting)
+  | { kind: 'time'; hour: number; minute: number }
+  | { kind: 'rain' }; // gym days: rain at gym time (the plan B)
+/** "When <cue>, I will <then>". `onCue`: times it was done right after its cue (a total, never a run of days). */
+export type IfThen = { cue: Cue; then: string; onCue?: number };
 
 export type NotifyPrefs = {
   water: boolean;
@@ -173,6 +184,9 @@ export type DayLog = {
   critBy?: Record<string, { id: string; dmg: number }>; // crit key -> the entry that rolled it, so undoing it takes the damage back; dropped at rollover
   // step 2b
   xpHours?: Record<number, number>; // hour (0–23) -> the day's xpEarned as last seen in that hour, for the ghost of last week (lib/xp-timeline.ts); kept 14 days
+  // step 4
+  cues?: Record<string, number>; // if-then cues that went off in the app that day: habit id (or 'gym') -> when (if-then.ts)
+  comeback?: string; // the missed planned gym day this day's first workout came back from (comeback.ts), so undoing it takes the bonus back
 };
 
 /** A finished day's goals: settings, plan and habits as they were that day. */
@@ -234,6 +248,8 @@ export type Habit = {
   days: Weekday[]; // empty = every day
   remindHour: number | null;
   createdAt: number;
+  plan?: IfThen | null; // step 4: an if-then plan (if-then.ts)
+  perWeek?: { min: number; max: number } | null; // step 4: a weekly range ("2–4× this week, any days"); `days` is ignored then
 };
 
 export type State = {
@@ -310,6 +326,8 @@ export type State = {
   // step 2b
   medals?: Record<string, Partial<Record<string, MedalTier>>>; // week key (its Monday) -> medal id -> tier won that week (lib/medals.ts)
   medalsSince?: string; // first week that earns medals (the week they arrived), so old weeks aren't paid out
+  // step 4
+  rangeTop?: Record<string, string>; // range habit id -> the week (its Monday) whose top-of-range bonus was paid
 };
 
 export type MedalTier = 'bronze' | 'silver' | 'gold';

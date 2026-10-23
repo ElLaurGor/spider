@@ -2,6 +2,7 @@
 // double; miss it and S.P.I.D.E.R. keeps the coins, unless the week was a rough one (low mood, period,
 // sick or away days), then the stake comes back. Goals are counts within the week, never streaks.
 import { addDays, dayKey, startOfDay, startOfWeek } from './dates';
+import { usedOn } from './day-filters';
 import { dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, moodsOf, onPeriod, trainedOn, waterGoalMet } from './selectors';
 import { pausedOn } from './pause';
 import type { Contract, ContractGoal, State } from './types';
@@ -111,4 +112,21 @@ export function roughWeek(s: State, c: Contract, now = new Date()) {
     const d = dayOf(s, key);
     return pausedOn(s, key) || onPeriod(d) || moodsOf(d).some((m) => m.level <= 2);
   });
+}
+
+/**
+ * After a lost contract: a new mission, not a retry with a "failed" label. This week's suggested goal is a
+ * different one, the one last week came closest to (something already half there). Null when last week's
+ * contract wasn't lost.
+ */
+export function newMission(s: State, now = new Date()): { goal: ContractGoal; lost: ContractGoal } | null {
+  const c = s.contract;
+  const lastWeek = dayKey(addDays(startOfWeek(now), -7));
+  if (!c || c.status !== 'lost' || c.week !== lastWeek) return null;
+  // Only days the app was used: an empty day says nothing (it would always be "within the gaming budget").
+  const days = Array.from({ length: 7 }, (_, i) => dayKey(addDays(new Date(`${lastWeek}T12:00`), i))).filter((k) => usedOn(s.days[k]));
+  const closest = CONTRACT_GOALS.filter((g) => g.id !== c.goal && g.available(s))
+    .map((g) => ({ g, share: Math.min(1, days.reduce((a, k) => a + g.count(s, k, true, 0), 0) / g.target) }))
+    .sort((a, b) => b.share - a.share)[0];
+  return closest ? { goal: closest.g.id, lost: c.goal } : null;
 }

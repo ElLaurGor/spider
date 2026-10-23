@@ -134,5 +134,7 @@ export function hydrate(saved: Partial<State> | null): State {
     },
     plan: { ...base.plan, ...saved.plan },
     counters: { ...base.counters, ...saved.counters },
+    // step 4: a habit without a weekly range or an if-then plan has neither
+    habits: (saved.habits ?? base.habits).map((h) => ({ ...h, perWeek: h.perWeek ?? null, plan: h.plan ?? null })),
   });
 }

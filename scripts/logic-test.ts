@@ -81,7 +81,7 @@ import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
 import { gentleDay, goldenAllowed, periodDay, toneOn } from '../src/lib/tone';
 import { gameLineKey, nightVerdictKey, stepsLineKey, verdictLineKey } from '../src/lib/line-context';
-import type { DayLog } from '../src/lib/types';
+import type { DayLog, Weekday } from '../src/lib/types';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // step 2 game
@@ -102,6 +102,11 @@ import { DEFAULT_WIDGET_COLORS, forToday, snapshotOf, widgetLines, withTap } fro
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
+// step 4 plans: if-then plans, the comeback bonus, weekly range habits
+import { newMission } from '../src/lib/contracts';
+import { habitsShownOn, rangeDueOn, rangeNeededOn, rangeRemindOn, rangeText, rangeWeek } from '../src/lib/habits';
+import { checkCues, cueHappened, cueReminders, cueSaid, cueTimes, firedEvents, onCueNow, planBToday, planMinutes, planText, rainAtGym, reminderRetired } from '../src/lib/if-then';
+import { COMEBACK, missedGymBefore } from '../src/lib/comeback';
 import { bankRate, focusBonusMin, healShare, perkBlocker, perkPoints, workoutBonusMin } from '../src/lib/perks';
 import { restedAfter, restedGain, restedSplit, RESTED_CAP } from '../src/lib/rested';
 import { buyable, COSMETICS, cosmeticOf, legendaryDrop, shownTitle, titlesEarned, whereToGet, worn, withOwned, withWorn } from '../src/lib/cosmetics';
@@ -154,6 +159,7 @@ for (const k of ['weakness', 'day', 'until']) known.add(k); // cluster A
 for (const k of ['done', 'budget']) known.add(k); // step 2 tone: the Gym and Game tabs
 for (const k of ['rival', 'medals']) known.add(k); // step 2b progress: the nemesis and weekly medals
 for (const k of ['hp', 'plan']) known.add(k); // step 2b boss: the weekend finisher and the recap
+for (const k of ['when', 'happened', 'then', 'dmg', 'min']) known.add(k); // step 4 plans: if-then prompts and the comeback bonus
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -2071,6 +2077,148 @@ void (async () => {
   const red = defaultState();
   red.settings.redDaysOff = true;
   assert.equal(workoutsThisWeek(red, new Date(2026, 11, 23, 12)).planned, 3, 'Christmas Eve week: the plan minus red Friday 25 Dec');
+}
+
+// ---------- step 4 plans ----------
+{
+  const blankDay = (): DayLog => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 });
+  const noon = (key: string) => new Date(`${key}T12:00`);
+  // The week of Mon 11 Jan 2027.
+  const wk = ['2027-01-11', '2027-01-12', '2027-01-13', '2027-01-14', '2027-01-15', '2027-01-16', '2027-01-17'];
+  const created = new Date(2026, 11, 1).getTime();
+  const range = { id: 'r', name: 'Stretch', emoji: '🧘', days: [], remindHour: 19, createdAt: created, perWeek: { min: 3, max: 5 }, plan: null };
+  const fixed = { id: 'f', name: 'Vitamins', emoji: '💊', days: [], remindHour: 8, createdAt: created };
+  const withDone = (keys: string[], base = defaultState()) => {
+    const st = { ...base, habits: [range, fixed], days: { ...base.days } };
+    for (const k of keys) st.days[k] = { ...blankDay(), ...st.days[k], habits: [...(st.days[k]?.habits ?? []), 'r'] };
+    return st;
+  };
+
+  // range habits: due only when done or when the low end needs every open day left; reminders one day earlier
+  const empty = withDone([]);
+  assert.deepEqual(wk.map((k) => rangeNeededOn(empty, range, noon(k))), [false, false, false, false, true, true, true], 'min 3, nothing done: needed Fri to Sun');
+  assert.deepEqual(wk.map((k) => rangeRemindOn(empty, range, noon(k))), [false, false, false, true, true, true, true], 'reminded from Thursday (one spare day)');
+  assert.ok(!habitsFor(empty, noon(wk[0])).some((h) => h.id === 'r'), 'not due on Monday with slack left');
+  assert.ok(habitsFor(empty, noon(wk[0])).some((h) => h.id === 'f'), 'fixed habits are unchanged');
+  assert.ok(habitsShownOn(empty, noon(wk[0])).some((h) => h.id === 'r'), 'but listed every day');
+  const two = withDone([wk[0], wk[1]]);
+  assert.ok(rangeDueOn(two, range, noon(wk[1])), 'a day it was done is due (doing it always counts)');
+  assert.ok(!rangeNeededOn(two, range, noon(wk[5])) && rangeRemindOn(two, range, noon(wk[5])), 'min 3, 2 done: Saturday gets the one reminder');
+  assert.ok(rangeNeededOn(two, range, noon(wk[6])), '... and Sunday is the day it has to happen');
+  assert.equal(rangeText(rangeWeek(two, range, noon(wk[3]))!), '2/3–5 this week');
+  const five = withDone(wk.slice(0, 5));
+  assert.equal(rangeWeek(five, range, noon(wk[6]))!.done, 5);
+  assert.ok(!rangeRemindOn(five, range, noon(wk[6])), 'no reminders once the low end is met');
+  // paused days and a habit added mid-week ask for less, never more
+  const sick = startPause(withDone([]), 'sick', 4, wk[3]);
+  assert.equal(rangeWeek(sick, range, noon(wk[0]))!.target, 2, 'sick Thu–Sun: 3 of 7 open days, low end 3 -> 2');
+  assert.equal(rangeText(rangeWeek(sick, range, noon(wk[0]))!), '0/2–5 this week');
+  const late = { ...withDone([]), habits: [{ ...range, createdAt: noon(wk[3]).getTime() - 3_600_000 }] };
+  assert.equal(rangeWeek(late, late.habits[0], noon(wk[3]))!.target, 2, 'added Thursday: 4 open days, low end 3 -> 2');
+  assert.ok(!rangeNeededOn(late, late.habits[0], noon(wk[0])), 'not needed before it existed');
+  assert.equal(rangeWeek({ ...empty, habits: [fixed] }, fixed), null, 'a fixed habit has no range');
+  // hydrate gives old habits the new fields
+  const old = hydrate({ ...defaultState(), habits: [fixed] });
+  assert.equal(old.habits[0].perWeek, null);
+  assert.equal(old.habits[0].plan, null);
+
+  // if-then: how a cue reads
+  assert.equal(cueSaid({ kind: 'event', event: 'coffee' }), 'after your first coffee');
+  assert.equal(cueSaid({ kind: 'time', hour: 7, minute: 30 }), 'at 07:30');
+  assert.equal(cueSaid({ kind: 'calendar', match: 'Standup' }), 'when Standup ends');
+  assert.equal(cueSaid({ kind: 'calendar', match: ' ' }), 'when your last meeting ends');
+  assert.equal(cueHappened({ kind: 'event', event: 'coffee' }), "Coffee's logged.");
+  assert.equal(planText({ cue: { kind: 'event', event: 'coffee' }, then: 'Vitamins' }), 'After my first coffee → Vitamins');
+  assert.equal(planText({ cue: { kind: 'rain' }, then: '20-min home circuit' }), 'If it rains at gym time → 20-min home circuit');
+  assert.equal(planMinutes('20-min home circuit'), 20);
+  assert.equal(planMinutes('45 minutes of yoga'), 45);
+  assert.equal(planMinutes('home circuit'), 20);
+  assert.equal(planMinutes('2 rounds'), 20);
+  for (const k of ['ifThenCue', 'planBRain', 'planBDone', 'comebackWorkout', 'rangeWeekMin', 'rangeWeekTop', 'ifThenDone', 'ifThenRetired'] as const) assert.ok(LINES[k], k);
+  assert.equal(fillLine('{happened} You planned {when}: {then}.', { happened: "Coffee's logged.", when: 'after your first coffee', then: 'Vitamins' }), "Coffee's logged. You planned after your first coffee: Vitamins.");
+
+  // what happened in the app between two states
+  const at = new Date(2027, 0, 13, 9);
+  const k0 = dayKey(at);
+  const base = { ...defaultState(), onboarded: true };
+  const withDay = (st: typeof base, d: Partial<DayLog>) => ({ ...st, days: { ...st.days, [k0]: { ...blankDay(), ...st.days[k0], ...d } } });
+  const cup = { id: 'c1', mg: 90, at: at.getTime() };
+  assert.deepEqual(firedEvents(base, withDay(base, { coffee: [cup] }), at), ['coffee']);
+  assert.deepEqual(firedEvents(withDay(base, { coffee: [cup] }), withDay(base, { coffee: [cup, { ...cup, id: 'c2' }] }), at), [], 'only the first coffee');
+  assert.deepEqual(firedEvents(base, withDay(base, { coffee: [{ ...cup, late: true }] }), at), [], 'back-dated cups are no cue');
+  assert.deepEqual(firedEvents(base, withDay(base, { activities: [{ id: 'a', kind: 'cardio', minutes: 30, at: at.getTime() }] }), at), ['training']);
+  assert.deepEqual(firedEvents(base, withDay(base, { focus: [{ id: 'x', start: 0, end: 1, minutes: 25 }] }), at), ['focus']);
+  assert.deepEqual(firedEvents(base, withDay(base, { focus: [{ id: 'x', start: 0, end: 1, minutes: 25, snapped: 'Instagram' }] }), at), [], 'a snapped web is no cue');
+  assert.deepEqual(firedEvents({ ...base, activeGame: { start: at.getTime() - 3_600_000 } } as typeof base, base, at), ['gaming']);
+  assert.deepEqual(firedEvents(base, withDay(base, { sleepRating: 4 }), at), ['checkin']);
+
+  // a cue in the app prompts once a day, not for a habit already done, not on a paused day
+  const vit = { ...fixed, plan: { cue: { kind: 'event' as const, event: 'coffee' as const }, then: 'Vitamins' } };
+  const planned = { ...base, habits: [vit] };
+  const c1 = checkCues(planned, withDay(planned, { coffee: [cup] }), at);
+  assert.equal(c1.prompts.length, 1);
+  assert.equal(c1.prompts[0].target, 'f');
+  assert.equal(c1.state.days[k0].cues?.f, at.getTime());
+  assert.equal(checkCues(c1.state, withDay(c1.state, { coffee: [cup, { ...cup, id: 'c2' }] }), at).prompts.length, 0, 'once a day');
+  assert.equal(checkCues(withDay(planned, { habits: ['f'] }), withDay(planned, { habits: ['f'], coffee: [cup] }), at).prompts.length, 0, 'already done');
+  const pausedPlan = startPause(planned, 'sick', 2, k0);
+  assert.equal(checkCues(pausedPlan, withDay(pausedPlan, { coffee: [cup] }), at).prompts.length, 0, 'paused');
+  // on cue: within 90 minutes of the cue
+  assert.ok(onCueNow(c1.state, vit, new Date(at.getTime() + 30 * 60_000), []));
+  assert.ok(!onCueNow(c1.state, vit, new Date(at.getTime() + 3 * 3_600_000), []), 'hours later is not on cue');
+  const timed = { ...fixed, plan: { cue: { kind: 'time' as const, hour: 7, minute: 30 }, then: 'Vitamins', onCue: 3 } };
+  assert.ok(onCueNow(base, timed, new Date(2027, 0, 13, 8), []));
+  assert.ok(!onCueNow(base, timed, new Date(2027, 0, 13, 7), []), 'before its time');
+  assert.ok(!reminderRetired(timed) && reminderRetired({ ...timed, plan: { ...timed.plan, onCue: 10 } }), 'the clock reminder retires at 10 on cue');
+  const lifting = { ...fixed, plan: { cue: { kind: 'event' as const, event: 'training' as const }, then: 'Stretch' } };
+  const trained = withDay(base, { sets: [{ id: 's', exercise: 'Squat', weight: 60, reps: 5, at: at.getTime() }] });
+  assert.ok(onCueNow(trained, lifting, new Date(at.getTime() + 5 * 60_000), []), 'right after the last set counts');
+  assert.deepEqual(cueTimes(trained, lifting.plan, at, []), [at.getTime() + 15 * 60_000], 'after training: 15 min after the last set');
+
+  // calendar cues: a meeting by title, or the day's last one
+  const ev = (title: string, h: number) => ({ key: title, title, start: new Date(2027, 0, 13, h).getTime(), end: new Date(2027, 0, 13, h, 30).getTime(), allDay: false, location: null, calendarId: 'c' });
+  const evs = [ev('Standup', 9), ev('Planning', 14), ev('1:1', 16)];
+  assert.deepEqual(cueTimes(base, { cue: { kind: 'calendar', match: 'standup' }, then: 'x' }, at, evs), [new Date(2027, 0, 13, 9, 30).getTime()]);
+  assert.deepEqual(cueTimes(base, { cue: { kind: 'calendar', match: '' }, then: 'x' }, at, evs), [new Date(2027, 0, 13, 16, 30).getTime()]);
+
+  // reminders for clock cues: ids, skipped once done or on paused days
+  const meeting = { ...fixed, plan: { cue: { kind: 'calendar' as const, match: '' }, then: 'Walk 10 min' } };
+  const rem = cueReminders({ ...base, habits: [meeting] }, 0, at, evs, null);
+  assert.deepEqual(rem.map((r) => r.id), [`ifthen-f-${k0}-0`]);
+  assert.equal(cueReminders(withDay({ ...base, habits: [meeting] }, { habits: ['f'] }), 0, at, evs, null).length, 0, 'done: no reminder');
+  assert.equal(cueReminders(startPause({ ...base, habits: [meeting] }, 'away', 2, k0), 0, at, evs, null).length, 0, 'paused: none');
+
+  // plan B: rain at gym time
+  const wet = { temp: 8, feels: 5, code: 61, fetchedAt: 0, soon: [], days: [{ date: k0, max: 8, min: 3, rainPct: 80, code: 61, rainMm: 4, sunrise: 0, sunset: 0, daylightMin: 0, sunshineMin: 0 }] };
+  const dry = { ...wet, days: [{ ...wet.days[0], rainPct: 10, rainMm: 0 }] };
+  assert.ok(rainAtGym(wet, at, 18, 0) && !rainAtGym(dry, at, 18, 0) && !rainAtGym(null, at, 18, 0));
+  const gymAt = new Date(2027, 0, 13, 18).getTime();
+  assert.ok(rainAtGym({ ...dry, soon: [{ at: gymAt, mm: 0.6 }] }, at, 18, 0), 'the 15-minute forecast wins when it reaches gym time');
+  const wed = at.getDay() as Weekday;
+  const rainy = { ...base, plan: { ...base.plan, [wed]: { name: 'Pull', exercises: [], plan: { cue: { kind: 'rain' as const }, then: '20-min home circuit' } } } };
+  assert.deepEqual(planBToday(rainy, wet, at), { then: '20-min home circuit', minutes: 20, time: '18:00' });
+  assert.equal(planBToday(rainy, dry, at), null, 'dry: no plan B');
+  assert.equal(planBToday(trained.days ? { ...rainy, days: trained.days } : rainy, wet, at), null, 'trained already');
+  assert.deepEqual(cueReminders(rainy, 0, at, [], wet).map((r) => [r.id, r.planB, r.at]), [[`ifthen-gym-${k0}`, true, gymAt - 3_600_000]], 'plan B goes out an hour before gym time');
+
+  // the comeback bonus: the first workout after a missed planned day (Tue Pull), not after a paused one
+  const cb = defaultState();
+  cb.days['2027-01-11'] = { ...blankDay(), sets: [{ id: 's1', exercise: 'Bench press', weight: 50, reps: 5, at: noon('2027-01-11').getTime() }] };
+  cb.days['2027-01-12'] = { ...blankDay(), water: [{ id: 'w', ml: 250, at: noon('2027-01-12').getTime() }] };
+  const thu = noon('2027-01-14');
+  assert.equal(missedGymBefore(cb, thu), '2027-01-12', 'Tuesday (Pull) was planned and missed');
+  assert.equal(missedGymBefore({ ...cb, days: { ...cb.days, '2027-01-13': { ...blankDay(), activities: [{ id: 'a', kind: 'cardio', minutes: 20, at: 0 }] } } }, thu), null, 'trained since: nothing to come back from');
+  assert.equal(missedGymBefore(startPause(cb, 'sick', 1, '2027-01-12'), thu), null, 'a paused day is never missed');
+  assert.equal(missedGymBefore(defaultState(), thu), null, 'nothing logged yet: no comeback');
+  assert.ok(COMEBACK.xp > 0 && COMEBACK.min > 0);
+
+  // after a lost contract: a different goal, the one last week came closest to
+  const lost = defaultState();
+  for (const k of ['2027-01-11', '2027-01-12', '2027-01-13', '2027-01-14', '2027-01-15']) lost.days[k] = { ...blankDay(), water: [{ id: 'w', ml: 3000, at: noon(k).getTime() }] };
+  lost.contract = { week: '2027-01-11', from: '2027-01-11', goal: 'train', target: 3, stake: 100, status: 'lost' };
+  assert.deepEqual(newMission(lost, noon('2027-01-18')), { goal: 'water', lost: 'train' });
+  assert.equal(newMission({ ...lost, contract: { ...lost.contract, status: 'won' } }, noon('2027-01-18')), null, 'only after a lost one');
+  assert.equal(newMission(lost, noon('2027-01-26')), null, 'only the week right after');
 }
 
 // ---------- step 2b boss ----------
