@@ -4,7 +4,7 @@ import * as Updates from 'expo-updates';
 import { useState, type ReactNode } from 'react';
 import { Alert, DevSettings, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 
-import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T } from '@/components/ui';
+import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { pad } from '@/lib/dates';
@@ -376,6 +376,7 @@ export default function SettingsScreen() {
           value={!!state.backupFolderUri}
           onChange={(v) => (v ? void autoBackupOn() : actions.stopAutoBackup())}
         />
+        <StorageRow />
       </Card>
 
       {cal.status === 'granted' && cal.calendars.length > 0 ? (
@@ -452,6 +453,23 @@ export default function SettingsScreen() {
         <Btn label="Reset everything" icon="delete" kind="danger" onPress={reset} />
       </Card>
     </ScrollView>
+  );
+}
+
+const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+/** Where the data lives: when it was last saved, and how close the biggest stored part is to Android's 2 MB a part can hold. */
+function StorageRow() {
+  const { storageInfo } = useStore();
+  useNow(10_000);
+  const info = storageInfo();
+  return (
+    <T dim small>
+      {info.failing
+        ? '💾 The last save failed. Retrying in the background.'
+        : `💾 Last saved ${info.savedAt ? new Date(info.savedAt).toLocaleTimeString('sv-SE').slice(0, 5) : 'not yet this run'}`}
+      {info.rows ? ` · ${kb(info.bytes)} in ${info.rows} part${info.rows === 1 ? '' : 's'}, the biggest ${kb(info.largest)} of the 2 MB a part can hold.` : ''}
+    </T>
   );
 }
 

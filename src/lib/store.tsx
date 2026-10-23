@@ -3,10 +3,11 @@ import * as Haptics from 'expo-haptics';
 import { router, type Href } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 
-import { autoBackup, createBackup, pickAutoBackupFolder, readBackup } from './backup';
+import { autoBackup, createBackup, keepCopy, pickAutoBackupFolder, readBackup } from './backup';
+import { olderCopy, readSaved, ReadError, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from './persist';
 import { autoBackupDue } from './backup-due';
 import { THEMES } from '@/constants/theme';
 
@@ -14,7 +15,7 @@ import { activityInfo } from './body';
 import { calendarPermission, calendarSupported, loadCalendars, loadEvents } from './calendar';
 import { bankFor, coinsFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
 import { stageFor, themesUnlockedBetween } from './evolution';
-import { addDays, dayKey, fmtDuration, MIN, startOfDay, uid, WEEKDAYS_LONG } from './dates';
+import { addDays, dayKey, fmtDuration, isDayKey, MIN, startOfDay, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, readHealth, type HealthData, type HealthStatus } from './health';
 import { habitsDone, habitsFor } from './habits';
@@ -97,8 +98,6 @@ import { goldChest } from './loot';
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
 import { restedAfter, restedGain, restedSplit } from './rested';
 
-const STORAGE_KEY = 'spider:state:v1';
-
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /** A button on a toast (cluster G: "Catch it!" on a fly). */
 export type ToastAction = 'catchFly';
@@ -116,7 +115,7 @@ const patchDay = (s: State, key: string, fn: (d: DayLog) => DayLog): State => ({
 });
 
 /** A past day's key, or null for today. Back-dated entries earn no XP (and remove none); goal rewards stay today's. */
-const pastKey = (key?: string) => (key && key !== dayKey() ? key : null);
+const pastKey = (key?: string) => (isDayKey(key) && key !== dayKey() ? key : null);
 
 /** Now's clock time on another day: where entries added to a past day land. */
 const nowOn = (key: string) => {
@@ -422,6 +421,41 @@ function recomputePr(s: State, exercise: string): State {
   return { ...s, prs };
 }
 
+// ---------- persistence bookkeeping ----------
+
+type Disk = {
+  /** 'v1' only for a run where moving to v2 failed (it's tried again next launch). */
+  mode: 'v1' | 'v2';
+  /** The days as last written: v2 rewrites only the months whose days changed since. */
+  days: State['days'] | null;
+  months: string[];
+  migratedAt?: number;
+  /** Days in the last load or save, for the shrink guard. */
+  dayCount: number;
+  /** Reset, restore and "start fresh" may shrink the history; the next save clears it. */
+  allowShrink: boolean;
+  warnedShrink: boolean;
+  /** Bytes per stored row, as last read or written. */
+  sizes: Record<string, number>;
+  savedAt: number | null;
+  failures: number;
+};
+const freshDisk = (): Disk => ({
+  mode: 'v2',
+  days: null,
+  months: [],
+  migratedAt: undefined,
+  dayCount: 0,
+  allowShrink: false,
+  warnedShrink: false,
+  sizes: {},
+  savedAt: null,
+  failures: 0,
+});
+
+/** A restored backup: nothing left running from the day it was made. */
+const restored = (s: State): State => ({ ...s, onboarded: true, activeGame: null, restEndsAt: null, activeFocus: null, pendingFly: null });
+
 // ---------- context ----------
 
 type Store = ReturnType<typeof useStoreValue>;
@@ -433,8 +467,21 @@ export function useStore() {
   return ctx;
 }
 
-export function StoreProvider({ children }: { children: ReactNode }) {
+/** What the recovery screen gets when the saved data couldn't be read. */
+export type RecoveryProps = {
+  message: string;
+  /** The pre-v2 copy (still in storage), with the time it was moved to v2 if known. */
+  older: { at: number | null } | null;
+  retry: () => Promise<void>;
+  /** Picks a backup folder; false if cancelled. */
+  restore: () => Promise<boolean>;
+  loadOlder: () => Promise<void>;
+  startFresh: () => Promise<void>;
+};
+
+export function StoreProvider({ children, recovery: Recovery }: { children: ReactNode; recovery: ComponentType<RecoveryProps> }) {
   const value = useStoreValue();
+  if (value.recovery) return <Recovery {...value.recovery} />;
   if (!value.ready) return null; // splash screen stays up until data is loaded
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
@@ -477,14 +524,71 @@ function useStoreValue() {
   }, []);
   const dismissToast = useCallback(() => setToasts((q) => q.slice(1)), []);
 
-  // ----- persistence -----
+  // ----- persistence (layout in persist.ts) -----
+  /** Nothing is written until a load succeeded: a failed read must never be saved over. */
+  const loaded = useRef(false);
+  const [failure, setFailure] = useState<{ message: string; older: RecoveryProps['older'] } | null>(null);
+  const disk = useRef<Disk>(freshDisk());
+  const saving = useRef<Promise<void>>(Promise.resolve());
+  const retrySave = useRef<() => void>(() => {});
+
+  /** Writes the current state once (v2: the base plus the months that changed). Throws on a storage error. */
+  const writeOnce = useCallback(async () => {
+    const s = stateRef.current;
+    const d = disk.current;
+    const count = Object.keys(s.days).length;
+    if (!d.allowShrink && wouldWipe(d.dayCount, count)) {
+      console.warn('[spider] refused a save that would erase most of the history', d.dayCount, '->', count);
+      if (!d.warnedShrink) say("💾 I didn't save that: it would have erased most of your history. What's saved is untouched. Restart the app.", 'bad');
+      d.warnedShrink = true;
+      return;
+    }
+    if (d.mode === 'v1') {
+      const raw = JSON.stringify(s);
+      await AsyncStorage.setItem(V1_KEY, raw);
+      d.sizes = { [V1_KEY]: utf8Bytes(raw) };
+    } else {
+      const { pairs, gone, months } = rowsFor(s, d.days, d.months, d.migratedAt);
+      await AsyncStorage.multiSet(pairs);
+      if (gone.length) await AsyncStorage.multiRemove(gone);
+      for (const [k, v] of pairs) d.sizes[k] = utf8Bytes(v);
+      for (const k of gone) delete d.sizes[k];
+      d.days = s.days;
+      d.months = months;
+    }
+    d.dayCount = count;
+    d.allowShrink = false;
+    d.savedAt = Date.now();
+  }, [say]);
+
+  /** Saves now, after any save still running. Does nothing before a successful load. */
   const saveNow = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    return AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(stateRef.current));
-  }, []);
+    if (!loaded.current) return Promise.resolve();
+    const next = saving.current.then(writeOnce);
+    saving.current = next.catch(() => {});
+    return next;
+  }, [writeOnce]);
   const save = useCallback(() => {
-    saveNow().catch((e) => console.warn('[spider] save failed', e));
-  }, [saveNow]);
+    saveNow().then(
+      () => {
+        if (!disk.current.failures) return;
+        disk.current.failures = 0;
+        say('💾 Saving works again. Nothing was lost.', 'good');
+      },
+      (e) => {
+        const d = disk.current;
+        d.failures += 1;
+        console.warn('[spider] save failed', e);
+        if (d.failures === 1) say("💾 Couldn't save just now. I'll keep trying in the background.", 'bad');
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => retrySave.current(), Math.min(60_000, 2_000 * 2 ** (d.failures - 1)));
+      },
+    );
+  }, [saveNow, say]);
+  useEffect(() => {
+    retrySave.current = save;
+  }, [save]);
 
   const commit = useCallback(
     (next: State) => {
@@ -496,21 +600,99 @@ function useStoreValue() {
     [save],
   );
 
-  useEffect(() => {
-    (async () => {
-      let loaded = defaultState();
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        loaded = hydrate(raw ? (JSON.parse(raw) as Partial<State>) : null);
-      } catch (e) {
-        console.warn('[spider] load failed, starting fresh', e);
-      }
-      stateRef.current = loaded;
-      setState(loaded);
-      setReady(true);
-      SplashScreen.hideAsync().catch(() => {});
-    })();
+  /** First launch on v2: keep a file copy of the old row, write the months, read them back, then switch. */
+  const moveToV2 = useCallback(async (raw: string, s: State) => {
+    const d = disk.current;
+    const migratedAt = Date.now();
+    const { pairs, months } = rowsFor(s, null, [], migratedAt);
+    try {
+      keepCopy('spider-state-v1.json', raw);
+      if (!(await writeVerified(AsyncStorage, pairs))) throw new Error('read-back mismatch');
+      Object.assign(d, { mode: 'v2', days: s.days, months, migratedAt, sizes: Object.fromEntries(pairs.map(([k, v]) => [k, utf8Bytes(v)])) });
+    } catch (e) {
+      // Stay on v1 for this run (saves keep going there) and try again next launch. Rows half-written
+      // here would be read first next time, so they go.
+      console.warn('[spider] moving to v2 failed, staying on v1', e);
+      await AsyncStorage.multiRemove(pairs.map(([k]) => k)).catch(() => {});
+      Object.assign(d, { mode: 'v1', days: null, months: [], sizes: { [V1_KEY]: utf8Bytes(raw) } });
+    }
   }, []);
+
+  /** Reads the saved state. If it's there but can't be read, nothing is loaded and nothing saved: the recovery screen takes over. */
+  const load = useCallback(async () => {
+    try {
+      const got = await readSaved(AsyncStorage);
+      let next: State;
+      try {
+        next = hydrate(got.saved);
+      } catch (e) {
+        throw new ReadError(got.source === 'v2' ? 'v2' : 'v1', e);
+      }
+      const d = disk.current;
+      Object.assign(d, freshDisk(), { dayCount: Object.keys(next.days).length });
+      if (got.source === 'v2') {
+        // The days as stored: anything hydrate() changed goes out with the next save.
+        Object.assign(d, { days: got.saved.days ?? {}, months: got.index.months, migratedAt: got.index.migratedAt, sizes: got.sizes });
+      } else if (got.source === 'v1') {
+        await moveToV2(got.raw, next);
+      }
+      loaded.current = true;
+      if (got.source === 'v2' && next.days !== got.saved.days) commit(next);
+      else {
+        stateRef.current = next;
+        setState(next);
+      }
+      setFailure(null);
+      setReady(true);
+    } catch (e) {
+      console.warn('[spider] load failed, nothing will be saved over it', e);
+      const older = e instanceof ReadError && e.stage === 'v2' ? await olderCopy(AsyncStorage) : null;
+      setFailure({ message: e instanceof Error ? e.message : String(e), older });
+    }
+    SplashScreen.hideAsync().catch(() => {});
+  }, [commit, moveToV2]);
+  useEffect(() => {
+    const t = setTimeout(() => void load(), 0);
+    return () => clearTimeout(t);
+  }, [load]);
+
+  /** A state picked on the recovery screen replaces whatever couldn't be read, and the app opens. */
+  const adopt = useCallback(
+    (s: State) => {
+      Object.assign(disk.current, freshDisk(), { allowShrink: true });
+      loaded.current = true;
+      setFailure(null);
+      setReady(true);
+      commit(s);
+    },
+    [commit],
+  );
+  const recovery: RecoveryProps | null = failure && {
+    ...failure,
+    retry: load,
+    async restore() {
+      const result = await readBackup();
+      if (!result) return false;
+      await cancelEverything();
+      adopt(restored(result.state));
+      return true;
+    },
+    async loadOlder() {
+      const raw = await AsyncStorage.getItem(V1_KEY);
+      if (raw == null) throw new Error('The older copy is gone.');
+      adopt(hydrate(JSON.parse(raw) as Partial<State>));
+    },
+    async startFresh() {
+      await cancelEverything();
+      adopt(defaultState());
+    },
+  };
+  /** For Settings: when the last save landed and how big the stored rows are. */
+  const storageInfo = () => {
+    const d = disk.current;
+    const sizes = Object.values(d.sizes);
+    return { savedAt: d.savedAt, bytes: sizes.reduce((a, b) => a + b, 0), largest: Math.max(0, ...sizes), rows: sizes.length, failing: d.failures > 0 };
+  };
 
   /** Apply a change, award achievements, save, and show S.P.I.D.E.R.'s reactions. */
   const run = useCallback(
@@ -1773,13 +1955,15 @@ function useStoreValue() {
         const result = await readBackup();
         if (!result) return;
         await cancelEverything();
-        commit({ ...result.state, onboarded: true, activeGame: null, restEndsAt: null });
+        disk.current.allowShrink = true; // a backup may hold fewer days than the phone
+        commit(restored(result.state));
         say(`Restored backup from ${new Date(result.createdAt).toLocaleString('sv-SE').slice(0, 16)} (${result.photos} photos). Welcome back.`, 'epic');
       },
 
       async resetAll() {
         await cancelEverything();
         deleteAllPhotos();
+        disk.current.allowShrink = true;
         commit(defaultState());
       },
     }),
@@ -1836,6 +2020,8 @@ function useStoreValue() {
 
   return {
     ready,
+    recovery,
+    storageInfo,
     state,
     actions,
     say,

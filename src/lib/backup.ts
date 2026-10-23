@@ -14,6 +14,13 @@ type BackupFile = { app: 'spider'; version: 1; createdAt: number; photos: Record
 
 const localPhotos = () => new Directory(Paths.document, 'photos');
 
+/** A copy of raw saved data in the app's own files, outside AsyncStorage (written before the storage layout changes). */
+export function keepCopy(name: string, text: string) {
+  const f = new File(Paths.document, name);
+  if (!f.exists) f.create();
+  f.write(text);
+}
+
 const mimeFor = (name: string) => (name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
 
 function photoUris(s: State) {

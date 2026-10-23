@@ -4,6 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 
 import { AutoUpdate } from "@/components/auto-update";
+import { Recovery } from "@/components/recovery";
 import { ShareInbox } from "@/components/share-inbox";
 import { ToastHost } from "@/components/toast";
 import { C } from "@/constants/theme";
@@ -26,7 +27,7 @@ const SpiderTheme = {
 export default function RootLayout() {
   return (
     <ShareIntentProvider>
-      <StoreProvider>
+      <StoreProvider recovery={Recovery}>
         <ThemeProvider value={SpiderTheme}>
           <StatusBar style="light" />
           <Stack
