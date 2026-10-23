@@ -7,7 +7,7 @@ import { addDays, atTime, dayKey, fmtDuration, fmtTime, MIN } from './dates';
 import { habitsDone, isScheduled } from './habits';
 import { line, type LineKey } from './lines';
 import * as Notifications from './local-notifications';
-import { cycleInfo } from './body';
+import { cycleInfo, isPredictedPeriod } from './body';
 import { standings } from './league';
 import { pausedOn } from './pause';
 import { immortalTask } from './memory';
@@ -34,9 +34,10 @@ import { forecastText, type Weather } from './weather';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outside';
 import { bossFor, questsFor } from './quests';
 import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
+import { periodDay, toneOn, type DayTone } from './tone';
 import { upcomingDays } from './swedish-days';
 
-const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings' } as const;
+const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
 // Notifications re-planned on every app change; gaming/rest alerts are managed separately.
 const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-'];
@@ -97,6 +98,12 @@ export async function initNotifications(askIfNeeded: boolean) {
       await Notifications.setNotificationChannelAsync(CH.remind, { name: 'Reminders & roasts', ...base });
       await Notifications.setNotificationChannelAsync(CH.gym, { name: 'Gym', ...base });
       await Notifications.setNotificationChannelAsync(CH.game, { name: 'Gaming timer', ...base });
+      // The period heads-up: its text stays off the lock screen.
+      await Notifications.setNotificationChannelAsync(CH.private, {
+        name: 'Private reminders',
+        ...base,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+      });
       // Its own channel, so muting the roasts never silences an SMHI warning or a VMA.
       await Notifications.setNotificationChannelAsync(CH.warn, {
         name: 'Warnings (SMHI & VMA)',
@@ -161,6 +168,9 @@ async function scheduleAt(
 
 const say = (s: State, key: LineKey, vars: Record<string, string | number> = {}) =>
   line(key, effectiveSavage(s), { name: s.settings.userName || 'boss', ...vars });
+/** A line in the tone of the day it goes out on, not today's (a period or a low mood carries over into it). */
+const sayOn = (s: State, tone: DayTone, key: LineKey, vars: Record<string, string | number> = {}) =>
+  line(key, tone.level, { name: s.settings.userName || 'boss', ...vars });
 
 function daySummary(s: State, now: Date) {
   const d = dayOf(s, dayKey(now));
@@ -196,7 +206,14 @@ export function replanNotifications(s: State, events: CalEvent[], weather: Weath
 }
 
 async function doReplan(s: State, events: CalEvent[], weather: Weather | null, air: Air | null) {
-  if (!permitted || !s.onboarded) return;
+  if (!s.onboarded) return;
+  // Asked again on every replan: allowed later in Android's settings, the reminders start without a restart.
+  try {
+    permitted = (await Notifications.getPermissionsAsync()).granted;
+  } catch {
+    // keep the last answer
+  }
+  if (!permitted) return;
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   await Promise.all(
     scheduled
@@ -212,12 +229,16 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     jobs.push(Notifications.cancelScheduledNotificationAsync(SNOOZE_ID).catch(() => {}));
   }
 
+  const cycle = cycleInfo(s, now);
   for (let d = 0; d < DAYS_AHEAD; d++) {
     const date = addDays(now, d);
     const key = dayKey(date);
     const log = dayOf(s, key);
     const plan = workoutFor(s, date);
-    const paused = pausedOn(s, key); // sick or away: no water or gym nagging
+    const paused = pausedOn(s, key); // sick or away: no water, gym, habit or move nagging
+    // Each day in its own tone: a low mood tonight, a running or predicted period make that day kind.
+    const tone = toneOn(s, key, now, cycle);
+    const period = st.easyOnPeriod && (periodDay(s, key) || (d > 0 && isPredictedPeriod(cycle, date)));
 
     const waterGoal = waterGoalFor(s, key);
     if (st.notify.water && !paused && !(d === 0 && waterMl(log) >= waterGoal)) {
@@ -225,16 +246,18 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
         const when = atTime(now, d, Math.floor(t / 60), t % 60);
         if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
         const progress = d === 0 ? ` (${waterMl(log)}/${waterGoal} ml)` : '';
-        jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', say(s, 'waterRemind') + progress, CH.remind, { category: CATEGORY.water }));
+        jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', sayOn(s, tone, 'waterRemind') + progress, CH.remind, { category: CATEGORY.water }));
       }
     }
 
     if (st.notify.gym && plan && !paused && !trainedOn(log)) {
       const gymAt = atTime(now, d, st.gymHour, st.gymMinute).getTime();
-      jobs.push(scheduleAt(`gym-${key}-pre`, gymAt - 30 * MIN, `🏋️ ${plan.name} day`, say(s, 'gymRemind', { workout: plan.name }), CH.gym));
+      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name });
+      jobs.push(scheduleAt(`gym-${key}-pre`, gymAt - 30 * MIN, `🏋️ ${plan.name} day`, pre, CH.gym));
       const shameAt = Math.min(gymAt + 3 * 60 * MIN, atTime(now, d, st.sleepHour).getTime() - 30 * MIN);
-      if (shameAt > gymAt && !(d === 0 && lowBattery(log))) {
-        jobs.push(scheduleAt(`gym-${key}-shame`, shameAt, '🕷️ S.P.I.D.E.R. noticed something', say(s, 'gymShame', { workout: plan.name }), CH.gym));
+      // No shaming on a kind day (low mood, sick, period) or in low-battery mode.
+      if (shameAt > gymAt && !tone.kind && !(d === 0 && lowBattery(log))) {
+        jobs.push(scheduleAt(`gym-${key}-shame`, shameAt, '🕷️ S.P.I.D.E.R. noticed something', sayOn(s, tone, 'gymShame', { workout: plan.name }), CH.gym));
       }
     }
 
@@ -244,7 +267,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const wkText = plan ? `${plan.name} day` : 'Rest day';
       const forecast = weather?.days.find((f) => f.date === key);
       const sv = upcomingDays(date, 2).map((n) => `${n.emoji} ${n.text}`).join(' ');
-      const body = say(s, 'morningBrief', { events: evText, workout: wkText }) + (forecast ? ` ${forecastText(forecast)}.` : '') + (sv ? ` ${sv}` : '');
+      const body = sayOn(s, tone, 'morningBrief', { events: evText, workout: wkText }) + (forecast ? ` ${forecastText(forecast)}.` : '') + (sv ? ` ${sv}` : '');
       jobs.push(scheduleAt(`morning-${key}`, atTime(now, d, st.wakeHour), `☀️ Good morning, ${st.userName || 'boss'}`, body, CH.remind));
     }
 
@@ -256,7 +279,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
         // Skip a check-in if one was logged in the 4 hours before it.
         if (d === 0 && when.getTime() - lastMood < 4 * 60 * MIN) continue;
         if (st.respectMeetings && inMeeting(events, when.getTime())) continue;
-        jobs.push(scheduleAt(`mood-${key}-${h}`, when, '🫀 Vibe check', say(s, 'moodRemind'), CH.remind, { category: CATEGORY.mood }));
+        jobs.push(scheduleAt(`mood-${key}-${h}`, when, '🫀 Vibe check', sayOn(s, tone, 'moodRemind'), CH.remind, { category: CATEGORY.mood }));
       }
     }
 
@@ -269,25 +292,25 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       if (worst && worst.level >= st.pollenAlertLevel) {
         const info = pollenInfo(worst.t);
         jobs.push(
-          scheduleAt(`pollen-${key}`, atTime(now, d, st.wakeHour, 20), `${info.emoji} ${info.label.split(' ')[0]} pollen: ${LEVEL_LABEL[worst.level]}`, say(s, 'pollenHigh', { pollen: info.label.split(' ')[0], level: LEVEL_LABEL[worst.level] }), CH.remind),
+          scheduleAt(`pollen-${key}`, atTime(now, d, st.wakeHour, 20), `${info.emoji} ${info.label.split(' ')[0]} pollen: ${LEVEL_LABEL[worst.level]}`, sayOn(s, tone, 'pollenHigh', { pollen: info.label.split(' ')[0], level: LEVEL_LABEL[worst.level] }), CH.remind),
         );
       }
     }
     if (airDay && st.notify.air && airDay.aqi >= st.aqiAlert) {
       const band = aqiBand(airDay.aqi).label;
-      jobs.push(scheduleAt(`air-${key}`, atTime(now, d, st.wakeHour, 25), `😷 Air quality: ${band}`, say(s, 'airPoor', { aqi: airDay.aqi, band }), CH.remind));
+      jobs.push(scheduleAt(`air-${key}`, atTime(now, d, st.wakeHour, 25), `😷 Air quality: ${band}`, sayOn(s, tone, 'airPoor', { aqi: airDay.aqi, band }), CH.remind));
     }
 
     if (st.notify.sleep && !(d === 0 && log.sleepRating != null)) {
-      jobs.push(scheduleAt(`sleep-${key}`, atTime(now, d, st.wakeHour + 1), '😴 How did you sleep?', say(s, 'sleepRemind'), CH.remind));
+      jobs.push(scheduleAt(`sleep-${key}`, atTime(now, d, st.wakeHour + 1), '😴 How did you sleep?', sayOn(s, tone, 'sleepRemind'), CH.remind));
     }
 
-    if (st.notify.habits) {
+    if (st.notify.habits && !paused) {
       const done = habitsDone(s, key);
       for (const h of s.habits) {
         if (h.remindHour == null || !isScheduled(h, date) || (d === 0 && done.includes(h.id))) continue;
         jobs.push(
-          scheduleAt(`habit-${h.id}-${key}`, atTime(now, d, h.remindHour), `📌 ${h.emoji} ${h.name}`, say(s, 'habitRemind', { habit: h.name }), CH.remind, {
+          scheduleAt(`habit-${h.id}-${key}`, atTime(now, d, h.remindHour), `📌 ${h.emoji} ${h.name}`, sayOn(s, tone, 'habitRemind', { habit: h.name }), CH.remind, {
             category: CATEGORY.habit,
             data: { habitId: h.id },
           }),
@@ -295,24 +318,25 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       }
     }
 
-    // Workdays at her stillest hour (movement map), if she turned it on. Not on low-battery days or in meetings.
+    // Workdays at the stillest hour (movement map), if turned on. Not on paused, period or low-battery days, or in meetings.
     const moveHour = st.moveNudgeHour;
-    if (moveHour != null && date.getDay() >= 1 && date.getDay() <= 5 && moveHour > st.wakeHour && moveHour < st.sleepHour) {
+    if (moveHour != null && !paused && !period && date.getDay() >= 1 && date.getDay() <= 5 && moveHour > st.wakeHour && moveHour < st.sleepHour) {
       const when = atTime(now, d, moveHour, 5);
       if (!(d === 0 && lowBattery(log)) && !(st.respectMeetings && inMeeting(events, when.getTime()))) {
-        jobs.push(scheduleAt(`move-${key}`, when, '🚶 Move break', say(s, 'moveNudge'), CH.remind));
+        jobs.push(scheduleAt(`move-${key}`, when, '🚶 Move break', sayOn(s, tone, 'moveNudge'), CH.remind));
       }
     }
 
     if (st.notify.windDown && !(d === 0 && log.windDownDone)) {
-      jobs.push(scheduleAt(`winddown-${key}`, atTime(now, d, st.sleepHour - 1), '🌙 Wind-down time', say(s, 'windDownRemind'), CH.remind));
+      jobs.push(scheduleAt(`winddown-${key}`, atTime(now, d, st.sleepHour - 1), '🌙 Wind-down time', sayOn(s, tone, 'windDownRemind'), CH.remind));
     }
 
-    if (st.notify.evening) {
-      const zombie = immortalTask(s, atTime(now, d, st.sleepHour - 2, 30).getTime());
+    // Not on paused days; on a kind day, no running joke about the task that won't die.
+    if (st.notify.evening && !paused) {
+      const zombie = tone.kind ? null : immortalTask(s, atTime(now, d, st.sleepHour - 2, 30).getTime());
       const body =
-        (d === 0 ? say(s, 'eveningReport', { summary: daySummary(s, now) }) : 'Your report card is ready. Open S.P.I.D.E.R. if you dare.') +
-        (zombie ? ` ${say(s, 'immortalTask', { task: zombie.task.title, days: zombie.days })}` : '');
+        (d === 0 ? sayOn(s, tone, 'eveningReport', { summary: daySummary(s, now) }) : sayOn(s, tone, 'eveningReady')) +
+        (zombie ? ` ${sayOn(s, tone, 'immortalTask', { task: zombie.task.title, days: zombie.days })}` : '');
       jobs.push(scheduleAt(`evening-${key}`, atTime(now, d, st.sleepHour - 2, 30), '📋 Daily report card', body, CH.remind));
     }
   }
@@ -322,7 +346,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   const reportAt = atTime(now, daysToSunday, 19);
   const sunday = reportAt.getTime() > now.getTime() ? reportAt : atTime(now, daysToSunday + 7, 19);
   if (st.notify.report) {
-    jobs.push(scheduleAt(`report-${dayKey(sunday)}`, sunday, '📊 Weekly report card', say(s, 'reportReady'), CH.remind));
+    jobs.push(scheduleAt(`report-${dayKey(sunday)}`, sunday, '📊 Weekly report card', sayOn(s, toneOn(s, dayKey(sunday), now, cycle), 'reportReady'), CH.remind));
   }
   const firstDay = Object.keys(s.days).sort()[0];
   const lastSafe = s.lastBackupAt ?? (firstDay ? new Date(`${firstDay}T12:00`).getTime() : now.getTime());
@@ -330,18 +354,19 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     jobs.push(scheduleAt('backup-remind', sunday.getTime() - 60 * MIN, '💾 Back me up', say(s, 'backupRemind'), CH.remind));
   }
 
-  const cycle = cycleInfo(s, now);
+  // On its own channel (text hidden on the lock screen) with a title that says nothing.
   const headsUp = cycle ? cycleHeadsUpAt(cycle) : null;
   if (st.notify.cycle && cycle && headsUp && !onPeriod(dayOf(s))) {
-    jobs.push(scheduleAt(`cycle-${dayKey(cycle.nextStart)}`, headsUp, '🩸 Period heads-up', say(s, 'periodSoon'), CH.remind));
+    jobs.push(scheduleAt(`cycle-${dayKey(cycle.nextStart)}`, headsUp, '🗓️ Heads-up', say(s, 'periodSoon'), CH.private));
   }
 
   if (st.notify.countdowns) {
     for (const c of s.countdowns) {
       const day = nextDate(c, now);
       const vars = { title: `${c.emoji} ${c.title}` };
-      jobs.push(scheduleAt(`countdown-${c.id}-eve`, atTime(day, -1, 18), `${c.emoji} Tomorrow: ${c.title}`, say(s, 'countdownTomorrow', vars), CH.remind));
-      jobs.push(scheduleAt(`countdown-${c.id}-day`, atTime(day, 0, st.wakeHour), `${c.emoji} Today: ${c.title}`, say(s, 'countdownToday', vars), CH.remind));
+      const eve = toneOn(s, dayKey(addDays(day, -1)), now, cycle);
+      jobs.push(scheduleAt(`countdown-${c.id}-eve`, atTime(day, -1, 18), `${c.emoji} Tomorrow: ${c.title}`, sayOn(s, eve, 'countdownTomorrow', vars), CH.remind));
+      jobs.push(scheduleAt(`countdown-${c.id}-day`, atTime(day, 0, st.wakeHour), `${c.emoji} Today: ${c.title}`, sayOn(s, toneOn(s, dayKey(day), now, cycle), 'countdownToday', vars), CH.remind));
     }
   }
 
@@ -356,13 +381,19 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   // Monthly Wrapped on the 1st at 10:00, for the month that just ended.
   if (st.notify.wrapped) {
     const { at, month } = wrappedReminder(now);
-    jobs.push(scheduleAt(`wrapped-${dayKey(at)}`, at, `🎁 ${month} Wrapped`, say(s, 'wrappedReady', { month }), CH.remind));
+    jobs.push(scheduleAt(`wrapped-${dayKey(at)}`, at, `🎁 ${month} Wrapped`, sayOn(s, toneOn(s, dayKey(at), now, cycle), 'wrappedReady', { month }), CH.remind));
   }
 
-  // Pushed forward every time the app is used, so these only fire if it's ignored. Not while sick or away.
+  // Pushed forward every time the app is used, so these only fire if it's ignored. Not while sick or away,
+  // and not onto a day that's paused or kind (a predicted period day, say).
   if (!pausedOn(s, dayKey(now))) {
-    jobs.push(scheduleAt('comeback-3', atTime(now, 3, 18), '🕷️ Hello?', say(s, 'comeback'), CH.remind));
-    jobs.push(scheduleAt('comeback-6', atTime(now, 6, 18), '🕷️ Still here. Still judging.', say(s, 'comeback'), CH.remind));
+    for (const [id, days] of [['comeback-3', 3], ['comeback-6', 6]] as const) {
+      const at = atTime(now, days, 18);
+      const tone = toneOn(s, dayKey(at), now, cycle);
+      if (pausedOn(s, dayKey(at)) || tone.kind) continue;
+      const title = days === 3 ? '🕷️ Hello?' : sayOn(s, tone, 'comebackTitle');
+      jobs.push(scheduleAt(id, at, title, sayOn(s, tone, 'comeback'), CH.remind));
+    }
   }
 
   jobs.push(updateStatusLine(s, events).catch((e) => console.warn('[spider] status line failed', e)));
@@ -386,7 +417,7 @@ async function updateStatusLine(s: State, events: CalEvent[]) {
   const boss = bossFor(s, now);
   const next = events.filter((e) => !e.allDay && e.start > now.getTime() && dayKey(e.start) === dayKey(now)).sort((a, b) => a.start - b.start)[0];
   const parts = [
-    `💧 ${(waterMl(d) / 1000).toFixed(1)}/${(s.settings.waterGoalMl / 1000).toFixed(1)} L`,
+    `💧 ${(waterMl(d) / 1000).toFixed(1)}/${(waterGoalFor(s, dayKey(now)) / 1000).toFixed(1)} L`,
     quests.length ? `🗡️ ${Math.min(done, quests.length)}/${quests.length} quests` : null,
     boss.defeated ? `${boss.emoji} defeated` : `${boss.emoji} ${boss.hp} HP`,
     next ? `⏭️ ${fmtTime(next.start)} ${next.title}` : null,
@@ -418,7 +449,7 @@ export async function scheduleGameAlerts(s: State, remainingMin: number) {
     jobs.push(scheduleAt('game-over', now + remainingMin * MIN, `🛑 Gaming budget reached${game}`, say(s, 'gameOver'), CH.game));
   }
   jobs.push(
-    scheduleAt('game-way-over', now + (Math.max(0, remainingMin) + 30) * MIN, `💀 30 minutes over budget${game}`, say(s, 'gameWayOver'), CH.game),
+    scheduleAt('game-way-over', now + (Math.max(0, remainingMin) + 30) * MIN, `💀 30 minutes over budget${game}`, say(s, 'gameWayOver', { over: fmtDuration(30 * MIN) }), CH.game),
   );
   await Promise.all(jobs);
 }

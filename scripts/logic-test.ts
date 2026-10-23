@@ -1,6 +1,8 @@
 /// <reference types="node" />
 // Offline logic checks for the pure modules in src/lib. Run: npm run test:logic
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 import { addDays, atTime, dayKey, fmtClock, fmtDuration, isDayKey, MIN, startOfWeek } from '../src/lib/dates';
 import { defaultState, emptyDay, hydrate, idTime, withRealDays } from '../src/lib/defaults';
@@ -76,6 +78,7 @@ import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
 import { gentleDay, goldenAllowed, periodDay, toneOn } from '../src/lib/tone';
+import { gameLineKey, nightVerdictKey, stepsLineKey, verdictLineKey } from '../src/lib/line-context';
 import type { DayLog } from '../src/lib/types';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
@@ -120,6 +123,7 @@ for (let i = 0; i < 100; i++) {
 // every placeholder used in a pool is one we actually pass somewhere
 const known = new Set(['name', 'ml', 'left', 'workout', 'weight', 'reps', 'exercise', 'over', 'penalty', 'count', 'events', 'summary', 'level', 'title', 'n', 'limit', 'cutoff', 'mg', 'steps', 'sleep', 'habit', 'quest', 'boss', 'forecast', 'xp', 'product', 'kcal', 'activity', 'minutes', 'game', 'title', 'month', 'prize', 'reward', 'missing', 'tier', 'rank', 'app', 'time', 'pollen', 'aqi', 'band', 'goal', 'stake', 'coins', /* cluster E */ 'task', 'days', 'water', 'score']);
 for (const k of ['weakness', 'day', 'until']) known.add(k); // cluster A
+for (const k of ['done', 'budget']) known.add(k); // step 2 tone: the Gym and Game tabs
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -360,6 +364,102 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
       if (who) assert.ok(!/\bboss\b/.test(text), text);
     }
   }
+  // pools picked by context: paced steps, no "tragic" mornings, a whole-day debrief, the right overage line
+  const tenAm = new Date(2027, 0, 13, 10);
+  const ninePm = new Date(2027, 0, 13, 21);
+  assert.equal(stepsLineKey(3000, 8000, tenAm, 7, 23), 'stepsEarly');
+  assert.equal(stepsLineKey(3000, 8000, ninePm, 7, 23), 'stepsLow');
+  assert.equal(stepsLineKey(0, 8000, new Date(2027, 0, 13, 7), 7, 23), 'stepsEarly');
+  assert.equal(stepsLineKey(4500, 8000, ninePm, 7, 23), 'stepsMid');
+  assert.equal(stepsLineKey(8000, 8000, tenAm, 7, 23), 'stepsHigh');
+  assert.equal(verdictLineKey(25, 7, false), 'verdictMorning');
+  assert.equal(verdictLineKey(25, 15, false), 'verdictTragic');
+  assert.equal(verdictLineKey(60, 8, false), 'verdictGood');
+  assert.equal(verdictLineKey(90, 15, true), 'verdictKind');
+  assert.equal(nightVerdictKey(20, false), 'nightTragic');
+  assert.equal(nightVerdictKey(60, false), 'nightGood');
+  assert.equal(nightVerdictKey(10, true), 'verdictKind');
+  assert.equal(gameLineKey(0), null);
+  assert.equal(gameLineKey(60_000), 'gameOver');
+  assert.equal(gameLineKey(30 * 60_000), 'gameWayOver');
+  // kind pools are the same in both
+  for (const k of ['gymEasy', 'gymEasyLogged', 'gymRemindEasy', 'verdictKind', 'progressPhoto'] as const) assert.deepEqual(LINES[k].savage, LINES[k].mild, k);
+}
+
+// savage pools roast habits, never food or the body (bodyLogged is the neutral body log, both pools alike)
+{
+  const banned = /\b(kcal|calories?|eat|eats|ate|eaten|eating|stomach|belly|plate|mirror|muscles?|body|bodies|fat|thighs?|waist|weigh|weighs|weighed|weight|physique|glow-up|abs|diet)\b/i;
+  for (const [k, pool] of Object.entries(LINES) as [string, { mild: string[]; savage: string[] }][]) {
+    if (k === 'bodyLogged') continue;
+    for (const text of pool.savage) assert.ok(!banned.test(text.replace(/\{\w+\}/g, '')), `${k}: ${text}`);
+  }
+  for (const g of GOLDEN) assert.ok(!banned.test(g.text.replace(/\{\w+\}/g, '')), g.id);
+}
+
+// every call site passes the placeholders its pool uses ({name} is always added)
+{
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const f of readdirSync(dir)) {
+      const full = join(dir, f);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(f)) files.push(full);
+    }
+  };
+  walk(join(process.cwd(), 'src'));
+  const pools = LINES as Record<string, { mild: string[]; savage: string[] }>;
+  const used = (k: string) => new Set([...pools[k].mild, ...pools[k].savage].flatMap((t) => [...t.matchAll(/\{(\w+)\}/g)].map((m) => m[1])));
+  // The argument list of a call starting at `open` (the index of its "("), up to the matching ")".
+  const argsAt = (src: string, open: number) => {
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      if ('([{'.includes(src[i])) depth++;
+      else if (')]}'.includes(src[i]) && --depth === 0) return src.slice(open + 1, i);
+    }
+    return '';
+  };
+  // Top-level pieces of an argument list or object literal body (commas inside brackets don't split).
+  const splitTop = (text: string) => {
+    const out: string[] = [];
+    let depth = 0;
+    let part = '';
+    for (const ch of text) {
+      if ('([{'.includes(ch)) depth++;
+      if (')]}'.includes(ch)) depth--;
+      if (ch === ',' && depth === 0) {
+        out.push(part.trim());
+        part = '';
+      } else part += ch;
+    }
+    if (part.trim()) out.push(part.trim());
+    return out;
+  };
+  let checked = 0;
+  for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/\b(L|say|sayOn|quip|line|freshLine|poolFor)\(/g)) {
+      const parts = splitTop(argsAt(src, m.index! + m[0].length - 1));
+      const ki = parts.findIndex((x) => [...x.matchAll(/'(\w+)'/g)].some((k) => k[1] in pools));
+      if (ki < 0) continue; // a key in a variable: dynamic by design
+      const keys = [...parts[ki].matchAll(/'(\w+)'/g)].map((x) => x[1]).filter((k) => k in pools);
+      const varsAt = m[1] === 'poolFor' || m[1] === 'line' || m[1] === 'freshLine' ? ki + 2 : ki + 1; // these take a level first
+      const vars = parts[varsAt];
+      if (vars && !vars.startsWith('{')) continue; // vars built elsewhere
+      const have = new Set(['name']);
+      for (const entry of vars ? splitTop(vars.slice(1, -1)) : []) {
+        if (entry.startsWith('...')) have.add('*');
+        const nm = /^['"]?(\w+)['"]?\s*(:|$)/.exec(entry);
+        if (nm) have.add(nm[1]);
+      }
+      if (have.has('*')) continue; // spread in from elsewhere
+      if (m[1] === 'poolFor') for (const k of (parts[varsAt + 1] ?? '').matchAll(/'(\w+)'/g)) have.add(k[1]); // filled in natively later
+      for (const k of keys) {
+        for (const ph of used(k)) assert.ok(have.has(ph), `${relative(process.cwd(), file)}: ${m[1]}('${k}') never passes {${ph}}`);
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 100, `only ${checked} call sites found`);
 }
 
 // new fields default sensibly for old saves

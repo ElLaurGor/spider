@@ -6,6 +6,7 @@ export { cancelScheduledNotificationAsync } from 'expo-notifications/build/cance
 export { dismissNotificationAsync } from 'expo-notifications/build/dismissNotificationAsync';
 export { getAllScheduledNotificationsAsync } from 'expo-notifications/build/getAllScheduledNotificationsAsync';
 export { AndroidImportance } from 'expo-notifications/build/NotificationChannelManager.types';
+export { AndroidNotificationVisibility } from 'expo-notifications/build/NotificationChannelManager.types';
 export { getPermissionsAsync, requestPermissionsAsync } from 'expo-notifications/build/NotificationPermissions';
 export { SchedulableTriggerInputTypes } from 'expo-notifications/build/Notifications.types';
 export type { NotificationResponse } from 'expo-notifications/build/Notifications.types';

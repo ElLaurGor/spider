@@ -26,11 +26,13 @@ import { cycleInfo, sleepInfo } from '@/lib/body';
 import { shownTitle } from '@/lib/cosmetics';
 import { nextStage, stageFor } from '@/lib/evolution';
 import { insightOfTheDay } from '@/lib/insights';
+import { verdictLineKey } from '@/lib/line-context';
 import { immortalTask, yesterdayHighlight } from '@/lib/memory';
 import { moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
 import { respectFor } from '@/lib/respect';
 import { seasonOn } from '@/lib/seasons';
+import { gentleDay, toneOn } from '@/lib/tone';
 import {
   avgMood,
   caffeineMg,
@@ -44,7 +46,6 @@ import {
   moodsOf,
   proteinOf,
   trainedOn,
-  verdictKey,
   waterGoalFor,
   waterMl,
   workoutFor,
@@ -104,7 +105,9 @@ export default function HQ() {
   const insight = insightOfTheDay(state);
   const date = noonOf(todayKey);
   const lastMonth = new Date(date.getFullYear(), date.getMonth() - 1, 1).toLocaleDateString('en-GB', { month: 'long' });
-  const vKey = verdictKey(score);
+  // No verdict on a kind day (low mood, sick, away, period), and a slow morning isn't "tragic" yet.
+  const kindToday = toneOn(state, todayKey).kind || gentleDay(state, todayKey);
+  const vKey = verdictLineKey(score, new Date(now).getHours(), kindToday);
   const verdict = useMemo(() => quip(vKey), [quip, vKey]);
   const emptyKey = cal.status === 'granted' ? 'calFree' : 'tasksEmpty';
   const emptyLine = useMemo(() => quip(emptyKey), [quip, emptyKey]);
