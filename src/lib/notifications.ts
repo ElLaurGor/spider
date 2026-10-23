@@ -33,6 +33,7 @@ import type { CalEvent, MoodLevel, State } from './types';
 import { forecastText, type Weather } from './weather';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outside';
 import { bossFor, questsFor } from './quests';
+import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
 import { upcomingDays } from './swedish-days';
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status' } as const;
@@ -322,9 +323,9 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   }
 
   const cycle = cycleInfo(s, now);
-  if (st.notify.cycle && cycle && !onPeriod(dayOf(s)) && cycle.daysUntil > 2) {
-    const at = atTime(cycle.nextStart, -2, 10);
-    jobs.push(scheduleAt(`cycle-${dayKey(cycle.nextStart)}`, at, '🩸 Period heads-up', say(s, 'periodSoon'), CH.remind));
+  const headsUp = cycle ? cycleHeadsUpAt(cycle) : null;
+  if (st.notify.cycle && cycle && headsUp && !onPeriod(dayOf(s))) {
+    jobs.push(scheduleAt(`cycle-${dayKey(cycle.nextStart)}`, headsUp, '🩸 Period heads-up', say(s, 'periodSoon'), CH.remind));
   }
 
   if (st.notify.countdowns) {
@@ -346,9 +347,8 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
 
   // Monthly Wrapped on the 1st at 10:00, for the month that just ended.
   if (st.notify.wrapped) {
-    const first = new Date(now.getFullYear(), now.getMonth() + 1, 1, 10);
-    const month = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-GB', { month: 'long' });
-    jobs.push(scheduleAt(`wrapped-${dayKey(first)}`, first, `🎁 ${month} Wrapped`, say(s, 'wrappedReady', { month }), CH.remind));
+    const { at, month } = wrappedReminder(now);
+    jobs.push(scheduleAt(`wrapped-${dayKey(at)}`, at, `🎁 ${month} Wrapped`, say(s, 'wrappedReady', { month }), CH.remind));
   }
 
   // Pushed forward every time the app is used, so these only fire if it's ignored. Not while sick or away.

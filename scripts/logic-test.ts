@@ -55,6 +55,7 @@ import { webDays, webGeometry, webParams } from '../src/lib/web-art';
 import { bestiary, lastKillDay, LORE } from '../src/lib/bestiary';
 import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
+import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
 import { WEAK_SPOT_QUESTS, weakSpot } from '../src/lib/weak-spot';
 // cluster B
@@ -1681,4 +1682,30 @@ console.log('all logic tests passed');
   assert.deepEqual(stillestHour(mm, 7, 23), { hour: 14, steps: 50 }); // 20:00 is past the desk hours
   assert.equal(stillestHour(movementMap(slots.filter((x) => new Date(x.at).getDay() === 1)), 7, 23), null); // one workday
   assert.equal(new Date(mon).getDay(), 1);
+}
+
+// reminder times: the period heads-up survives a replan on its own morning; Wrapped on the 1st before 10:00
+{
+  const cyc = defaultState();
+  for (const start of ['2026-09-01', '2026-09-29']) cyc.days[start] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, period: { flow: 'medium', symptoms: [] } };
+  const headsUp = (now: Date) => {
+    const info = cycleInfo(cyc, now)!;
+    return cycleHeadsUpAt(info);
+  };
+  assert.equal(dayKey(cycleInfo(cyc, new Date(2026, 9, 23, 12))!.nextStart), '2026-10-27');
+  // Sun 25 Oct is the DST day (25 hours): the heads-up is still 10:00 local that Sunday
+  for (const now of [new Date(2026, 9, 23, 20), new Date(2026, 9, 25, 7, 30)]) {
+    const at = headsUp(now)!;
+    assert.equal(dayKey(at), '2026-10-25');
+    assert.equal(fmtTime(at), '10:00');
+  }
+  assert.equal(headsUp(new Date(2026, 9, 26, 8)), null); // one day to go: too late
+  const w = (now: Date) => {
+    const { at, month } = wrappedReminder(now);
+    return `${dayKey(at)} ${fmtTime(at)} ${month}`;
+  };
+  assert.equal(w(new Date(2026, 9, 23, 12)), '2026-11-01 10:00 October');
+  assert.equal(w(new Date(2026, 10, 1, 8)), '2026-11-01 10:00 October'); // Sun 1 Nov before 10:00: still October's
+  assert.equal(w(new Date(2026, 10, 1, 11)), '2026-12-01 10:00 November');
+  assert.equal(w(new Date(2026, 11, 20, 12)), '2027-01-01 10:00 December');
 }
