@@ -6,6 +6,7 @@ import { Card, H, Icon, T, useNow } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { fmtTime } from '@/lib/dates';
 import {
+  cancelledNote,
   departureText,
   fetchDepartures,
   fetchDeviations,
@@ -113,6 +114,7 @@ export function SlCard() {
   const live = !!mine && mine.fails === 0 && mine.okAt != null && now - mine.okAt < LIVE_MS;
   const shown = cfg && mine && live ? nextDepartures(mine.departures, cfg, now) : [];
   const first = shown[0];
+  const cancelled = cfg && mine && live ? cancelledNote(mine.departures, cfg, now) : null;
   const hurryFor = first && cfg && !isCancelled(first) && leaveInMin(first, cfg.walkMin, now) <= 1 ? first.scheduled : 0;
 
   if (!cfg) return null;
@@ -151,6 +153,7 @@ export function SlCard() {
       ) : live ? (
         shown.length ? (
           <View style={{ gap: 6 }}>
+            {cancelled ? <Text style={styles.cancelNote}>🚫 {cancelled}</Text> : null}
             {shown.map((d, i) => (
               <Text key={`${routeKey(d)}-${d.scheduled}`} style={[styles.dep, i === 0 && styles.depFirst, isCancelled(d) && styles.cancelled]}>
                 {departureText(d, cfg.walkMin, now)}
@@ -207,6 +210,7 @@ const styles = StyleSheet.create({
   dep: { color: C.text, fontSize: 14 },
   depFirst: { fontWeight: '800', fontSize: 15 },
   cancelled: { color: C.red },
+  cancelNote: { color: C.text, fontWeight: '800', fontSize: 14 },
   stale: { color: C.dim },
   notice: { backgroundColor: C.card2, borderRadius: 10, borderLeftWidth: 4, borderLeftColor: '#FF8A3D', padding: 10, gap: 4 },
   noticeHead: { color: C.text, fontWeight: '700', fontSize: 13 },

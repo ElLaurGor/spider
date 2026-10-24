@@ -6,6 +6,7 @@ import { C } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
 import { ALERT_COLOR, ALERT_LABEL, aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, sourceNote } from '@/lib/outside';
 import { useStore } from '@/lib/store';
+import { stormOn } from '@/lib/storm';
 
 /** HQ card: only shows up when something outside actually needs attention. */
 export function OutsideAlerts() {
@@ -26,12 +27,22 @@ export function OutsideAlerts() {
       : undefined;
   const pollen = worst && worst.level >= s.pollenAlertLevel ? worst : null;
   const aqi = today && s.notify.air && today.aqi >= s.aqiAlert ? today.aqi : null;
-  if (!urgent.length && !pollen && aqi == null && !down.length) return null;
+  // The Storm protocol (storm.ts): saved with the state, so it shows even before this run's first check.
+  const storm = stormOn(state, dayKey());
+  if (!urgent.length && !pollen && aqi == null && !down.length && !storm) return null;
 
-  const accent = urgent.length ? ALERT_COLOR[urgent[0].level] : aqi != null ? aqiBand(aqi).color : pollen ? C.yellow : C.border;
+  const accent = storm ? ALERT_COLOR[storm.level] : urgent.length ? ALERT_COLOR[urgent[0].level] : aqi != null ? aqiBand(aqi).color : pollen ? C.yellow : C.border;
   return (
     <Pressable onPress={() => router.push('/outside')} style={[styles.card, { borderColor: accent }]}>
       <View style={{ flex: 1, gap: 4 }}>
+        {storm ? (
+          <View style={{ gap: 2 }}>
+            <Text style={styles.line}>
+              <Text style={{ fontWeight: '900' }}>🛡️ Storm protocol</Text> · no jokes until it passes
+            </Text>
+            <T small>{storm.advice}</T>
+          </View>
+        ) : null}
         {urgent.slice(0, 3).map((a) => (
           <Text key={a.id} style={styles.line} numberOfLines={2}>
             <Text style={{ color: ALERT_COLOR[a.level], fontWeight: '900' }}>{a.source === 'VMA' ? '🚨 VMA' : `⚠️ ${ALERT_LABEL[a.level]}`}</Text> {a.title}

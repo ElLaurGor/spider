@@ -535,7 +535,9 @@ function TodayTone() {
   if (tone.kind) {
     return (
       <T dim small>
-        Roasts are paused today (a low mood, sick mode or a period day). The preview shows how level {chosen} sounds on a normal day.
+        {tone.storm
+          ? `Storm protocol: a warning is out, so the jokes are off until it passes. The preview shows how level ${chosen} sounds on a normal day.`
+          : `Roasts are paused today (a low mood, sick mode or a period day). The preview shows how level ${chosen} sounds on a normal day.`}
       </T>
     );
   }

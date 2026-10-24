@@ -45,6 +45,7 @@ import { respectFor } from '@/lib/respect';
 import { isAllSaintsDay, seasonOn } from '@/lib/seasons';
 import { adventCandles } from '@/lib/advent';
 import { yearWrappedDue } from '@/lib/year-wrapped';
+import { stormOn } from '@/lib/storm';
 import { gentleDay, toneOn } from '@/lib/tone';
 import {
   caffeineMg,
@@ -84,6 +85,8 @@ export default function HQ() {
   const { state, actions, quip, cal, health } = useStore();
   const savage = effectiveSavage(state);
   const greet = () => {
+    // Under the Storm protocol: calm and practical, nothing else.
+    if (stormOn(state, dayKey())) return quip('stormGreet');
     // Mornings, half the time: a remark about how yesterday actually went.
     const callback = timeOfDay() === 'morning' && Math.random() < 0.5 ? yesterdayHighlight(state) : null;
     return callback ? quip(callback.key, callback.vars) : quip(greetingKey());

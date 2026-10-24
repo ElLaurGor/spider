@@ -179,6 +179,21 @@ export function departureText(d: SlDeparture, walkMin: number, now = Date.now())
   return `${leave <= 0 ? 'Leave now' : `Leave in ${leave} min`} for the ${hhmm(d.expected)} (${what})${delay}`;
 }
 
+/**
+ * When the next departure she could still make on her lines is cancelled: a calm line naming it and the next
+ * one that runs ("Your 08:12 is cancelled; next is the 08:27 (line 17). I'd leave now."). Null otherwise.
+ * Only for live data: timetable rows never say what's cancelled now.
+ */
+export function cancelledNote(deps: SlDeparture[], cfg: Pick<SlConfig, 'routes' | 'walkMin'>, now = Date.now()): string | null {
+  const ahead = nextDepartures(deps, cfg, now, deps.length);
+  const first = ahead[0];
+  if (!first || !isCancelled(first)) return null;
+  const next = ahead.find((d) => !isCancelled(d));
+  if (!next) return `Your ${hhmm(first.scheduled)} is cancelled, and nothing else runs on your lines in the next hour. Time for plan B.`;
+  const leave = leaveInMin(next, cfg.walkMin, now);
+  return `Your ${hhmm(first.scheduled)} is cancelled; next is the ${hhmm(next.expected)} (line ${next.line}). ${leave <= 1 ? "I'd leave now." : `Leave in ${leave} min.`}`;
+}
+
 /** Without live times to go by: just what the timetable said, for "last known" rows. */
 export const plannedText = (d: SlDeparture) => `${hhmm(d.scheduled)} line ${d.line} → ${d.destination}${isCancelled(d) ? ' (cancelled)' : ''}`;
 

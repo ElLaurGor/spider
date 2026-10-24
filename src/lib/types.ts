@@ -369,6 +369,20 @@ export type State = {
   roughPatchAt?: number; // the rough-patch card was closed or acted on (rough-patch.ts): it stays away for 7 days
   trek?: Trek | null; // the virtual trek walked with watch steps (lib/trek.ts); unset = none started
   treksDone?: TrekRoute[]; // routes walked to the end, in order
+  storm?: StormAlert[]; // storm.ts: the orange/red SMHI warnings and VMAs last seen for the owner's area (the Storm protocol)
+};
+
+/** An alert that holds the Storm protocol (storm.ts): kept in State so every day's tone, notifications included, can see it. */
+export type StormAlert = {
+  id: string;
+  source: 'SMHI' | 'VMA';
+  level: 'ORANGE' | 'RED' | 'VMA';
+  title: string;
+  advice: string; // what to do: the alert's own words, shortened, or where to read more
+  url: string;
+  start?: string; // ISO, as SMHI/Krisinformation give it
+  end?: string;
+  seenAt: number; // last check that still listed it: an alert without an end holds only through that day
 };
 
 export type MedalTier = 'bronze' | 'silver' | 'gold';
