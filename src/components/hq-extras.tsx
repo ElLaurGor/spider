@@ -4,6 +4,7 @@ import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native
 
 import { Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
+import { coopSummary } from '@/lib/coop';
 import { dayKey, WEEKDAYS_LONG } from '@/lib/dates';
 import { PITY_AFTER } from '@/lib/economy';
 import { nemesisOf, standings, TIERS } from '@/lib/league';
@@ -102,6 +103,7 @@ export function LeagueCard() {
   const me = table[rank - 1];
   const above = rank > 1 ? table[rank - 2] : null;
   const ghost = ghostOf(state);
+  const coop = coopSummary(state);
   return (
     <Pressable onPress={() => router.push('/league')}>
       <Card>
@@ -131,6 +133,7 @@ ${nemesis.taunt}`}</Text> : null}
             {ghostText(ghost)}
           </T>
         ) : null}
+        {coop ? <T small>{coop}</T> : null}
       </Card>
     </Pressable>
   );

@@ -10,6 +10,7 @@ import { DebriefCard, TopThreeCard } from '@/components/debrief-cards';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { SilkTrackCard } from '@/components/silk-track';
 import { MedalsCard } from '@/components/medals-card';
+import { TrekCard } from '@/components/trek-card';
 import { PauseBanner } from '@/components/pause-card';
 import { ProgressChips } from '@/components/progress-chips';
 import { QuestsCard } from '@/components/quests-card';
@@ -198,6 +199,7 @@ export default function HQ() {
     league: () => <LeagueCard />,
     silk: () => <SilkTrackCard />,
     medals: () => <MedalsCard />,
+    trek: () => <TrekCard />,
     contract: () => <ContractCard />,
     insight: () =>
       insight ? (

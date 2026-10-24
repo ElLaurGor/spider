@@ -2,8 +2,9 @@ import { Fragment, useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useNemesis } from '@/components/hq-extras';
-import { Card, H, Row, SpiderSays, T, useNow } from '@/components/ui';
+import { Bar, Card, H, Row, SpiderSays, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
+import { COOP_COINS, coopCheer, coopStatus, GOALS, isCoopWeek } from '@/lib/coop';
 import { addDays, dayKey } from '@/lib/dates';
 import { DEMOTE, NEMESIS_PRIZE, PROMOTE, standings, TIERS } from '@/lib/league';
 import { useStore } from '@/lib/store';
@@ -35,6 +36,9 @@ export default function LeagueScreen() {
   const hoursLeft = Math.max(0, Math.round((ends.getTime() - now) / 3_600_000));
   const canPromote = league.tier < TIERS.length - 1;
   const canDemote = league.tier > 0;
+  const coop = coopStatus(state, new Date(now));
+  const partner = coop?.coop.partner.name;
+  const record = state.coopRecord;
 
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
@@ -63,6 +67,7 @@ export default function LeagueScreen() {
                 <T style={[{ flex: 1 }, r.me && { fontWeight: '800' }]}>
                   {r.me ? `${r.name} (you)` : r.name}
                   {r.id === nemesis?.id ? <Text style={{ color: C.red }}> 😈 nemesis</Text> : null}
+                  {!r.me && r.name === partner ? <Text style={{ color: C.green }}> 🤝 partner</Text> : null}
                 </T>
                 <Text style={styles.xp}>{r.xp}</Text>
               </Row>
@@ -73,6 +78,44 @@ export default function LeagueScreen() {
           Rivals earn XP through the day, like you. Prizes: #1 300 🪙, #2 200 🪙, #3 100 🪙.
         </T>
       </Card>
+
+      {coop ? (
+        <Card accent={C.green}>
+          <H>🤝 Co-op week</H>
+          <T>
+            {coop.coop.partner.emoji} {partner} is on your side this week.
+          </T>
+          {coop.target == null ? (
+            <T dim small>
+              A rough week, so the co-op is off. Nothing lost.
+            </T>
+          ) : (
+            <>
+              <T>Goal: {GOALS[coop.coop.goal].unit(coop.target)} each by Sunday.</T>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <T small>
+                  You {coop.mine}/{coop.target}
+                </T>
+                <T small>
+                  {partner} {coop.theirs}/{coop.target}
+                </T>
+              </Row>
+              <Bar pct={(coop.team / coop.target) * 100} color={C.green} />
+              <T dim small>
+                {coopCheer(state, coop, new Date(now))}
+              </T>
+            </>
+          )}
+          <T dim small>
+            Every other week. The team counts the slower of you two, so your half decides it. Both there by Sunday: +{COOP_COINS} 🪙. Fall short and nothing happens. Rough days lower the bar.
+            {record?.played ? ` Co-op weeks won: ${record.won} of ${record.played}.` : ''}
+          </T>
+        </Card>
+      ) : isCoopWeek(dayKey(addDays(new Date(`${league.week}T12:00`), 7))) ? (
+        <T dim small>
+          🤝 Next week is a co-op week: one of these bots will be on your side.
+        </T>
+      ) : null}
 
       {nemesis ? (
         <Card accent={C.red}>

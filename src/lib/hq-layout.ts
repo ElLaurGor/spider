@@ -23,6 +23,7 @@ export const HQ_SECTIONS = [
   { id: 'league', label: 'League' },
   { id: 'silk', label: 'Silk Track' },
   { id: 'medals', label: 'Weekly medals' },
+  { id: 'trek', label: 'Virtual trek (with watch steps)' },
   { id: 'contract', label: 'Weekly contract' },
   { id: 'experiment', label: 'Running experiment' },
   { id: 'insight', label: 'Insight of the day' },
