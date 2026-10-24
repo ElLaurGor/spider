@@ -1,5 +1,5 @@
 // The spider's wardrobe: things to wear, bought with coins, found in season, dropped by legendary
-// chests or unlocked on the monthly Silk Track. Purely for looks: nothing here changes XP, the boss or the league.
+// chests, unlocked on the monthly Silk Track or handed out by an event (Advent Web doors, the Prizes). Purely for looks: nothing here changes XP, the boss or the league.
 import { seasonOn, type SeasonId } from './seasons';
 import { SILK_ITEMS, silkTitles } from './silk-track';
 import type { State } from './types';
@@ -11,10 +11,11 @@ export type Cosmetic = {
   slot: Slot;
   name: string;
   emoji: string;
-  source: 'shop' | 'season' | 'legendary' | 'silk';
+  source: 'shop' | 'season' | 'legendary' | 'silk' | 'gift';
   price?: number;
   season?: SeasonId;
   edition?: string; // Silk Track items: the edition that hands it out
+  note?: string; // gifts: where they come from
   ring?: string; // auras recolor the avatar's ring
 };
 
@@ -38,6 +39,12 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'pumpkin', slot: 'hat', name: 'Pumpkin hat', emoji: '🎃', source: 'season', season: 'halloween', price: 400 },
   { id: 'lucia_candle', slot: 'held', name: 'Lucia candle', emoji: '🕯️', source: 'season', season: 'lucia', price: 300 },
   { id: 'solstice_moon', slot: 'held', name: 'Solstice moon', emoji: '🌙', source: 'season', season: 'solstice', price: 300 },
+  // gifts: Advent Web doors (advent.ts) and the S.P.I.D.E.R. Prizes (prizes.ts)
+  { id: 'jingle_bell', slot: 'held', name: 'Jingle bell', emoji: '🔔', source: 'gift', note: 'Advent Web · door 6' },
+  { id: 'advent_star', slot: 'held', name: 'Advent star', emoji: '🌟', source: 'gift', note: 'Advent Web · door 12' },
+  { id: 'aura_pine', slot: 'aura', name: 'Pine aura', emoji: '🌲', source: 'gift', note: 'Advent Web · door 18', ring: '#3FA36B' },
+  { id: 'tomte_hat', slot: 'hat', name: 'Tomte hat', emoji: '🎅', source: 'gift', note: 'Advent Web · door 24' },
+  { id: 'prize_medal', slot: 'held', name: 'S.P.I.D.E.R. Prize medal', emoji: '🏅', source: 'gift', note: 'The S.P.I.D.E.R. Prizes · 10 December' },
   // legendary chests only
   { id: 'aura_cosmic', slot: 'aura', name: 'Cosmic aura', emoji: '🌌', source: 'legendary', ring: '#9B6BFF' },
   { id: 'aura_flame', slot: 'aura', name: 'Flame aura', emoji: '🔥', source: 'legendary', ring: '#FF7A1A' },
@@ -64,6 +71,7 @@ const SEASON_NOTE: Partial<Record<SeasonId, string>> = { halloween: 'Spooky seas
 export function whereToGet(c: Cosmetic) {
   if (c.source === 'legendary') return 'Legendary chests only';
   if (c.source === 'silk') return `Silk Track · ${c.edition ?? 'a monthly edition'}`;
+  if (c.source === 'gift') return c.note ?? 'A gift';
   if (c.source === 'season') return (c.season && SEASON_NOTE[c.season]) ?? 'Seasonal';
   return '';
 }

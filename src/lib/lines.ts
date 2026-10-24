@@ -113,6 +113,20 @@ export const LINES = {
     mild: ['Glad Lucia, {name}! 🕯️ Bring a little light today.'],
     savage: ['Glad Lucia, {name}. Saffron buns are mandatory. I checked. The quest is optional. Barely.', "Lucia brings the light. You bring… let's see."],
   },
+  seasonAdvent: {
+    mild: ['Advent is here, {name}. 🕯️ A door a day on HQ.', 'Advent: one more candle each Sunday, one door each day.'],
+    savage: [
+      'First Advent, {name}. One candle lit. Your task list remains unlit.',
+      'Advent. Twenty-four doors, each opened in one tap. Your oldest task could learn from them.',
+      "The candles are counting down to Christmas. I'm counting your open tasks. We'll compare notes.",
+      "Advent, {name}. I've hung a calendar on HQ. Do open the doors. I'd hate for them to end up like your inbox.",
+    ],
+  },
+  // Julfrid (24–26 December) is a kind day (tone.ts): the same lines in both pools.
+  seasonJul: {
+    mild: ['God jul, {name}. Julfrid is in effect until the 27th.', 'No roasts today. Consider it my present. It was very expensive.', 'The boss is with its family. You could be with yours, if you like.', "Julfrid, {name}. Until the 27th, my answer to everything is 'that is fine'."],
+    savage: ['God jul, {name}. Julfrid is in effect until the 27th.', 'No roasts today. Consider it my present. It was very expensive.', 'The boss is with its family. You could be with yours, if you like.', "Julfrid, {name}. Until the 27th, my answer to everything is 'that is fine'."],
+  },
   seasonSolstice: {
     mild: ['Darkest day of the year, {name}. From tomorrow the light comes back. 🌑'],
     savage: ['Shortest day of the year. Keep the to-do list short too, then finish it.', "Winter solstice. It can't get any darker than this. Promise."],
@@ -866,6 +880,28 @@ export const LINES = {
   wrappedReady: {
     mild: ['Your {month} Wrapped is ready. Take a look back!'],
     savage: ['Your {month} Wrapped is ready. I counted everything. Everything.', '{month} Wrapped is in. Some stats are impressive. Some are evidence.'],
+  },
+  yearWrappedReady: {
+    mild: ['Your {year} Wrapped is ready. A whole year, in a few swipes.'],
+    savage: ['Your {year} Wrapped is ready. I kept count all year. All of it.', '{year}, wrapped and filed. Open it before I add commentary.'],
+  },
+  // The S.P.I.D.E.R. Prizes (prizes.ts), 10 December: a notification, then a toast when accepted.
+  prizesReady: {
+    mild: ['The S.P.I.D.E.R. Prizes are announced on HQ. Your year, in prizes.'],
+    savage: ['Stockholm hands out Nobel prizes tonight. I hand out mine. Fewer canapés. On HQ.', 'The S.P.I.D.E.R. Prizes are in. The committee was me. The vote was unanimous.'],
+  },
+  prizesAccepted: {
+    mild: ['🏅 Accepted on your behalf: {reward}.'],
+    savage: ['🏅 Prizes accepted: {reward}. Your speech was short. I appreciated that.', '🏅 {reward}. The committee thanks you for keeping it dignified.'],
+  },
+  // Advent Web doors (advent.ts) and the Julfrid days off.
+  adventDoor: {
+    mild: ['🚪 Door {n} open: {reward}.', '🚪 Door {n}: {reward}. Happy December.'],
+    savage: ['🚪 Door {n} open: {reward}. Unlike your oldest task, it took one tap.', '🚪 Door {n}: {reward}. I wrapped it myself. In silk.', '🚪 Door {n}: {reward}. The rest of the calendar is watching.'],
+  },
+  julfridOn: {
+    mild: ['🎄 Julfrid is on: away mode until the 27th, so no nagging. God jul, {name}.'],
+    savage: ['🎄 Julfrid is on. Away until the 27th. I will be quiet. It is a festive effort.', '🎄 Julfrid is on. The reminders are on holiday too. Back on the 27th.'],
   },
   chestOpened: {
     mild: ['Loot! {prize}.'],

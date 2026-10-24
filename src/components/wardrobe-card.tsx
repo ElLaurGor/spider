@@ -31,7 +31,7 @@ export function WardrobeCard() {
     <Card>
       <H right={<SpiderAvatar size={40} />}>Wardrobe</H>
       <T dim small>
-        Looks only. Seasonal pieces are sold while their season is on, auras drop from legendary chests, and the Silk Track hands out the rest.
+        Looks only. Seasonal pieces are sold while their season is on, auras drop from legendary chests, a few are gifts (the Advent Web, the Prizes), and the Silk Track hands out the rest.
       </T>
       {SLOTS.map((slot) => (
         <View key={slot.id} style={{ gap: 8 }}>

@@ -1,50 +1,70 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 
-import { Icon } from '@/components/ui';
+import { Chip, Icon, Row } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
+import { firstDataDay } from '@/lib/day-filters';
 import { useStore } from '@/lib/store';
 import { monthWrapped } from '@/lib/wrapped';
+import { yearWrapped, yearWrappedDue } from '@/lib/year-wrapped';
 
 export default function WrappedScreen() {
   const { state, actions } = useStore();
   const { width } = useWindowDimensions();
   const now = new Date();
-  // Early in the month, open on the month that just ended.
+  // Early in the month, open on the month that just ended; 1–7 January, on the year that just ended.
   const [offset, setOffset] = useState(now.getDate() <= 5 ? -1 : 0);
-  // Opened: HQ's "Wrapped is ready" banner has done its job.
+  const [yearMode, setYearMode] = useState(yearWrappedDue(now));
+  const [yearOffset, setYearOffset] = useState(yearWrappedDue(now) ? -1 : 0);
+  // Opened: HQ's "Wrapped is ready" banners have done their job.
   const early = now.getDate() <= 5;
+  const yearly = yearWrappedDue(now);
   const lastMonthKey = dayKey(new Date(now.getFullYear(), now.getMonth() - 1, 1)).slice(0, 7);
+  const lastYear = now.getFullYear() - 1;
   useEffect(() => {
     if (early) actions.dismissBanner(`wrapped:${lastMonthKey}`);
-  }, [early, lastMonthKey, actions]);
+    if (yearly) actions.dismissBanner(`yearwrapped:${lastYear}`);
+  }, [early, yearly, lastMonthKey, lastYear, actions]);
   const [page, setPage] = useState(0);
   const target = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-  const w = monthWrapped(state, target.getFullYear(), target.getMonth(), now);
+  const year = now.getFullYear() + yearOffset;
+  const firstYear = Number((firstDataDay(state) ?? dayKey(now)).slice(0, 4));
+  const w = yearMode ? yearWrapped(state, year, now) : monthWrapped(state, target.getFullYear(), target.getMonth(), now);
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => setPage(Math.round(e.nativeEvent.contentOffset.x / width));
   const go = (delta: number) => {
-    setOffset(offset + delta);
+    if (yearMode) setYearOffset(yearOffset + delta);
+    else setOffset(offset + delta);
     setPage(0);
   };
+  const pickMode = (y: boolean) => {
+    setYearMode(y);
+    setPage(0);
+  };
+  const atStart = yearMode && year <= firstYear;
+  const atEnd = yearMode ? yearOffset >= 0 : offset >= 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Row gap={8} style={styles.modes}>
+        <Chip label="Month" active={!yearMode} onPress={() => pickMode(false)} />
+        <Chip label="Year" active={yearMode} onPress={() => pickMode(true)} />
+      </Row>
       <View style={styles.top}>
-        <Pressable onPress={() => go(-1)} hitSlop={10} style={styles.nav} accessibilityRole="button" accessibilityLabel="Previous month">
+        <Pressable onPress={() => go(-1)} hitSlop={10} style={[styles.nav, atStart && { opacity: 0.3 }]} disabled={atStart} accessibilityRole="button" accessibilityLabel={yearMode ? 'Previous year' : 'Previous month'}>
           <Icon name="chevron_left" color={C.text} />
         </Pressable>
         <Text style={styles.month}>
           {w.label}
           {w.partial ? ' (so far)' : ''}
         </Text>
-        <Pressable onPress={() => go(1)} hitSlop={10} style={[styles.nav, offset >= 0 && { opacity: 0.3 }]} disabled={offset >= 0} accessibilityRole="button" accessibilityLabel="Next month">
+        <Pressable onPress={() => go(1)} hitSlop={10} style={[styles.nav, atEnd && { opacity: 0.3 }]} disabled={atEnd} accessibilityRole="button" accessibilityLabel={yearMode ? 'Next year' : 'Next month'}>
           <Icon name="chevron_right" color={C.text} />
         </Pressable>
       </View>
 
-      <ScrollView key={w.label} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onMomentumScrollEnd={onScroll}>
+      <ScrollView key={`${yearMode ? 'y' : 'm'}${w.label}`} horizontal pagingEnabled showsHorizontalScrollIndicator={false} onMomentumScrollEnd={onScroll}>
         {w.slides.map((s) => (
           <View key={s.id} style={{ width, padding: 16 }}>
             <View style={[styles.slide, { borderColor: C[s.color], backgroundColor: C.card }]}>
@@ -73,6 +93,7 @@ export default function WrappedScreen() {
 }
 
 const styles = StyleSheet.create({
+  modes: { justifyContent: 'center', paddingTop: 12 },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12 },
   nav: { padding: 8, borderRadius: 10, backgroundColor: C.card2 },
   month: { color: C.text, fontSize: 17, fontWeight: '800' },

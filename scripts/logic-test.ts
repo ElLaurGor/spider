@@ -148,6 +148,13 @@ import { activityMinutes, bestBeforeDay, isRecord, setSessions, trainMinutes } f
 import { bossSeasonOf, reopenQuests } from '../src/lib/quests';
 import { lastTrainedBefore } from '../src/lib/comeback';
 import { poolFor } from '../src/lib/lines';
+// step 6 seasons
+import { adventCandles, adventYear, doorOpenable, doorPrize, doorsWaiting, julfridOffer, julfridPause, kalleAnka, openDoor } from '../src/lib/advent';
+import { acceptPrizes, isPrizeDay, prizeCardUp, prizesFor } from '../src/lib/prizes';
+import { nemesisOfYear, withNemesis, yearWrapped, yearWrappedDue } from '../src/lib/year-wrapped';
+import { firstAdventSunday, isJulfridKey } from '../src/lib/swedish-days';
+import { owns } from '../src/lib/cosmetics';
+import { pauseOn } from '../src/lib/pause';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -176,6 +183,7 @@ for (const k of ['rival', 'medals']) known.add(k); // step 2b progress: the neme
 for (const k of ['hp', 'plan']) known.add(k); // step 2b boss: the weekend finisher and the recap
 known.add('finding'); // step 4 lines: just-in-time insights
 for (const k of ['when', 'happened', 'then', 'dmg', 'min']) known.add(k); // step 4 plans: if-then prompts and the comeback bonus
+known.add('year'); // step 6 seasons: the yearly Wrapped
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -1792,7 +1800,7 @@ void (async () => {
   assert.deepEqual(LINES.greetAllSaints.savage, LINES.greetAllSaints.mild);
   assert.equal(seasonOn(new Date(2026, 11, 13))?.id, 'lucia');
   assert.equal(seasonOn(new Date(2026, 11, 21))?.id, 'solstice');
-  assert.equal(seasonOn(new Date(2026, 11, 22)), null);
+  assert.equal(seasonOn(new Date(2026, 11, 22))?.id, 'advent');
   for (const id of ['halloween', 'lucia', 'solstice'] as const) {
     const day = { halloween: new Date(2026, 9, 31, 12), lucia: new Date(2026, 11, 13, 12), solstice: new Date(2026, 11, 21, 12) }[id];
     assert.ok(seasonOn(day)!.line in LINES);
@@ -1828,6 +1836,125 @@ void (async () => {
   assert.equal(winterOf(new Date(2026, 10, 20)), '2026');
   assert.equal(winterOf(new Date(2027, 2, 1)), '2026');
   assert.ok(isSnow(73) && !isSnow(61));
+}
+
+// Advent and Julfrid: season dates, candles, doors that wait (never a streak), gifts once, the days off, Kalle Anka
+{
+  assert.equal(dayKey(firstAdventSunday(2026)), '2026-11-29');
+  assert.equal(dayKey(firstAdventSunday(2027)), '2027-11-28');
+  assert.equal(dayKey(firstAdventSunday(2028)), '2028-12-03');
+  assert.equal(seasonOn(new Date(2026, 10, 28)), null);
+  assert.equal(seasonOn(new Date(2026, 10, 29))?.id, 'advent');
+  assert.equal(seasonOn(new Date(2026, 11, 13))?.id, 'lucia', 'Lucia and the solstice win on their own day');
+  assert.equal(seasonOn(new Date(2026, 11, 23))?.id, 'advent');
+  assert.equal(seasonOn(new Date(2026, 11, 24))?.id, 'jul');
+  assert.equal(dayKey(seasonOn(new Date(2026, 11, 24))!.lastDay), '2026-12-26');
+  assert.equal(seasonOn(new Date(2026, 11, 27)), null);
+  assert.ok(seasonOn(new Date(2026, 11, 1))!.line in LINES && seasonOn(new Date(2026, 11, 25))!.line in LINES);
+  assert.deepEqual(LINES.seasonJul.savage, LINES.seasonJul.mild);
+  // one more candle each Advent Sunday, all four until annandag jul
+  assert.deepEqual([28, 29].map((d) => adventCandles(new Date(2026, 10, d, 12))), [0, 1]);
+  assert.deepEqual([5, 6, 13, 20, 26, 27].map((d) => adventCandles(new Date(2026, 11, d, 12))), [1, 2, 3, 4, 4, 0]);
+  // door n opens on n December; a missed one waits until Trettondedag jul; each opens once, for coins or a cosmetic, never XP
+  const av = defaultState();
+  assert.equal(adventYear(new Date(2026, 10, 30, 12)), 2026);
+  assert.equal(adventYear(new Date(2027, 0, 6, 12)), 2026);
+  assert.equal(adventYear(new Date(2027, 0, 7, 12)), null);
+  assert.equal(adventYear(new Date(2026, 10, 1, 12)), null);
+  assert.equal(doorsWaiting(av, new Date(2026, 10, 30, 12)), 0);
+  assert.ok(doorOpenable(av, 1, new Date(2026, 11, 1, 12)) && !doorOpenable(av, 2, new Date(2026, 11, 1, 12)));
+  assert.equal(doorsWaiting(av, new Date(2026, 11, 3, 12)), 3, 'missed doors stay openable');
+  const d1 = openDoor(av, 1, new Date(2026, 11, 3, 12))!;
+  assert.ok(d1.prize.coins >= 10 && d1.prize.coins <= 30);
+  assert.equal(d1.state.coins, av.coins + d1.prize.coins);
+  assert.equal(d1.state.xp, av.xp, 'doors never pay XP');
+  assert.equal(openDoor(d1.state, 1, new Date(2026, 11, 3, 12)), null, 'once');
+  assert.equal(doorsWaiting(d1.state, new Date(2026, 11, 3, 12)), 2);
+  assert.deepEqual(doorPrize(2026, 7), doorPrize(2026, 7));
+  assert.equal(openDoor(av, 0, new Date(2026, 11, 3, 12)), null);
+  const d24 = openDoor(av, 24, new Date(2027, 0, 5, 12))!;
+  assert.ok(owns(d24.state, 'tomte_hat') && d24.reward.includes('Tomte hat'));
+  assert.equal(openDoor(av, 24, new Date(2027, 0, 7, 12)), null, 'after Trettondedag jul');
+  const again = openDoor({ ...d24.state, advent: {} }, 24, new Date(2026, 11, 24, 12))!;
+  assert.equal(again.state.coins, d24.state.coins + 30, 'a gift already in the wardrobe pays coins instead');
+  assert.ok(!buyable(cosmeticOf('tomte_hat')!) && whereToGet(cosmeticOf('tomte_hat')!) === 'Advent Web · door 24');
+  // Advent Sundays offer a candle quest in the draft, never as a default; other days don't
+  const at = { ...defaultState(), tasks: [{ id: 't', title: 'x', done: false, createdAt: 0 }] };
+  assert.ok(draftFor(at, new Date(2026, 10, 29, 9)).candidates.includes('advent_candle'));
+  assert.ok(!draftFor(at, new Date(2026, 10, 29, 9)).defaults.includes('advent_candle'));
+  assert.ok(!draftFor(at, new Date(2026, 10, 30, 9)).candidates.includes('advent_candle'), 'Sundays only');
+  assert.ok(!pickQuests(at, new Date(2026, 11, 2, 12)).some((q) => q.startsWith('advent_')));
+  // Julfrid: kind days (no roasts), away mode in one tap to annandag jul, a daylight walk as the gentle quest
+  assert.ok(isJulfridKey('2026-12-24') && isJulfridKey('2026-12-26') && !isJulfridKey('2026-12-27'));
+  assert.ok(toneOn(defaultState(), '2026-12-24').kind && toneOn(defaultState(), '2026-12-26').kind);
+  assert.ok(!toneOn(defaultState(), '2026-12-27').kind);
+  const jf = defaultState();
+  assert.equal(julfridOffer(jf, new Date(2026, 11, 23, 17)), null);
+  assert.deepEqual(julfridOffer(jf, new Date(2026, 11, 23, 19)), { from: '2026-12-24', to: '2026-12-26' });
+  const planned = julfridPause(jf, new Date(2026, 11, 23, 19));
+  assert.ok(!pausedOn(planned, '2026-12-23') && pausedOn(planned, '2026-12-24') && pausedOn(planned, '2026-12-26') && !pausedOn(planned, '2026-12-27'));
+  assert.equal(pauseOn(planned, '2026-12-25')?.kind, 'away');
+  assert.equal(julfridOffer(planned, new Date(2026, 11, 24, 9)), null, 'nothing left to offer');
+  const onDay = julfridPause(jf, new Date(2026, 11, 25, 9));
+  assert.ok(!pausedOn(onDay, '2026-12-24') && pausedOn(onDay, '2026-12-25') && pausedOn(onDay, '2026-12-26') && !pausedOn(onDay, '2026-12-27'));
+  const sickEve = { ...jf, pauses: [{ from: '2026-12-22', to: '2026-12-24', kind: 'sick' as const }] };
+  assert.equal(julfridPause(sickEve, new Date(2026, 11, 23, 19)), sickEve, 'a pause already there is left alone; the 24th can take it over');
+  const walker = { ...planned, days: { '2026-12-20': { water: [], food: [], sets: [], games: [], bonusGameMin: 0, steps: 5000 } } };
+  assert.equal(gentleQuestFor(walker, new Date(2026, 11, 25, 12)), 'jul_walk');
+  assert.ok(kalleAnka(new Date(2026, 11, 24, 15, 30)) && !kalleAnka(new Date(2026, 11, 24, 16, 0)) && !kalleAnka(new Date(2026, 11, 25, 15, 30)));
+}
+
+// the S.P.I.D.E.R. Prizes: totals over the year's counted days, no prize for an empty field, accepted once (a medal, never XP)
+{
+  const pz = defaultState();
+  pz.days['2026-11-02'] = { water: [{ id: 'w', ml: 2000, at: 0 }], food: [], sets: [], games: [], bonusGameMin: 0, steps: 8000, coffee: [{ id: 'c', mg: 80, at: 0 }] };
+  pz.days['2026-11-03'] = { water: [{ id: 'w2', ml: 1000, at: 0 }], food: [], sets: [], games: [], bonusGameMin: 0, steps: 6000, moods: [{ id: 'm', level: 1, emotions: [], at: 0 }] }; // rest: not counted
+  const p = prizesFor(pz, 2026, new Date(2026, 11, 10, 12));
+  const stat = (id: string) => p.find((x) => x.id === id)?.stat.replace(/\s/g, ' ');
+  assert.equal(stat('physics'), '8 000 steps');
+  assert.equal(stat('medicine'), '2.0 L of water');
+  assert.equal(stat('chemistry'), '1 cup of coffee');
+  assert.equal(stat('peace'), '1 day inside the gaming budget');
+  assert.equal(stat('literature'), undefined, 'no diary, no prize');
+  assert.equal(prizesFor(pz, 2025, new Date(2026, 11, 10, 12)).length, pz.coins > 0 ? 1 : 0, 'another year: only the vault');
+  assert.ok(isPrizeDay(new Date(2026, 11, 10, 17)) && !isPrizeDay(new Date(2026, 11, 11)));
+  assert.ok(prizeCardUp(new Date(2026, 11, 12)) && !prizeCardUp(new Date(2026, 11, 13)) && !prizeCardUp(new Date(2026, 11, 9)));
+  const acc = acceptPrizes(pz, 2026)!;
+  assert.ok(owns(acc.state, 'prize_medal'));
+  assert.equal(acc.state.xp, pz.xp);
+  assert.equal(acceptPrizes(acc.state, 2026), null, 'once a year');
+  assert.equal(acceptPrizes(acc.state, 2027)!.state.coins, acc.state.coins + 50, 'the medal is owned: coins next year');
+}
+
+// the yearly Wrapped: from the first logged day ("since October"), rough days as rest, totals only, the nemesis of the year
+{
+  const yw = defaultState();
+  yw.settings.adaptiveWater = false; // the plain goal
+  const day = (extra: Partial<DayLog>): DayLog => ({ water: [{ id: 'w', ml: yw.settings.waterGoalMl, at: 0 }], food: [], sets: [], games: [], bonusGameMin: 0, ...extra });
+  yw.days['2026-10-07'] = day({ xpEarned: 100 });
+  yw.days['2026-11-10'] = day({ xpEarned: 300, sets: [{ id: 's', exercise: 'Squat', weight: 40, reps: 8, at: new Date(2026, 10, 10, 18).getTime() }] });
+  yw.days['2026-11-11'] = day({ xpEarned: 20, moods: [{ id: 'm', level: 1, emotions: [], at: 0 }] });
+  yw.bossesDefeated = { '2026-10-19': 'procrastinator', '2025-12-01': 'snooze' };
+  yw.lineMemory = { banned: ['a', 'b', 'c'] };
+  let nm = withNemesis(yw, '2026-10-26', { name: 'Hydro Hanna', emoji: '💧', beaten: true });
+  nm = withNemesis(nm, '2026-11-02', { name: 'Hydro Hanna', emoji: '💧', beaten: false });
+  nm = withNemesis(withNemesis(nm, '2026-11-09', { name: 'Gym Greg', emoji: '🏋️', beaten: true }), '2026-11-16', null);
+  assert.deepEqual(nemesisOfYear(nm, 2026), { name: 'Hydro Hanna', emoji: '💧', weeks: 2, beaten: 1 });
+  assert.equal(nemesisOfYear(nm, 2027), null);
+  const w = yearWrapped(nm, 2026, new Date(2027, 0, 1, 10));
+  const slide = (id: string) => w.slides.find((x) => x.id === id);
+  assert.equal(w.partial, false);
+  assert.ok(slide('intro')!.sub.includes('since October') && slide('intro')!.sub.includes('1 rest day'), slide('intro')!.sub);
+  assert.equal(slide('intro')!.big.replace(/\s/g, ' '), '420 XP');
+  assert.equal(slide('month')!.big, 'November');
+  assert.equal(slide('bosses')!.big, '1', 'only this year');
+  assert.equal(slide('nemesis')!.big, 'Hydro Hanna');
+  assert.equal(slide('retired')!.quip, "3. I've grown.");
+  assert.equal(slide('water')!.sub, 'goal hit on 2 of 2 days', 'the rough day is rest, not a miss');
+  assert.equal(w.slides.at(-1)!.id, 'finale');
+  assert.ok(!/in a row|streak/i.test(JSON.stringify(w)));
+  assert.equal(yearWrapped(nm, 2026, new Date(2026, 11, 20, 12)).partial, true);
+  assert.ok(yearWrappedDue(new Date(2027, 0, 7, 20)) && !yearWrappedDue(new Date(2027, 0, 8)) && !yearWrappedDue(new Date(2026, 11, 31)));
 }
 
 // weekly contract: counts only from the day it was signed, gaming only for finished days, rough weeks void it

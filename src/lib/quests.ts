@@ -42,6 +42,7 @@ type QuestDef = {
   xp: number;
   season?: SeasonId; // only during that season, and then one of the day's three is always seasonal
   reduced?: boolean; // only ever the one quest of a reduced day (GENTLE), never in the normal draw
+  extra?: boolean; // offered in the morning draft only, never one of the defaults (an optional seasonal one)
   available: (s: State, date: Date) => boolean;
   build: (s: State, d: DayLog, date: Date) => { title: string; progress: number; target: number };
 };
@@ -132,6 +133,18 @@ const QUESTS: QuestDef[] = [
   },
   { id: 'hw_seance', xp: 12, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Hold a séance: check in your mood', progress: moodsOf(d).length, target: 1 }) },
   { id: 'lucia_light', xp: 20, season: 'lucia', available: () => true, build: (_s, d) => ({ title: '🕯️ Bring the light: log something before 08:00', progress: loggedBefore8(d) ? 1 : 0, target: 1 }) },
+  {
+    id: 'advent_candle',
+    xp: 15,
+    season: 'advent',
+    extra: true, // Advent Sundays: on offer in the draft, never forced
+    available: (s, date) => date.getDay() === 0 && s.tasks.some((t) => !t.done),
+    build: (s, _d, date) => ({
+      title: '🕯️ Light a candle: finish a task before 12:00',
+      progress: doneTasksOn(s, dayKey(date)).some((t) => new Date(t.at).getHours() < 12) ? 1 : 0,
+      target: 1,
+    }),
+  },
   { id: 'solstice_walk', xp: 20, season: 'solstice', available: hasSteps, build: (_s, d) => ({ title: '🌑 Darkest day: walk 5 000 steps anyway', progress: d.steps ?? 0, target: 5000 }) },
   {
     id: 'solstice_water',
@@ -140,6 +153,8 @@ const QUESTS: QuestDef[] = [
     available: (s) => !hasSteps(s),
     build: (s, d, date) => ({ title: '🌑 Darkest day: hit your water goal anyway', progress: waterMl(d), target: waterGoalFor(s, dayKey(date)) }),
   },
+  // Julfrid: one easy outing in the few hours of daylight. Also the gentle quest on a Julfrid day off.
+  { id: 'jul_walk', xp: 15, season: 'jul', available: hasSteps, build: (_s, d) => ({ title: '🎄 A walk while it is light: 3 000 steps', progress: d.steps ?? 0, target: 3000 }) },
   // cluster F: the Swedish year (seasons.ts, traditions.ts). Nothing food-themed.
   {
     id: 'easter_egg',
@@ -197,7 +212,7 @@ const hash = (str: string) => {
 export function pickQuestsWithFocus(s: State, date = new Date()) {
   const key = dayKey(date);
   const season = seasonOn(date)?.id;
-  const pool = QUESTS.filter((q) => !q.reduced && (!q.season || q.season === season) && q.available(s, date));
+  const pool = QUESTS.filter((q) => !q.reduced && !q.extra && (!q.season || q.season === season) && q.available(s, date));
   const ranked = (qs: QuestDef[]) => qs.map((q) => ({ id: q.id, r: hash(`${key}:${q.id}`) })).sort((a, b) => a.r - b.r);
   const seasonal = ranked(pool.filter((q) => q.season)).slice(0, 1);
   const rest = ranked(pool.filter((q) => !q.season));
@@ -298,7 +313,7 @@ export function rerollFor(s: State, id: string, date = new Date()): string | nul
 }
 
 /** Gentlest first: what a reduced day asks for. A seasonal one keeps the season's flavour without asking for more. */
-const GENTLE = ['hw_seance', 'checkin', 'sip'];
+const GENTLE = ['hw_seance', 'jul_walk', 'checkin', 'sip'];
 
 /**
  * A reduced day's one quest: the gentlest that fits the date and isn't already met (so going easy never
