@@ -21,6 +21,7 @@ export function usedOn(d: DayLog | undefined): boolean {
     d.sleepRating != null ||
     d.energy != null ||
     !!d.sleepManual ||
+    !!d.stepsManual ||
     !!d.focus?.length ||
     !!d.breaths ||
     !!d.windDown?.length ||

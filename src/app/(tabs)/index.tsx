@@ -58,6 +58,7 @@ import {
   kcalOf,
   moodsOf,
   proteinOf,
+  shownSteps,
   trainedOn,
   waterGoalFor,
   waterMl,
@@ -113,6 +114,8 @@ export default function HQ() {
   const upcoming = eventsOn(cal.events, now).filter((e) => e.end > now && !e.allDay).slice(0, 3);
   const unlocked = ACHIEVEMENTS.filter((a) => state.achievements[a.id]).length;
   const coffees = coffeeOf(today).length;
+  // Typed-in steps win (syncedSteps); a read from before midnight isn't today's.
+  const stepsNow = health.data || today.stepsManual ? shownSteps(today, health.data?.key === todayKey ? health.data.steps : undefined) : undefined;
   const lastCall = lastCallOn(state, todayKey);
   const coffeeHint = now >= bedtimeOn(todayKey, s.sleepHour) ? 'tap to add one' : lastCall != null && lastCall > now ? `fine till ${fmtTime(lastCall)}` : 'decaf from here';
   const cycle = cycleInfo(state);
@@ -282,11 +285,11 @@ export default function HQ() {
           <>
             <Tile icon="directions_walk" color={C.green} label="Steps" onPress={() => router.navigate('/gym')}>
               <Text style={styles.tileVal}>
-                {health.data ? health.data.steps.toLocaleString('sv-SE') : '–'}
+                {stepsNow != null ? stepsNow.toLocaleString('sv-SE') : '–'}
                 <Text style={styles.tileUnit}> / {s.stepGoal.toLocaleString('sv-SE')}</Text>
               </Text>
-              {health.data ? (
-                <Bar pct={health.data.steps / s.stepGoal} color={C.green} height={6} />
+              {stepsNow != null ? (
+                <Bar pct={stepsNow / s.stepGoal} color={C.green} height={6} />
               ) : (
                 <T dim small>
                   Connect your watch

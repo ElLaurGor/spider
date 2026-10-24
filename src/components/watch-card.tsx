@@ -1,13 +1,15 @@
 import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { EntryEditor } from '@/components/entry-editor';
 import { Bar, Big, Btn, Card, H, Icon, Row, SpiderSays, T, useNow } from '@/components/ui';
+import { useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
-import { fmtDuration, fmtTime, WEEKDAYS } from '@/lib/dates';
+import { fmtDuration, fmtTime, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { openHealthSettings } from '@/lib/health';
 import { stepsLineKey } from '@/lib/line-context';
-import { dayOf } from '@/lib/selectors';
+import { dayOf, shownSteps } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 
 const fmtSteps = (n: number) => n.toLocaleString('sv-SE');
@@ -17,8 +19,12 @@ export function WatchCard() {
   const { state, health, quip } = useStore();
   const goal = state.settings.stepGoal;
   const d = health.data;
+  const todayKey = useToday();
+  const [editing, setEditing] = useState<string | null>(null); // the day whose steps are being typed in
 
-  const steps = d?.steps ?? 0;
+  const typed = dayOf(state, todayKey).stepsManual;
+  // Right after midnight the last read can still be yesterday's: its count isn't today's.
+  const steps = shownSteps(dayOf(state, todayKey), d?.key === todayKey ? d.steps : undefined) ?? 0;
   const now = useNow(60_000);
   // Paced by the time of day: 3 000 steps at 10:00 is on pace, at 21:00 it isn't.
   const stepKey = stepsLineKey(steps, goal, new Date(now), state.settings.wakeHour, state.settings.sleepHour);
@@ -46,11 +52,18 @@ export function WatchCard() {
           </View>
         )}
         <Btn label="Connect watch data" icon="monitor_heart" onPress={health.connect} />
+        <Btn label={typed ? `Steps today: ${fmtSteps(steps)} · edit` : "Type in today's steps"} icon="directions_walk" kind="ghost" small onPress={() => setEditing(todayKey)} />
+        {editing ? <StepsEditor day={editing} onClose={() => setEditing(null)} /> : null}
       </Card>
     );
   }
 
-  const max = Math.max(goal, ...(d?.stepsWeek.map((x) => x.steps ?? 0) ?? [0]), 1);
+  // Today's bar is the number above (read every minute); a past day's typed-in steps replace the watch's.
+  const week = (d?.stepsWeek ?? []).map((x) => {
+    const log = dayOf(state, x.key);
+    return { key: x.key, steps: x.key === todayKey ? steps : log.stepsManual ? (log.steps ?? x.steps) : x.steps, typed: !!log.stepsManual };
+  });
+  const max = Math.max(goal, ...week.map((x) => x.steps ?? 0), 1);
 
   return (
     <Card accent={C.green}>
@@ -64,12 +77,16 @@ export function WatchCard() {
       </H>
 
       <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <View>
+        <Pressable
+          onPress={() => setEditing(todayKey)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`${fmtSteps(steps)} steps today. Type in your steps`}>
           <Big color={C.green}>{fmtSteps(steps)}</Big>
           <T dim small mono>
-            / {fmtSteps(goal)} steps
+            / {fmtSteps(goal)} steps · {typed ? '✎ typed' : '✎'}
           </T>
-        </View>
+        </Pressable>
         <Pressable onPress={() => router.push('/movement')} hitSlop={8} style={{ alignItems: 'center' }}>
           <Icon name="directions_walk" size={40} color={steps >= goal ? C.green : C.faint} />
           <Text style={styles.byHour}>by hour →</Text>
@@ -98,8 +115,13 @@ export function WatchCard() {
       </Row>
 
       <Row gap={6} style={{ alignItems: 'flex-end', height: 70 }}>
-        {(d?.stepsWeek ?? []).map((x) => (
-          <View key={x.key} style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+        {week.map((x) => (
+          <Pressable
+            key={x.key}
+            onPress={() => setEditing(x.key)}
+            style={{ flex: 1, alignItems: 'center', gap: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel={`${WEEKDAYS_LONG[new Date(`${x.key}T12:00`).getDay()]}: ${x.steps == null ? 'no reading' : `${fmtSteps(x.steps)} steps`}. Type in steps`}>
             <View
               style={{
                 width: '70%',
@@ -109,8 +131,11 @@ export function WatchCard() {
                 opacity: x.steps == null ? 0.4 : 1, // that day's read failed
               }}
             />
-            <Text style={styles.day}>{WEEKDAYS[new Date(`${x.key}T12:00`).getDay()][0]}</Text>
-          </View>
+            <Text style={styles.day}>
+              {WEEKDAYS[new Date(`${x.key}T12:00`).getDay()][0]}
+              {x.typed ? '✎' : ''}
+            </Text>
+          </Pressable>
         ))}
       </Row>
 
@@ -128,7 +153,40 @@ export function WatchCard() {
           Data comes from Zepp via Health Connect · updated {d ? fmtTime(d.updatedAt) : '–'} · manage access
         </T>
       </Pressable>
+      {editing ? <StepsEditor day={editing} onClose={() => setEditing(null)} /> : null}
     </Card>
+  );
+}
+
+/** Sheet for typing in a day's steps when the watch is behind or counted too much (syncedSteps). */
+export function StepsEditor({ day, onClose }: { day: string; onClose: () => void }) {
+  const { state, actions, health } = useStore();
+  const today = useToday();
+  const log = dayOf(state, day);
+  const watch = day === today ? (health.data?.stepsKnown ? health.data.steps : null) : (health.data?.stepsWeek.find((x) => x.key === day)?.steps ?? null);
+  const connected = health.status === 'connected';
+  const note = [
+    watch != null ? `The watch says ${fmtSteps(watch)}.` : null,
+    log.stepsManual
+      ? connected
+        ? 'Delete hands the day back to the watch.'
+        : null
+      : connected
+        ? 'Higher than the watch: it takes over again once it counts more. Lower: your number stays all day.'
+        : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <EntryEditor
+      title={`Steps · ${day === today ? 'Today' : WEEKDAYS_LONG[new Date(`${day}T12:00`).getDay()]}`}
+      numbers={[{ key: 'steps', label: 'Steps', value: shownSteps(log, watch) ?? 0, step: 100, min: 0, max: 100000, suffix: 'steps' }]}
+      note={note || undefined}
+      onSave={(_, v) => actions.logSteps(day, v.numbers.steps)}
+      onDelete={log.stepsManual ? () => actions.logSteps(day, null) : undefined}
+      onClose={onClose}
+    />
   );
 }
 

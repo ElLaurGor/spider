@@ -16,19 +16,37 @@ export const proteinOf = (d: DayLog) => d.food.reduce((a, f) => a + f.protein, 0
 export const syncedSleep = (d: DayLog, watchMin: number | null) => (d.sleepManual ? d.sleepMin : (watchMin ?? d.sleepMin));
 
 /**
- * The watch's final numbers for past days you used the app (days without a log stay that way): steps
- * (never lower than a snapshot taken that day), the step-goal flag without XP, and sleep unless typed in.
+ * A day's steps after a watch reading. Typed-in steps win: 'floor' ones (typed above the watch, which was
+ * behind) until the watch counts more, then the watch takes over again; 'fixed' ones (typed below it, which
+ * counted too much) for the whole day. No reading (null) leaves the day as it is.
+ */
+export function syncedSteps(d: DayLog, watch: number | null | undefined): { steps: number | undefined; stepsManual: DayLog['stepsManual'] } {
+  if (watch == null || d.stepsManual === 'fixed' || (d.stepsManual === 'floor' && watch <= (d.steps ?? 0))) {
+    return { steps: d.steps, stepsManual: d.stepsManual };
+  }
+  return { steps: watch, stepsManual: undefined };
+}
+
+/** A day's steps to show next to the watch's latest reading: the reading, or the typed-in steps (syncedSteps). */
+export const shownSteps = (d: DayLog, watch: number | null | undefined): number | undefined => syncedSteps(d, watch).steps ?? watch ?? undefined;
+
+/**
+ * The watch's final numbers for past days you used the app (days without a log stay that way): steps (Zepp's
+ * own count once it has written the day, even below a snapshot that day's filling took; a 0 never wipes one;
+ * typed-in ones as syncedSteps says), the step-goal flag without XP, and sleep unless typed in.
  */
 export function withPastHealth(s: State, past: { key: string; steps: number; sleepMin: number | null }[]): State {
   let days = s.days;
   for (const p of past) {
     const d = days[p.key];
     if (!d) continue;
-    const steps = p.steps > 0 ? Math.max(d.steps ?? 0, p.steps) : d.steps;
+    const { steps, stepsManual } = d.stepsManual
+      ? syncedSteps(d, p.steps > 0 ? p.steps : null)
+      : { steps: p.steps > 0 ? p.steps : d.steps, stepsManual: undefined };
     const sleepMin = syncedSleep(d, p.sleepMin);
     const stepGoalHit = !!d.stepGoalHit || (steps ?? 0) >= stepGoalOn(s, p.key);
-    if (d.steps === steps && d.sleepMin === sleepMin && !!d.stepGoalHit === stepGoalHit) continue;
-    days = { ...days, [p.key]: { ...d, steps, sleepMin, stepGoalHit } };
+    if (d.steps === steps && d.stepsManual === stepsManual && d.sleepMin === sleepMin && !!d.stepGoalHit === stepGoalHit) continue;
+    days = { ...days, [p.key]: { ...d, steps, stepsManual, sleepMin, stepGoalHit } };
   }
   return days === s.days ? s : { ...s, days };
 }

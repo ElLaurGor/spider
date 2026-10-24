@@ -492,7 +492,21 @@ export default function SettingsScreen() {
             ) : null}
             <Btn label="Health Connect settings" kind="ghost" onPress={openHealthSettings} style={{ flex: 1 }} />
           </Row>
-          {health.status === 'connected' ? <StepsCheckPanel shown={health.data?.stepsKnown ? health.data.steps : null} /> : null}
+          {health.status === 'connected' ? (
+            <>
+              <Toggle
+                label="Fill Zepp's delay with the phone's steps"
+                hint="Zepp writes to Health Connect late; until it does, the phone's own step count covers today's newest steps"
+                value={s.stepsFill !== false}
+                onChange={(v) => {
+                  set({ stepsFill: v });
+                  setTimeout(health.refresh, 0); // re-read with the new setting (the store reads it at the next read)
+                }}
+                color={C.green}
+              />
+              <StepsCheckPanel fill={s.stepsFill !== false} />
+            </>
+          ) : null}
         </Card>
       ) : null}
 

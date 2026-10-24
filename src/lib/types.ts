@@ -79,6 +79,7 @@ export type Settings = {
   // cluster C
   adaptiveWater?: boolean; // hot days and training days raise the water goal (default on)
   maxHr?: number; // for heart rate zones in training (lib/workout-heart.ts DEFAULT_MAX_HR when unset)
+  stepsFill?: boolean; // today's steps: other apps (the phone's own counter) cover the time Zepp hasn't written to Health Connect yet (default on)
   moveNudgeHour?: number | null; // workdays at this hour: a nudge to move (her stillest hour on the movement map); unset = off
   // step 4
   sl?: { siteId: number; name: string; routes: string[]; walkMin: number } | null; // SL departures card (lib/sl.ts); unset = no card
@@ -165,7 +166,8 @@ export type DayLog = {
   air?: { aqi: number; pollen: Partial<Record<'alder' | 'birch' | 'grass' | 'mugwort' | 'ragweed', number>> }; // daily max, for Insights
   moods?: MoodEntry[];
   bonusGameMin: number;
-  steps?: number; // latest count from the watch via Health Connect
+  steps?: number; // latest count from the watch via Health Connect, or typed in
+  stepsManual?: 'floor' | 'fixed'; // steps typed in: 'floor' (above the watch) until the watch counts more, 'fixed' (below it) for the whole day (syncedSteps)
   sleepMin?: number; // last night's sleep, from the watch or typed in
   sleepManual?: boolean; // sleepMin was typed in: the watch doesn't overwrite it
   stepGoalHit?: boolean;

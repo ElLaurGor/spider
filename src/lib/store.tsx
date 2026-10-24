@@ -18,7 +18,7 @@ import { bankFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId 
 import { stageFor, themesUnlockedBetween } from './evolution';
 import { addDays, atTime, dayKey, fmtDuration, fmtTime, isDayKey, MIN, startOfDay, startOfWeek, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
-import { connectHealth, healthStatus, healthSupported, missingHealthAccess, readHealth, readTodaySteps, type HealthData, type HealthStatus } from './health';
+import { connectHealth, healthStatus, healthSupported, missingHealthAccess, readHealth, readTodaySteps, withoutTodaySteps, type HealthData, type HealthStatus } from './health';
 import { withGoals } from './goals';
 import { habitsDone, habitsFor, RANGE_TOP_XP, rangeText, rangeWeek } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
@@ -76,7 +76,9 @@ import {
   isRecord,
   moodsOf,
   proteinOf,
+  stepGoalOn,
   syncedSleep,
+  syncedSteps,
   trainedOn,
   waterGoalFor,
   waterMl,
@@ -636,14 +638,30 @@ function perkBomb(s: State, msgs: Msg[], damage: number, label: string): State {
   return { ...s, bossBombs: { ...s.bossBombs, [week]: (s.bossBombs[week] ?? 0) + damage } };
 }
 
-/** Today's steps from the watch, awarding the step goal the first time they reach it. */
-function withTodaySteps(s: State, msgs: Msg[], key: string, steps: number): State {
-  let next = patchDay(s, key, (d) => ({ ...d, steps }));
-  if (dayOf(s, key).stepGoalHit || steps < s.settings.stepGoal) return next;
-  next = patchDay(next, key, (d) => ({ ...d, stepGoalHit: true }));
+/** The step goal, the first time a day's steps reach it: with XP today, the flag alone for a past day (like the watch's late numbers). */
+function withStepGoal(s: State, msgs: Msg[], key: string): State {
+  const steps = dayOf(s, key).steps ?? 0;
+  if (dayOf(s, key).stepGoalHit || steps < stepGoalOn(s, key)) return s;
+  let next = patchDay(s, key, (d) => ({ ...d, stepGoalHit: true }));
+  if (key !== dayKey()) return next;
   msgs.push({ text: `${L(next, 'stepGoal', { steps: steps.toLocaleString('sv-SE') })} +${XP.stepGoal} XP · +${BONUS_MIN.stepGoal} min gaming`, tone: 'epic' });
   next = reward(next, msgs, XP.stepGoal, BONUS_MIN.stepGoal);
   return hasPerk(next, 'second_wind') ? perkBomb(next, msgs, 50, '👣 Second Wind') : next;
+}
+
+/** True when a watch reading would change today's steps or reach the step goal (typed-in steps as syncedSteps says). */
+function stepsWouldChange(s: State, key: string, steps: number): boolean {
+  const d = dayOf(s, key);
+  const synced = syncedSteps(d, steps);
+  return synced.steps !== d.steps || synced.stepsManual !== d.stepsManual || (!d.stepGoalHit && (synced.steps ?? 0) >= stepGoalOn(s, key));
+}
+
+/** Today's steps from the watch (typed-in ones as syncedSteps says), awarding the step goal the first time they reach it. */
+function withTodaySteps(s: State, msgs: Msg[], key: string, steps: number): State {
+  const d = dayOf(s, key);
+  const synced = syncedSteps(d, steps);
+  const next = synced.steps === d.steps && synced.stepsManual === d.stepsManual ? s : patchDay(s, key, (x) => ({ ...x, ...synced }));
+  return withStepGoal(next, msgs, key);
 }
 
 /** Anything that got a reaction has a small chance to turn up a golden line for the Roast Book. Not while going easy. */
@@ -1162,6 +1180,10 @@ function useStoreValue() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [healthMissing, setHealthMissing] = useState<string[]>([]); // asked for but not granted ("heart rate", "sleep")
   const watchSleep = useRef(false); // Health Connect is connected: last night's bedtime comes from the watch
+  const watchSteps = useRef<Record<string, number>>({}); // the watch's latest steps per day, for typed-in steps (logSteps)
+  // When the newest steps read that landed began: the full read takes seconds, so the minute read can start
+  // after it and land first, and the full read's older count must not then roll today's steps back.
+  const stepsReadAt = useRef(0);
 
   /**
    * Applies the watch's numbers: today's (awarding the step goal once), and the final ones for the past week.
@@ -1174,13 +1196,14 @@ function useStoreValue() {
       const key = dayKey();
       const current = data.key === key;
       const steps = current && data.stepsKnown ? data.steps : null;
+      for (const x of data.stepsWeek) if (x.steps != null) watchSteps.current[x.key] = x.steps;
       const today = dayOf(s0, key);
       const sleep = current ? syncedSleep(today, data.sleepMin) : today.sleepMin;
       const past = data.stepsWeek
         .filter((x) => x.key !== key)
         .map((x) => ({ key: x.key, steps: x.steps ?? 0, sleepMin: data.sleepWeek.find((y) => y.key === x.key)?.sleepMin ?? null }));
       const pastChanged = withPastHealth(s0, past) !== s0 || withNights(s0, data.nights, key) !== s0;
-      const todayChanged = steps != null && (today.steps !== steps || (!today.stepGoalHit && steps >= s0.settings.stepGoal));
+      const todayChanged = steps != null && stepsWouldChange(s0, key, steps);
       if (!pastChanged && !todayChanged && today.sleepMin === sleep) return;
       run((s, msgs) => {
         let next = withNights(withPastHealth(s, past), data.nights, key);
@@ -1200,12 +1223,18 @@ function useStoreValue() {
         watchSleep.current = status === 'connected';
         if (status !== 'connected') return;
         setHealthMissing(await missingHealthAccess().catch(() => []));
-        const data = await readHealth();
-        if (!data) return;
-        // A failed steps read shows the last known number instead of 0.
-        setHealth((prev) =>
-          data.stepsKnown ? data : { ...data, steps: (prev?.key === data.key && prev.stepsKnown ? prev.steps : dayOf(stateRef.current, data.key).steps) ?? 0 },
-        );
+        const began = Date.now();
+        const read = await readHealth(new Date(), stateRef.current.settings.stepsFill !== false);
+        if (!read) return;
+        const stale = began < stepsReadAt.current; // a minute read that began later already landed
+        if (!stale && read.stepsKnown) stepsReadAt.current = began;
+        const data = stale ? withoutTodaySteps(read) : read;
+        // A failed (or overtaken) steps read shows the last known number instead of 0.
+        setHealth((prev) => {
+          if (data.stepsKnown) return data;
+          const known = prev?.key === data.key && prev.stepsKnown;
+          return { ...data, steps: (known ? prev.steps : dayOf(stateRef.current, data.key).steps) ?? 0, stepsKnown: known };
+        });
         applyHealth(data);
       } catch (e) {
         console.warn('[spider] health failed', e);
@@ -1221,11 +1250,13 @@ function useStoreValue() {
   const refreshSteps = useCallback(async () => {
     if (!watchSleep.current || AppState.currentState !== 'active') return;
     try {
-      const r = await readTodaySteps();
-      if (!r || r.key !== dayKey()) return;
+      const began = Date.now();
+      const r = await readTodaySteps(new Date(), stateRef.current.settings.stepsFill !== false);
+      if (!r || r.key !== dayKey() || began < stepsReadAt.current) return;
+      stepsReadAt.current = began;
+      watchSteps.current[r.key] = r.steps;
       setHealth((prev) => (prev?.key === r.key && (prev.steps !== r.steps || !prev.stepsKnown) ? { ...prev, steps: r.steps, stepsKnown: true, updatedAt: Date.now() } : prev));
-      const today = dayOf(stateRef.current, r.key);
-      if (today.steps === r.steps && (today.stepGoalHit || r.steps < stateRef.current.settings.stepGoal)) return;
+      if (!stepsWouldChange(stateRef.current, r.key, r.steps)) return;
       run((s, msgs) => withTodaySteps(s, msgs, r.key, r.steps));
     } catch (e) {
       console.warn('[spider] steps failed', e);
@@ -1911,6 +1942,32 @@ function useStoreValue() {
           return next;
         });
         if (minutes == null && key === dayKey()) void refreshHealth(false);
+      },
+
+      /**
+       * Steps typed in by hand, for a watch that's behind or counted too much (syncedSteps: above the watch's
+       * count they hold until the watch passes them, below it for the whole day). Reaching the goal pays it like
+       * the watch does, once. null hands the day back to the watch.
+       */
+      logSteps(key: string, steps: number | null) {
+        if (!isDayKey(key)) return;
+        const watch = watchSteps.current[key];
+        run((s, msgs) => {
+          if (steps == null) {
+            // Today's typed number stands in until the next read (within a minute); a past day waits for the full read.
+            return patchDay(s, key, (d) => ({ ...d, steps: watch ?? (key === dayKey() ? d.steps : undefined), stepsManual: undefined }));
+          }
+          const n = Math.max(0, Math.round(steps));
+          const stepsManual = watch != null && n < watch ? 'fixed' : 'floor';
+          const after = watch == null ? '' : stepsManual === 'fixed' ? ' The watch leaves this day alone.' : ' The watch takes over once it counts more.';
+          msgs.push({ text: `Steps set to ${n.toLocaleString('sv-SE')}.${after}`, tone: 'info' });
+          return withStepGoal(
+            patchDay(s, key, (d) => ({ ...d, steps: n, stepsManual })),
+            msgs,
+            key,
+          );
+        });
+        if (steps == null) void refreshHealth(false);
       },
 
       // --- mood ---

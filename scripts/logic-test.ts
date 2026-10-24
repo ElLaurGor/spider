@@ -42,7 +42,7 @@ import { countedDay, firstDataDay, roughDay, usedOn } from '../src/lib/day-filte
 import { hallOfFame } from '../src/lib/records';
 import { monthWrapped } from '../src/lib/wrapped';
 import { cycleInfo, periodStarts, isPredictedPeriod } from '../src/lib/body';
-import { trainedOn, recentGames, gameTotals, gamePenalty, syncedSleep, waterGoalFor, waterGoalParts, waterMl, withPastHealth } from '../src/lib/selectors';
+import { trainedOn, recentGames, gameTotals, gamePenalty, shownSteps, syncedSleep, syncedSteps, waterGoalFor, waterGoalParts, waterMl, withPastHealth } from '../src/lib/selectors';
 import { searchFoods } from '../src/lib/food-db';
 import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS, xpPace } from '../src/lib/quests';
 import { habitsFor } from '../src/lib/habits';
@@ -129,7 +129,7 @@ import { autoBackupDue, backupNudge } from '../src/lib/backup-due';
 import { workoutFor } from '../src/lib/selectors';
 import { asleepMin, clockLabel, nightClock, nightOf, rhythmOf, stagedMin, withNights } from '../src/lib/sleep';
 import { nightWindow as sleepWindow, ZEPP } from '../src/lib/sleep';
-import { sourceName, stepSources, stepsIn, zeppSteps } from '../src/lib/steps';
+import { coveredUntil, overlapsIn, sourceName, stepsByHour, stepSources, stepsIn, stepsPlan, stepsReport, stepsVerdict, type StepsCheck } from '../src/lib/steps';
 import { allDayLocal } from '../src/lib/calendar-days';
 import { autoBackupsToPrune, orphanPhotos, pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
 import { isDoomscroll } from '../src/lib/doomscroll';
@@ -262,7 +262,7 @@ assert.ok(!inMeeting(events, atTime(tomorrow, 0, 13).getTime()));
 
 // gaming: finished sessions + live session
 const g = defaultState();
-const now = Date.now();
+const now = atTime(new Date(), 0, 12).getTime(); // noon: sessions an hour or two back stay on today, whenever the tests run
 g.days[dayKey()] = { water: [], food: [], sets: [], games: [{ start: now - 90 * MIN, end: now - 60 * MIN }], bonusGameMin: 30 };
 g.activeGame = { start: now - 20 * MIN };
 assert.equal(Math.round(gamingUsedMs(g, dayKey(), now) / MIN), 50);
@@ -2358,10 +2358,47 @@ void (async () => {
   assert.equal(next.days[y].stepGoalHit, true);
   assert.equal(next.days[y].sleepMin, 410);
   assert.equal(next.days[y2].steps, 9000); // a 0 from the watch never wipes a snapshot
+  // Zepp's own final count replaces a higher snapshot (one the phone's filling took that day)
+  assert.equal(withPastHealth(next, [{ key: y, steps: 5000, sleepMin: 410 }]).days[y].steps, 5000);
   assert.equal(next.days[y2].sleepMin, 480); // typed-in sleep wins
   assert.equal(next.days[gone], undefined);
   assert.equal(next.xp, hs.xp);
   assert.equal(withPastHealth(next, [{ key: y, steps: hs.settings.stepGoal + 100, sleepMin: 410 }]), next); // nothing new: same object
+}
+
+// typed-in steps: above the watch they hold until it counts more ('floor'), below it all day ('fixed')
+{
+  const base = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  const floor = { ...base, steps: 3185, stepsManual: 'floor' as const };
+  const fixed = { ...base, steps: 3000, stepsManual: 'fixed' as const };
+  assert.deepEqual(syncedSteps(floor, 2032), { steps: 3185, stepsManual: 'floor' }); // the watch is still behind
+  assert.deepEqual(syncedSteps(floor, 3185), { steps: 3185, stepsManual: 'floor' });
+  assert.deepEqual(syncedSteps(floor, 3300), { steps: 3300, stepsManual: undefined }); // caught up: the watch takes over
+  assert.deepEqual(syncedSteps(fixed, 9000), { steps: 3000, stepsManual: 'fixed' });
+  assert.deepEqual(syncedSteps({ ...base, steps: 500 }, 400), { steps: 400, stepsManual: undefined }); // not typed: the watch's number
+  assert.deepEqual(syncedSteps(floor, null), { steps: 3185, stepsManual: 'floor' }); // no reading: as it was
+  assert.equal(shownSteps(floor, 2032), 3185);
+  assert.equal(shownSteps(fixed, 9000), 3000);
+  assert.equal(shownSteps(base, 1200), 1200);
+  assert.equal(shownSteps({ ...base, steps: 800 }, null), 800);
+  assert.equal(shownSteps(base, null), undefined);
+  // past days: a typed-in number lower than the watch stays, a 'floor' one gives way once the watch passes it
+  const hs = defaultState();
+  const y = dayKey(addDays(new Date(), -1));
+  const y2 = dayKey(addDays(new Date(), -2));
+  hs.days[y] = { ...fixed };
+  hs.days[y2] = { ...floor };
+  const next = withPastHealth(hs, [
+    { key: y, steps: 9000, sleepMin: null },
+    { key: y2, steps: 4000, sleepMin: null },
+  ]);
+  assert.equal(next.days[y].steps, 3000);
+  assert.equal(next.days[y].stepsManual, 'fixed');
+  assert.ok(!next.days[y].stepGoalHit);
+  assert.equal(next.days[y2].steps, 4000);
+  assert.equal(next.days[y2].stepsManual, undefined);
+  assert.equal(withPastHealth(next, [{ key: y, steps: 9000, sleepMin: null }]), next);
+  assert.ok(usedOn({ ...base, steps: 100, stepsManual: 'floor' })); // typing steps in is using the app
 }
 
 // review fixes: no instant contract wins, back-dated entries and edited times don't feed the game rules
@@ -3991,7 +4028,7 @@ void (async () => {
 
 // sleep nights: the main session plus a split-off piece, stages summed; typed-in nights stay the watch's own business
 // Steps from Health Connect records: Zepp's own records added up, a block over midnight prorated,
-// a record written again for the same span counted once, other overlaps refused
+// overlapping records counted once per stretch of time, from the newest (as Health Connect does within one app)
 {
   const day = new Date(2026, 9, 24).getTime();
   const H = 3_600_000;
@@ -4000,27 +4037,83 @@ void (async () => {
   assert.equal(stepsIn([rec(8, 9, 1000), rec(9, 10, 2185)], day, end), 3185);
   assert.equal(stepsIn([rec(-1, 1, 400), rec(9, 10, 100)], day, end), 300); // half of the block from before midnight
   assert.equal(stepsIn([rec(14, 15, 300, 1), rec(14, 15, 900, 2)], day, end), 900); // written again: the newest counts
-  assert.equal(stepsIn([rec(8, 10, 500), rec(9, 11, 500)], day, end), null);
-  assert.equal(stepsIn([rec(8, 10, 500), rec(8, 9, 200), rec(9, 10, 300)], day, end), null); // a block and its parts
+  // a growing block written again with a later end: the newest covers its whole span
+  assert.equal(stepsIn([rec(14, 14.5, 300, 1), rec(14, 15, 900, 2)], day, end), 900);
+  // half-overlapping blocks: the shared hour comes from the newer one
+  assert.equal(stepsIn([rec(8, 10, 600, 1), rec(9, 11, 400, 2)], day, end), 300 + 400);
+  // a block and its parts written later: the parts win where they are
+  assert.equal(stepsIn([rec(8, 10, 500, 1), rec(8, 9, 200, 2), rec(9, 10, 300, 2)], day, end), 500);
+  assert.equal(stepsIn([rec(8, 10, 500, 3), rec(8, 9, 200, 2), rec(9, 10, 300, 2)], day, end), 500); // the block is newest
   assert.equal(stepsIn([], day, end), 0);
   assert.equal(stepsIn([{ start: day + 5 * H, end: day + 5 * H, count: 7 }], day, end), 7); // an instant
-  const sources = stepSources([{ start: day + 8 * H, end: day + 9 * H, count: 2500, origin: 'com.google.android.apps.fitness', modified: 5 }, rec(8, 9, 2000)], day, end);
-  assert.deepEqual(
-    sources.map((x) => [x.name, x.steps]),
+  assert.equal(overlapsIn([rec(8, 9, 1), rec(9, 10, 1)]), 0);
+  assert.equal(overlapsIn([rec(8, 10, 1), rec(9, 11, 1), rec(9, 11, 1)]), 2);
+  assert.equal(coveredUntil([rec(8, 9, 10), rec(13, 14, 0)], day, end), day + 14 * H); // a zero-step block still says how far Zepp got
+  assert.equal(coveredUntil([], day, end), null);
+  assert.equal(coveredUntil([rec(23, 25, 10)], day, end), end);
+  const sources = stepSources(
     [
-      ['Zepp', 2000],
-      ['Google Fit', 2500],
+      { start: day + 8 * H, end: day + 9 * H, count: 2500, origin: 'com.google.android.apps.fitness', modified: 5 },
+      rec(8, 9, 2000),
+      rec(-3, -2, 999), // yesterday's, read only for the lead
+    ],
+    day,
+    end,
+  );
+  assert.deepEqual(
+    sources.map((x) => [x.name, x.steps, x.records]),
+    [
+      ['Zepp', 2000, 1],
+      ['Google Fit', 2500, 1],
     ],
   );
   assert.equal(sources[0].lastEnd, day + 9 * H);
+  assert.equal(sources[0].minutes, 60);
   assert.equal(sources[0].lastWritten, null);
   assert.equal(sources[1].lastWritten, 5);
   assert.equal(sourceName('com.example'), 'com.example');
-  // a failed read is unknown (never another source's number); every source only on a day Zepp has no records
-  assert.equal(zeppSteps(null, day, end), null);
-  assert.equal(zeppSteps([], day, end), 'all');
-  assert.equal(zeppSteps([rec(8, 9, 1000)], day, end), 1000);
-  assert.equal(zeppSteps([rec(8, 10, 500), rec(9, 11, 500)], day, end), 'zepp');
+  assert.equal(sourceName('com.android.healthconnect.phone.a1b2c3'), 'This phone');
+  assert.equal(sourceName('android'), 'This phone');
+  // a failed read is unknown (never another source's number); other apps fill a day without Zepp, and
+  // today's time after Zepp's newest record when filling is on
+  assert.equal(stepsPlan(null, day, end), null);
+  assert.deepEqual(stepsPlan([], day, end), { zepp: 0, until: null, gap: day });
+  assert.deepEqual(stepsPlan([rec(8, 9, 1000)], day, end), { zepp: 1000, until: day + 9 * H, gap: null }); // a past day: Zepp's alone
+  assert.deepEqual(stepsPlan([rec(8, 9, 1000)], day, end, day + 14.5 * H), { zepp: 1000, until: day + 9 * H, gap: day + 9 * H });
+  assert.deepEqual(stepsPlan([rec(14, 15, 1000)], day, end, day + 14.5 * H), { zepp: 1000, until: day + 15 * H, gap: null }); // an open block reaches past now
+  assert.deepEqual(stepsPlan([rec(-1, 1, 400)], day, end), { zepp: 200, until: day + H, gap: null }); // read with the lead: its part after midnight
+  // hour by hour per app, and the check's verdict and report
+  const hours = stepsByHour([rec(8, 9, 100), rec(9.5, 10.5, 60), { start: day + 8 * H, end: day + 9 * H, count: 70, origin: 'android' }], day, day + 10 * H);
+  assert.deepEqual(
+    hours.map((x) => [new Date(x.at).getHours(), x.bySource]),
+    [
+      [8, { Zepp: 100, 'This phone': 70 }],
+      [9, { Zepp: 30 }],
+    ],
+  );
+  const at = day + 14.5 * H;
+  const check: StepsCheck = {
+    at,
+    steps: 2932,
+    plan: { zepp: 2032, until: day + 14 * H, gap: day + 14 * H },
+    gapSteps: 900,
+    fill: true,
+    zeppMerged: 0,
+    merged: 2950,
+    sources: stepSources([rec(13, 14, 2032, at - 20 * 60_000), { start: day + 13 * H, end: day + 14.5 * H, count: 2950, origin: 'android' }], day, end),
+    hours: [],
+    zeppTail: [rec(13, 14, 2032, at - 20 * 60_000)],
+    errors: [],
+    android: '35',
+  };
+  const verdict = stepsVerdict(check).join(' ');
+  assert.ok(verdict.includes('stop at 14:00') && verdict.includes('30 min'), verdict); // Zepp is behind
+  assert.ok(verdict.includes('900'), verdict); // the phone fills it
+  assert.ok(verdict.includes('priority list'), verdict); // Health Connect leaves Zepp out of its own total
+  assert.ok(verdict.includes('2\u00a0950') || verdict.includes('2 950'), verdict); // why the Health Connect app differs
+  const report = stepsReport(check);
+  assert.ok(report.includes('Zepp') && report.includes('This phone') && report.includes('Errors: none'), report);
+  assert.ok(!stepsVerdict({ ...check, plan: { zepp: 2032, until: at - 2 * 60_000, gap: null }, gapSteps: null, zeppMerged: 2032, merged: 2032, steps: 2032 }).length);
 }
 {
   const key = '2027-01-12';
