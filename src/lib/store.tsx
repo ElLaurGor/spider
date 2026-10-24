@@ -52,6 +52,9 @@ import { respectFor } from './respect';
 import { rivalTalk } from './rival-talk';
 import { withNights } from './sleep';
 import { isSnow, seasonOn, winterOf } from './seasons';
+import { julfridPause, openDoor } from './advent';
+import { acceptPrizes } from './prizes';
+import { withNemesis } from './year-wrapped';
 import { catchFly as catchPendingFly, caughtCount, critDamage, FLIES, rollCritters, withoutCrit } from './critters';
 import { unlockPages } from './diary';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, spansBetween, startFocusGuard, stopFocusGuard, unlocksBetween, usageBetween } from './screentime';
@@ -248,7 +251,7 @@ function checkLeague(s: State, msgs: Msg[]): State {
   if (r.nemesis?.beaten) msgs.push({ text: L(s, 'nemesisBeaten', { rival: `${r.nemesis.emoji} ${r.nemesis.name}`, coins: r.nemesisPrize }), tone: 'good' });
   const history = [...old.history, { week: old.week, tier: old.tier, rank: r.rank, xp: r.xp }].slice(-26);
   const coins = r.prize + r.nemesisPrize;
-  return { ...s, league: newLeague(r.tier, week, history), coins: s.coins + coins, coinsEarned: s.coinsEarned + coins };
+  return withNemesis({ ...s, league: newLeague(r.tier, week, history), coins: s.coins + coins, coinsEarned: s.coinsEarned + coins }, old.week, r.nemesis);
 }
 
 /** Settles a finished co-op week (once) and starts this week's when it's a co-op week (coop.ts). */
@@ -2687,6 +2690,40 @@ function useStoreValue() {
           const next = patchDay({ ...s, tasks: s.tasks.filter((t) => !ids.has(t.id)) }, dayKey(), (d) => ({ ...d, burned: (d.burned ?? 0) + old.length }));
           msgs.push({ text: L(next, 'valborgBurn', { n: old.length, xp }), tone: 'epic' });
           return reward(next, msgs, xp);
+        });
+      },
+
+      /** Advent Web: opens door `n` (coins or a cosmetic, never XP). Missed doors stay openable (advent.ts). */
+      openAdventDoor(n: number) {
+        run((s, msgs) => {
+          const r = openDoor(s, n);
+          if (!r) return s;
+          msgs.push({ text: L(r.state, 'adventDoor', { n, reward: r.reward }), tone: r.prize.cosmetic ? 'epic' : 'good' });
+          return r.state;
+        });
+      },
+
+      /** Julfrid: away mode until the 27th, within the month's cap of paused days (advent.ts). */
+      startJulfrid() {
+        run((s, msgs) => {
+          const next = julfridPause(s);
+          if (next === s) {
+            msgs.push({ text: 'This month already has 7 paused days, so Julfrid stays a normal holiday. Still no roasts.', tone: 'info' });
+            return s;
+          }
+          msgs.push({ text: L(next, 'julfridOn'), tone: 'good' });
+          return next;
+        });
+      },
+
+      /** The S.P.I.D.E.R. Prizes: accepted once a year, for a cosmetic medal (prizes.ts). */
+      acceptPrizes() {
+        run((s, msgs) => {
+          const year = new Date().getFullYear();
+          const r = acceptPrizes(s, year);
+          if (!r) return s;
+          msgs.push({ text: L(r.state, 'prizesAccepted', { reward: r.reward }), tone: 'epic' });
+          return { ...r.state, dismissed: [...(r.state.dismissed ?? []), `prizes:${year}`].slice(-20) };
         });
       },
 

@@ -346,6 +346,9 @@ export type State = {
   silk?: { month: string; tier: number; prev?: { month: string; tier: number } }; // Silk Track (lib/silk-track.ts): the month on record and the highest tier handed out in it, and the month before
   // cluster F
   eggsFound?: Record<string, Record<string, number>>; // Easter hunt: year -> egg id -> found at
+  advent?: Record<string, number[]>; // Advent Web (lib/advent.ts): year -> doors opened
+  prizesAccepted?: string[]; // years whose S.P.I.D.E.R. Prizes (lib/prizes.ts) were accepted
+  nemesisLog?: Record<string, { name: string; emoji: string; beaten: boolean }>; // league week -> that week's nemesis, for the yearly Wrapped
   backupFolderUri?: string | null; // folder picked for automatic daily backups (a persisted SAF uri)
   // cluster E
   rivalTalk?: { week: string; rank: number; day: string; n: number } | null; // last league rank seen and today's rival remarks (rival-talk.ts)
@@ -362,7 +365,7 @@ export type State = {
   jitSaid?: Record<string, string>; // just-in-time insights (jit.ts): kind -> the day it was last said (once a day each)
   rangeTop?: Record<string, string>; // range habit id -> the week (its Monday) whose top-of-range bonus was paid
   // step 5
-  dismissed?: string[]; // HQ banners closed: 'wrapped:YYYY-MM', 'season:<id>:<year>' (the newest 20)
+  dismissed?: string[]; // HQ banners closed: 'wrapped:YYYY-MM', 'yearwrapped:YYYY', 'prizes:YYYY', 'julfrid:YYYY', 'season:<id>:<year>' (the newest 20)
   roughPatchAt?: number; // the rough-patch card was closed or acted on (rough-patch.ts): it stays away for 7 days
   trek?: Trek | null; // the virtual trek walked with watch steps (lib/trek.ts); unset = none started
   treksDone?: TrekRoute[]; // routes walked to the end, in order

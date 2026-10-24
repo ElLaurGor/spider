@@ -1,11 +1,11 @@
-// Dated events: Halloween (the spider's own holiday), Lucia, the winter solstice and the Swedish
-// year (Easter, Valborg, midsommar, nyår). Each brings a seasonal daily quest; Halloween dresses
-// up the weekly boss and nyår turns it into the Old Year (quests.ts).
+// Dated events: Halloween (the spider's own holiday), Advent, Lucia, the winter solstice, Julfrid and the
+// Swedish year (Easter, Valborg, midsommar, nyår). Most bring a seasonal daily quest; Halloween dresses
+// up the weekly boss and nyår turns it into the Old Year (quests.ts). Advent's calendar is in advent.ts.
 import { addDays } from './dates';
 import type { LineKey } from './lines';
-import { allSaintsDay, easterSunday, midsummerEve } from './swedish-days';
+import { allSaintsDay, easterSunday, firstAdventSunday, midsummerEve } from './swedish-days';
 
-export type SeasonId = 'halloween' | 'lucia' | 'solstice' | 'easter' | 'valborg' | 'midsommar' | 'nyar';
+export type SeasonId = 'halloween' | 'advent' | 'lucia' | 'solstice' | 'jul' | 'easter' | 'valborg' | 'midsommar' | 'nyar';
 
 type MonthDay = [month: number, day: number];
 const fixed = (from: MonthDay, to: MonthDay) => () => [from, to] as [MonthDay, MonthDay];
@@ -25,6 +25,16 @@ const SEASONS: SeasonDef[] = [
   { id: 'halloween', name: 'Spooky season', emoji: '🎃', span: fixed([10, 24], [11, 1]), about: 'Seasonal quests and a haunted boss.', line: 'seasonHalloween' },
   { id: 'lucia', name: 'Lucia', emoji: '🕯️', span: fixed([12, 13], [12, 13]), about: 'Bring some light into the darkest month. Seasonal quest today.', line: 'seasonLucia' },
   { id: 'solstice', name: 'Winter solstice', emoji: '🌑', span: fixed([12, 21], [12, 21]), about: 'The darkest day. From tomorrow, the light comes back.', line: 'seasonSolstice' },
+  { id: 'jul', name: 'Julfrid', emoji: '🎄', span: fixed([12, 24], [12, 26]), about: 'No roasts until the 27th. Take the days off if you like: one tap on HQ.', line: 'seasonJul' },
+  // After Lucia and the solstice, which win on their own day (the first match counts).
+  {
+    id: 'advent',
+    name: 'Advent',
+    emoji: '🕯️',
+    span: (y) => [mdOf(firstAdventSunday(y)), [12, 23]],
+    about: 'The Advent Web is up on HQ: a door a day from 1 December. Missed doors wait for you.',
+    line: 'seasonAdvent',
+  },
   {
     id: 'easter',
     name: 'Easter hunt',

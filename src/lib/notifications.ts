@@ -40,6 +40,8 @@ import { bossFinisher } from './boss-plan';
 import { bossFor, questsFor } from './quests';
 import { insightById } from './jit';
 import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
+import { kalleAnka } from './advent';
+import { PRIZE_DAY } from './prizes';
 import { lastMoodLow, periodDay, realFlow, toneOn, type DayTone } from './tone';
 import { upcomingDays } from './swedish-days';
 import { moveDayName, moveTargets, slipAt } from './workout-move';
@@ -47,7 +49,7 @@ import { moveDayName, moveTargets, slipAt } from './workout-move';
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
 // Notifications re-planned on every app change; gaming/rest alerts are managed separately.
-const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-', 'ifthen-'];
+const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-', 'ifthen-', 'prizes-'];
 const MOOD_HOURS = [13, 20];
 const GAME_IDS = ['game-warn', 'game-over', 'game-way-over'];
 const REST_ID = 'rest-done';
@@ -76,6 +78,7 @@ const LINKS: [prefix: string, href: Href][] = [
   ['league-', '/league'],
   ['weekendboss-', '/'],
   ['wrapped-', '/wrapped'],
+  ['prizes-', '/'],
   ['cycle-', '/cycle'],
   ['pollen-', '/outside'],
   ['air-', '/outside'],
@@ -173,6 +176,7 @@ async function scheduleAt(
 ) {
   const due = new Date(when).getTime();
   if (due <= Date.now()) return; // its time has come: it went out before this replan cancelled it, or it's too late
+  if (kalleAnka(due)) return; // julafton 15:00–16:00: Kalle Anka is on, so planned reminders keep quiet (advent.ts)
   // Android wants some lead time: one due within seconds of a replan still goes, a moment late, instead of never.
   const date = new Date(Math.max(due, Date.now() + 5_000));
   await Notifications.scheduleNotificationAsync({
@@ -454,10 +458,27 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     }
   }
 
-  // Monthly Wrapped on the 1st at 10:00, for the month that just ended.
+  // Monthly Wrapped on the 1st at 10:00, for the month that just ended. On 1 January it's the year's
+  // Wrapped instead (December is one tap away inside it), so there's one ping, not two.
   if (st.notify.wrapped) {
     const { at, month } = wrappedReminder(now);
-    jobs.push(scheduleAt(`wrapped-${dayKey(at)}`, at, `🎁 ${month} Wrapped`, sayOn(s, toneOn(s, dayKey(at), now, cycle), 'wrappedReady', { month }, dayKey(at)), CH.remind));
+    const tone = toneOn(s, dayKey(at), now, cycle);
+    const year = at.getFullYear() - 1;
+    const yearly = at.getMonth() === 0;
+    jobs.push(
+      scheduleAt(
+        `wrapped-${dayKey(at)}`,
+        at,
+        yearly ? `🎆 ${year} Wrapped` : `🎁 ${month} Wrapped`,
+        yearly ? sayOn(s, tone, 'yearWrappedReady', { year }, dayKey(at)) : sayOn(s, tone, 'wrappedReady', { month }, dayKey(at)),
+        CH.remind,
+      ),
+    );
+    // The S.P.I.D.E.R. Prizes, 10 December at 17:00 (prizes.ts): planned once the month is near.
+    const prizes = new Date(now.getFullYear(), PRIZE_DAY.month, PRIZE_DAY.day, 17);
+    if (prizes.getTime() > now.getTime() && prizes.getTime() - now.getTime() < 31 * 86_400_000) {
+      jobs.push(scheduleAt(`prizes-${prizes.getFullYear()}`, prizes, `🏅 The S.P.I.D.E.R. Prizes ${prizes.getFullYear()}`, sayOn(s, toneOn(s, dayKey(prizes), now, cycle), 'prizesReady', {}, dayKey(prizes)), CH.remind));
+    }
   }
 
   // Pushed forward every time the app is used, so these only fire if it's ignored. Not while sick or away,

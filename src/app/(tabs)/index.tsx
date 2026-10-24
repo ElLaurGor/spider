@@ -11,6 +11,7 @@ import { SwedishDaysRow } from '@/components/swedish-year';
 import { DebriefCard, TopThreeCard } from '@/components/debrief-cards';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { SilkTrackCard } from '@/components/silk-track';
+import { AdventCard, JulfridCard, PrizesCard } from '@/components/season-cards';
 import { MedalsCard } from '@/components/medals-card';
 import { TrekCard } from '@/components/trek-card';
 import { PauseBanner } from '@/components/pause-card';
@@ -42,6 +43,8 @@ import { MOOD_LEVELS, moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
 import { respectFor } from '@/lib/respect';
 import { isAllSaintsDay, seasonOn } from '@/lib/seasons';
+import { adventCandles } from '@/lib/advent';
+import { yearWrappedDue } from '@/lib/year-wrapped';
 import { gentleDay, toneOn } from '@/lib/tone';
 import {
   caffeineMg,
@@ -118,6 +121,10 @@ export default function HQ() {
   // Banners closed with × (or Wrapped opened from its banner) stay closed for that month or that season.
   const dismissed = state.dismissed ?? [];
   const wrappedKey = `wrapped:${dayKey(new Date(date.getFullYear(), date.getMonth() - 1, 1)).slice(0, 7)}`;
+  // 1–7 January: the year's Wrapped takes the banner (last month's is one tap away inside it).
+  const yearKey = `yearwrapped:${date.getFullYear() - 1}`;
+  const yearBanner = yearWrappedDue(date) && !dismissed.includes(yearKey);
+  const candles = adventCandles(date);
   const allSaints = isAllSaintsDay(date);
   const seasonKey = `season:${allSaints ? 'allsaints' : season?.id}:${season ? dayKey(season.lastDay).slice(0, 4) : ''}`;
   // No verdict on a kind day (low mood, sick, away, period), and a slow morning isn't "tragic" yet.
@@ -379,7 +386,7 @@ export default function HQ() {
 
   return (
     <Screen
-      title="S.P.I.D.E.R."
+      title={candles ? `S.P.I.D.E.R. ${'🕯️'.repeat(candles)}` : 'S.P.I.D.E.R.'} // Advent: a candle more each Sunday
       subtitle={ACRONYM}
       right={
         <Pressable onPress={() => router.push('/settings')} hitSlop={10} style={styles.gear} accessibilityRole="button" accessibilityLabel="Settings">
@@ -393,7 +400,28 @@ export default function HQ() {
       <LowBatteryCard />
       <BackupHint />
 
-      {date.getDate() <= 5 && !dismissed.includes(wrappedKey) ? (
+      {yearBanner ? (
+        <Pressable
+          onPress={() => {
+            actions.dismissBanner(yearKey); // seen: it doesn't need to stay pinned
+            actions.dismissBanner(wrappedKey);
+            router.push('/wrapped');
+          }}
+          style={styles.banner}>
+          <Text style={{ fontSize: 26 }}>🎆</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bannerTitle}>Your {date.getFullYear() - 1} Wrapped is ready</Text>
+            <T dim small>
+              The whole year, in a few swipes. {lastMonth} is in there too.
+            </T>
+          </View>
+          <Pressable onPress={() => actions.dismissBanner(yearKey)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Hide the yearly Wrapped banner">
+            <Icon name="close" size={18} color={C.faint} />
+          </Pressable>
+        </Pressable>
+      ) : null}
+
+      {!yearBanner && date.getDate() <= 5 && !dismissed.includes(wrappedKey) ? (
         <Pressable
           onPress={() => {
             actions.dismissBanner(wrappedKey); // seen: it doesn't need to stay pinned
@@ -430,6 +458,10 @@ export default function HQ() {
           </Pressable>
         </View>
       ) : null}
+
+      <PrizesCard />
+      <JulfridCard />
+      <AdventCard />
 
       {visible.map((id) => (
         <Fragment key={id}>{SECTIONS[id]()}</Fragment>

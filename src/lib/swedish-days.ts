@@ -35,6 +35,12 @@ export const midsummerEve = (year: number) => firstOnOrAfter(year, 6, 19, 5);
 /** Alla helgons dag: the Saturday between 31 October and 6 November. */
 export const allSaintsDay = (year: number) => firstOnOrAfter(year, 10, 31, 6);
 
+/** Första advent: the fourth Sunday before Christmas Day, between 27 November and 3 December. */
+export const firstAdventSunday = (year: number) => firstOnOrAfter(year, 11, 27, 0);
+
+/** Julfrid: julafton, juldagen and annandag jul (24–26 December), by day key. */
+export const isJulfridKey = (key: string) => key.slice(5) >= '12-24' && key.slice(5) <= '12-26';
+
 const cache = new Map<number, Holiday[]>();
 
 /** Every red day and de facto day off of a year, in date order. */
