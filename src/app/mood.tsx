@@ -47,7 +47,7 @@ export default function MoodScreen() {
   const log = () => {
     if (!level) return;
     if (editing) actions.updateMood(editing.id, { level, emotions, note }, day);
-    else actions.logMood(level, emotions, note, day);
+    else actions.logMood(level, emotions, note, day, undefined, true); // the words were offered right here
     clear();
   };
 

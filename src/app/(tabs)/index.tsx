@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { CareCard } from '@/components/care-card';
 import { ContractCard } from '@/components/contract-card';
 import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
@@ -128,6 +129,7 @@ export default function HQ() {
 
   // The movable cards, by id (lib/hq-layout.ts sets their order and which are hidden).
   const SECTIONS: Record<HqSectionId, () => ReactNode> = {
+    care: () => <CareCard />,
     weather: () => <WeatherRow />,
     commute: () => <SlCard />,
     countdowns: () => <CountdownRow />,
