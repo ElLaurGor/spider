@@ -1,9 +1,10 @@
 // One-time repairs to saved data. hydrate() runs each one that isn't in State.fixes yet, then lists it,
 // so a repair happens once per save (a restored backup from before it gets it too).
+import { withWeekCard } from './hq-layout';
 import { levelForXp, xpForLevel } from './levels';
 import type { State } from './types';
 
-export const FIXES = ['coffee-gremlin'] as const;
+export const FIXES = ['coffee-gremlin', 'hq-week-card'] as const;
 
 /** What a secret achievement paid before the limit-breaking ones became badges with no prize (XP.secret, SECRET_COINS). */
 const SECRET_PAID = { xp: 50, coins: 100 };
@@ -29,10 +30,17 @@ export function recheckCoffeeGremlin(s: State): State {
   };
 }
 
+/** A saved HQ layout moves to the This week card in place of the weekly cards it sums up (hq-layout.ts). The default layout has it already. */
+export function moveToWeekCard(s: State): State {
+  const hq = s.settings?.hq;
+  return hq ? { ...s, settings: { ...s.settings, hq: withWeekCard(hq) } } : s;
+}
+
 /** Runs the repairs this save hasn't had yet. */
 export function applyFixes(s: State): State {
   const done = s.fixes ?? [];
   let next = s;
   if (!done.includes('coffee-gremlin')) next = recheckCoffeeGremlin(next);
+  if (!done.includes('hq-week-card')) next = moveToWeekCard(next);
   return FIXES.every((f) => done.includes(f)) ? next : { ...next, fixes: [...new Set([...done, ...FIXES])] };
 }

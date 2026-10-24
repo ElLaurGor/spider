@@ -1,13 +1,16 @@
 // Backups go into a folder the user picks (Android's folder picker), as
 // "SPIDER-backup-<date>/data.json" plus a "photos" folder. Restoring = picking
 // that folder again.
-// Automatic weekly backups (cluster F) go into one "SPIDER-auto-backup" folder in a folder picked
-// once: "data-<date>.json" files (the newest few kept) and a shared "photos" folder that only
-// gets new photos. Restoring = picking that "SPIDER-auto-backup" folder; the newest readable file wins.
+// Automatic daily backups go into one "SPIDER-auto-backup" folder in a folder picked once:
+// "data-<date>.json" files (the last week's kept) and a shared "photos" folder that only gets new
+// photos (and, on Sundays, loses the ones no kept file needs). Restoring = picking that
+// "SPIDER-auto-backup" folder; the newest readable file wins.
+// "Send backup" shares one "SPIDER-backup-<date>.json" (the data, no photos) through the share sheet,
+// for Drive or mail; restoring from such a file picks the file itself.
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { AUTO_BACKUPS_KEPT } from './backup-due';
-import { pickBackup, skipAutoBackup } from './backup-pick';
+import { orphanPhotos, pickBackup, skipAutoBackup } from './backup-pick';
 import { hydrate } from './defaults';
 import type { State } from './types';
 
@@ -92,11 +95,11 @@ const childDir = (parent: Directory, name: string) =>
   parent.list().find((e): e is Directory => e instanceof Directory && e.name === name) ?? parent.createDirectory(name);
 
 /**
- * Writes this week's automatic backup into the saved folder. Throws if the folder or its permission is gone.
+ * Writes today's automatic backup into the saved folder. Throws if the folder or its permission is gone.
  * `skipped`: nothing was written or pruned, because this phone holds far fewer days than the last backup (a
  * wiped phone must not push the good backups out of the folder).
  */
-export async function autoBackup(state: State, folderUri: string): Promise<{ photos: number; skipped?: boolean }> {
+export async function autoBackup(state: State, folderUri: string, now = new Date()): Promise<{ photos: number; skipped?: boolean }> {
   const parent = new Directory(folderUri);
   if (!parent.exists) throw new Error('Backup folder is gone');
   const dir = childDir(parent, AUTO_DIR);
@@ -124,7 +127,42 @@ export async function autoBackup(state: State, folderUri: string): Promise<{ pho
 
   const files = autoFilesIn(dir);
   for (const old of files.slice(0, Math.max(0, files.length - AUTO_BACKUPS_KEPT))) old.delete();
+  // Once a week the photos folder sheds what no kept backup points to, so deleted photos don't pile up forever.
+  if (now.getDay() === 0) {
+    const kept = await Promise.all(autoFilesIn(dir).map(async (f) => (await readBackupFile(f))?.photos ?? null));
+    const gone = orphanPhotos([...have], kept) ?? [];
+    for (const e of photoDir.list()) if (e instanceof File && gone.includes(e.name)) e.delete();
+  }
   return { photos: added };
+}
+
+/** Writes a one-file backup (the data, no photos) where the share sheet can pick it up, and returns its uri. */
+export function shareableBackup(state: State): string {
+  for (const e of Paths.cache.list()) if (e instanceof File && /^SPIDER-backup-.+\.json$/.test(e.name)) e.delete(); // the last one sent
+  const data: BackupFile = { app: 'spider', version: 1, createdAt: Date.now(), photos: {}, state };
+  const f = new File(Paths.cache, `SPIDER-backup-${stampNow()}.json`);
+  f.create();
+  f.write(JSON.stringify(data));
+  return f.uri;
+}
+
+/**
+ * Restores from one backup file (a sent "SPIDER-backup-….json", or a "data….json" out of a backup folder). It
+ * carries no photos: the ones still on this phone stay linked, the rest drop out. Null when nothing was picked.
+ */
+export async function readBackupFromFile(): Promise<{ state: State; createdAt: number; photos: number } | null> {
+  const picked = await File.pickFileAsync({ mimeTypes: '*/*' }).catch(() => null);
+  if (!picked || picked.canceled) return null;
+  const data = await readBackupFile(picked.result);
+  if (!data?.state) throw new Error("That isn't a S.P.I.D.E.R. backup, or it's damaged.");
+  const here = (uri?: string) => !!uri && new File(uri).exists;
+  const s = data.state;
+  const days = Object.fromEntries(
+    Object.entries(s.days).map(([k, d]) => [k, { ...d, food: d.food.map((f) => ({ ...f, photo: here(f.photo) ? f.photo : undefined })) }]),
+  );
+  const progressPhotos = (s.progressPhotos ?? []).filter((p) => here(p.uri));
+  const photos = progressPhotos.length + Object.values(days).reduce((a, d) => a + d.food.filter((f) => f.photo).length, 0);
+  return { state: hydrate({ ...s, days, progressPhotos }), createdAt: data.createdAt ?? 0, photos };
 }
 
 /** Reads a backup folder and copies its photos back into the app. Doesn't apply the state. */

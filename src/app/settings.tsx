@@ -7,9 +7,10 @@ import { Alert, DevSettings, Pressable, ScrollView, Switch, Text, View } from 'r
 import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
+import { backupNudge } from '@/lib/backup-due';
 import { dayKey, pad } from '@/lib/dates';
 import { lastCallClock } from '@/lib/caffeine';
-import { hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
+import { hqHidden, hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
 import { ACRONYM_REAL, bannedLines, line } from '@/lib/lines';
 import { openHealthSettings } from '@/lib/health';
 import { guardSupported, hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
@@ -80,23 +81,38 @@ export default function SettingsScreen() {
     }
   };
 
+  const doShare = async () => {
+    setBusy(true);
+    try {
+      await actions.shareBackup();
+    } catch (e) {
+      say(`Couldn't send the backup: ${(e as Error).message}`, 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restoreFrom = (from: 'folder' | 'file') => async () => {
+    setBusy(true);
+    try {
+      await actions.restore(from);
+    } catch (e) {
+      say(`Restore failed: ${(e as Error).message}`, 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
   const doRestore = () =>
-    Alert.alert('Restore a backup?', 'Everything on this phone gets replaced by the backup. Next, pick the "SPIDER-backup-…" or "SPIDER-auto-backup" folder.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Pick backup folder',
-        onPress: async () => {
-          setBusy(true);
-          try {
-            await actions.restore();
-          } catch (e) {
-            say(`Restore failed: ${(e as Error).message}`, 'bad');
-          } finally {
-            setBusy(false);
-          }
-        },
-      },
-    ]);
+    Alert.alert(
+      'Restore a backup?',
+      'Everything on this phone gets replaced by the backup. Pick the "SPIDER-backup-…" or "SPIDER-auto-backup" folder, or a single backup file you sent yourself.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'A file', onPress: restoreFrom('file') },
+        { text: 'A folder', onPress: restoreFrom('folder') },
+      ],
+    );
+  const nudge = backupNudge({ ...state, firstDay: Object.keys(state.days).sort()[0] ?? null });
 
   const applyTheme = (id: ThemeId) => {
     if (id === THEME_ID) return;
@@ -203,7 +219,7 @@ export default function SettingsScreen() {
           Order HQ&apos;s cards and hide the ones you don&apos;t look at. The spider, health alerts and banners stay on top.
         </T>
         {hqOrder(s.hq).map((id, i, all) => {
-          const shown = !(s.hq?.hidden ?? []).includes(id);
+          const shown = !hqHidden(s.hq).includes(id);
           return (
             <Row key={id} gap={6}>
               <T style={{ flex: 1, opacity: shown ? 1 : 0.45 }}>{hqLabel(id)}</T>
@@ -387,22 +403,24 @@ export default function SettingsScreen() {
         <Btn label="Open Outside" icon="air" kind="ghost" onPress={() => router.push('/outside')} disabled={!s.weather} />
       </Card>
 
-      <Card>
-        <H>Backup & restore</H>
+      <Card accent={nudge ? C.yellow : undefined}>
+        <H right={nudge ? <T small style={{ color: C.yellow }}>{nudge === 'stale' ? '⚠ no backup this week' : '⚠ not set up'}</T> : undefined}>Backup & restore</H>
         <T dim small>
-          Last backup: {state.lastBackupAt ? new Date(state.lastBackupAt).toLocaleString('sv-SE').slice(0, 16) : 'never'}. A backup is a folder with
-          all your data and photos. Pick e.g. Documents. For extra safety, upload that folder to Google Drive afterwards.
+          Last backup: {state.lastBackupAt ? new Date(state.lastBackupAt).toLocaleString('sv-SE').slice(0, 16) : 'never'}
+          {state.lastSharedAt ? ` · last sent: ${new Date(state.lastSharedAt).toLocaleString('sv-SE').slice(0, 10)}` : ''}. A backup is a folder with all
+          your data and photos. Pick e.g. Documents. Send backup puts your data (no photos) in Drive, mail or wherever you like: off the phone.
         </T>
         <Row>
           <Btn label="Back up now" icon="save" onPress={doBackup} disabled={busy} style={{ flex: 1 }} />
-          <Btn label="Restore" kind="ghost" onPress={doRestore} disabled={busy} style={{ flex: 1 }} />
+          <Btn label="Send backup" icon="share" kind="ghost" onPress={doShare} disabled={busy} style={{ flex: 1 }} />
         </Row>
+        <Btn label="Restore" kind="ghost" onPress={doRestore} disabled={busy} />
         <Toggle
-          label="Weekly backup"
+          label="Daily backup"
           hint={
             state.backupFolderUri
-              ? 'Every Sunday when you open the app, into "SPIDER-auto-backup" in the folder you picked. Keeps the last 4.'
-              : 'Pick a folder once and S.P.I.D.E.R. backs up there every Sunday.'
+              ? 'Every day when you open the app, into "SPIDER-auto-backup" in the folder you picked. Keeps the last 7 days.'
+              : 'Pick a folder once and S.P.I.D.E.R. backs up there every day.'
           }
           value={!!state.backupFolderUri}
           onChange={(v) => (v ? void autoBackupOn() : actions.stopAutoBackup())}

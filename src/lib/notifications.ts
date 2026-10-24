@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 
 import { C } from '@/constants/theme';
 
+import { backupNudge } from './backup-due';
 import { addDays, atTime, dayKey, fmtDuration, fmtTime, MIN } from './dates';
 import { habitsDone, isScheduled, rangeRemindOn } from './habits';
 import { cueReminders, cueVars, reminderRetired } from './if-then';
@@ -404,16 +405,15 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     }
   }
 
-  // Sunday evening: report card, plus a nudge if there's been no backup for two weeks.
+  // Sunday evening: report card, plus a nudge while nothing was backed up or sent off the phone for a week.
   const daysToSunday = (7 - now.getDay()) % 7;
   const reportAt = atTime(now, daysToSunday, 19);
   const sunday = reportAt.getTime() > now.getTime() ? reportAt : atTime(now, daysToSunday + 7, 19);
   if (st.notify.report) {
     jobs.push(scheduleAt(`report-${dayKey(sunday)}`, sunday, '📊 Weekly report card', sayOn(s, toneOn(s, dayKey(sunday), now, cycle), 'reportReady', {}, dayKey(sunday)), CH.remind));
   }
-  const firstDay = Object.keys(s.days).sort()[0];
-  const lastSafe = s.lastBackupAt ?? (firstDay ? new Date(`${firstDay}T12:00`).getTime() : now.getTime());
-  if (now.getTime() - lastSafe > 14 * 86_400_000) {
+  const firstDay = Object.keys(s.days).sort()[0] ?? null;
+  if (backupNudge({ ...s, firstDay }, now)) {
     jobs.push(scheduleAt('backup-remind', sunday.getTime() - 60 * MIN, '💾 Back me up', say(s, 'backupRemind'), CH.remind));
   }
 

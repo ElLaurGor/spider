@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import { Bar, Btn, Card, Chip, H, Row, T } from '@/components/ui';
 import { C } from '@/constants/theme';
@@ -8,8 +9,13 @@ import { contractBonus } from '@/lib/perks';
 import { useStore } from '@/lib/store';
 import type { ContractGoal } from '@/lib/types';
 
+/** In its own card, or `bare` inside another one (HQ's This week card). */
+function Shell({ bare, accent, children }: { bare?: boolean; accent: string; children: ReactNode }) {
+  return bare ? <View style={styles.panel}>{children}</View> : <Card accent={accent}>{children}</Card>;
+}
+
 /** HQ card: this week's contract, or (Monday to Wednesday) the form to sign one. */
-export function ContractCard() {
+export function ContractCard({ bare }: { bare?: boolean }) {
   const { state, actions } = useStore();
   // After a lost contract a different goal comes first (a new mission), and last week's goes last.
   const mission = newMission(state);
@@ -25,7 +31,7 @@ export function ContractCard() {
     const progress = contractProgress(state, c);
     const level = DIFFICULTIES[c.difficulty ?? 'normal'].label;
     return (
-      <Card accent={c.status === 'won' ? C.green : C.yellow}>
+      <Shell bare={bare} accent={c.status === 'won' ? C.green : C.yellow}>
         <H right={<T dim small mono>{c.stake} 🪙 · {level}</T>}>📜 Weekly contract</H>
         <T>{def.title(c.target)}</T>
         {c.status === 'won' ? (
@@ -40,7 +46,7 @@ export function ContractCard() {
             </T>
           </>
         )}
-      </Card>
+      </Shell>
     );
   }
 
@@ -50,7 +56,7 @@ export function ContractCard() {
   const target = targetFor(goal, level);
   const payout = payoutOf({ stake, difficulty: level }, bonus);
   return (
-    <Card accent={C.yellow}>
+    <Shell bare={bare} accent={C.yellow}>
       <H right={<T dim small mono>{state.coins} 🪙</T>}>📜 Weekly contract</H>
       <T dim small>
         Stake coins on a goal for the rest of this week. Reach it and get double back. A rough week (low mood or period days) voids it and refunds you.
@@ -87,6 +93,10 @@ export function ContractCard() {
         onPress={() => actions.signContract(goal, stake, level)}
         disabled={state.coins < stake}
       />
-    </Card>
+    </Shell>
   );
 }
+
+const styles = StyleSheet.create({
+  panel: { backgroundColor: C.card2, borderRadius: 12, padding: 12, gap: 10 },
+});

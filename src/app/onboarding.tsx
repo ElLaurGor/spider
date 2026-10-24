@@ -10,7 +10,8 @@ import { initNotifications } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 
 export default function Onboarding() {
-  const { state, actions } = useStore();
+  const { state, actions, say } = useStore();
+  const [busy, setBusy] = useState(false);
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [level, setLevel] = useState(10);
@@ -22,6 +23,22 @@ export default function Onboarding() {
     setLevel(v);
     setPreview(line('spiderTap', v, { name: name.trim() || 'human' }));
   };
+
+  // Another phone's data, or a folder for daily backups from day one.
+  const busyWith = (job: () => Promise<unknown>, failed: string) => async () => {
+    setBusy(true);
+    try {
+      await job();
+    } catch (e) {
+      say(`${failed}: ${(e as Error).message}`, 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const restoreFrom = (from: 'folder' | 'file') =>
+    busyWith(async () => {
+      if (await actions.restore(from)) await initNotifications(true).catch(() => false);
+    }, 'Restore failed');
 
   const activate = async () => {
     await initNotifications(true).catch(() => false);
@@ -55,6 +72,28 @@ export default function Onboarding() {
             <Stepper value={level} min={1} max={10} onChange={changeLevel} />
           </Row>
           <SpiderSays text={preview} onPress={() => changeLevel(level)} />
+        </Card>
+
+        <Card style={{ alignSelf: 'stretch' }}>
+          <T>Coming from another phone?</T>
+          <T dim small>
+            Restore a backup: a &quot;SPIDER-…&quot; folder, or a backup file you sent yourself.
+          </T>
+          <Row>
+            <Btn label="A folder" icon="folder_open" kind="ghost" small onPress={restoreFrom('folder')} disabled={busy} style={{ flex: 1 }} />
+            <Btn label="A file" icon="description" kind="ghost" small onPress={restoreFrom('file')} disabled={busy} style={{ flex: 1 }} />
+          </Row>
+          <T dim small>
+            New here? Pick a folder and I back up there every day. Settings → Backup can do it later too.
+          </T>
+          <Btn
+            label={state.backupFolderUri ? 'Daily backups: on ✓' : 'Pick a backup folder'}
+            icon="save"
+            kind="ghost"
+            small
+            onPress={busyWith(() => actions.setAutoBackupFolder(), 'Backup failed')}
+            disabled={busy || !!state.backupFolderUri}
+          />
         </Card>
 
         <Btn label="Activate S.P.I.D.E.R." icon="bolt" onPress={activate} disabled={!name.trim()} style={{ alignSelf: 'stretch' }} />

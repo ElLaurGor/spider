@@ -292,6 +292,7 @@ export type State = {
   seenAlerts: Record<string, number>; // SMHI/VMA alert id -> first notified at
   bossesDefeated: Record<string, string>; // week key (its Monday) -> boss id
   lastBackupAt: number | null;
+  lastSharedAt?: number | null; // last "Send backup" through the share sheet (off the phone, presumably)
   respectTier?: number | null; // last respect tier seen (lib/respect.ts), to announce it going up
   goldenFound?: Record<string, number>; // golden line id (lib/lines.ts GOLDEN) -> found at, for the Roast Book
   firstSnow?: string; // winter (seasons.ts winterOf) whose first snow was announced
@@ -324,7 +325,7 @@ export type State = {
   silk?: { month: string; tier: number; prev?: { month: string; tier: number } }; // Silk Track (lib/silk-track.ts): the month on record and the highest tier handed out in it, and the month before
   // cluster F
   eggsFound?: Record<string, Record<string, number>>; // Easter hunt: year -> egg id -> found at
-  backupFolderUri?: string | null; // folder picked for automatic weekly backups (a persisted SAF uri)
+  backupFolderUri?: string | null; // folder picked for automatic daily backups (a persisted SAF uri)
   // cluster E
   rivalTalk?: { week: string; rank: number; day: string; n: number } | null; // last league rank seen and today's rival remarks (rival-talk.ts)
   topTomorrow?: { day: string; ids: string[] } | null; // task ids picked in an evening debrief for that day's top 3 (memory.ts)
