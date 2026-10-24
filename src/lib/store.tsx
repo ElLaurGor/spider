@@ -24,7 +24,7 @@ import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { banLine, fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, lineMemory, onLineMemory, poolFor, setLineMemory, unbanLine, type LineKey } from './lines';
 import { jetlagRemark, lateCoffeeRemark, lateGameRemark, withJitSaid } from './jit';
 import { eveningKey, IMMORTAL_DAYS, taskAgeDays, tomorrowKey } from './memory';
-import { moodInfo } from './mood';
+import { moodInfo, withNamed } from './mood';
 import {
   cancelEverything,
   cancelGameAlerts,
@@ -1766,13 +1766,15 @@ function useStoreValue() {
       },
 
       // --- mood ---
-      logMood(level: MoodLevel, emotions: string[], note: string, key?: string, at?: number) {
+      /** `asked`: the emotion words were offered with it (the Mood screen), so "Want to name it?" won't ask again. */
+      logMood(level: MoodLevel, emotions: string[], note: string, key?: string, at?: number, asked = false) {
         const past = pastKey(key);
         const tapped = tappedOn(past, at);
+        const offered = asked ? { asked: true as const } : {};
         if (past && !tapped) {
           run((s, msgs) => {
             msgs.push(backdated(past, `${moodInfo(level).emoji} A check-in`));
-            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? nowOn(past), late: true };
+            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? nowOn(past), late: true, ...offered };
             return patchDay(s, past, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
           });
           return;
@@ -1782,7 +1784,7 @@ function useStoreValue() {
             const key = tapped ?? dayKey();
             const d0 = dayOf(s, key);
             const paid = d0.paid?.mood ?? moodsOf(d0).length; // check-ins already paid that day, deleted ones included
-            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? Date.now() };
+            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? Date.now(), ...offered };
             let next = patchDay(s, key, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
             msgs.push(tapped ? lateTap(key, `${moodInfo(level).emoji} A check-in`) : { text: L(next, moodInfo(level).line), tone: level <= 2 ? 'info' : 'good' });
             // XP for the first three check-ins a day, so it can't be farmed.
@@ -1798,12 +1800,17 @@ function useStoreValue() {
         run((s) => patchDay(s, key, (d) => withoutCrit({ ...d, moods: moodsOf(d).filter((m) => m.id !== id) }, id)));
       },
 
+      /** "Want to name it?": the words picked for a low check-in (none when skipped). Asked once either way. */
+      nameMood(id: string, words: string[], key = dayKey()) {
+        run((s) => patchDay(s, key, (d) => ({ ...d, moods: moodsOf(d).map((m) => (m.id === id ? withNamed(m, words) : m)) })), { quiet: true });
+      },
+
       /** Fixes a check-in's mood, emotions or note. Its time and XP stay as they were. */
       updateMood(id: string, patch: { level: MoodLevel; emotions: string[]; note: string }, key = dayKey()) {
         run((s) =>
           patchDay(s, key, (d) => ({
             ...d,
-            moods: moodsOf(d).map((m) => (m.id === id ? { ...m, level: patch.level, emotions: patch.emotions, note: patch.note.trim() || undefined } : m)),
+            moods: moodsOf(d).map((m) => (m.id === id ? { ...m, level: patch.level, emotions: patch.emotions, note: patch.note.trim() || undefined, asked: true } : m)),
           })),
         );
       },
@@ -2085,6 +2092,11 @@ function useStoreValue() {
       },
 
       /** HQ's Wrapped and season banners: closed for that month or season. */
+      /** The rough-patch card closed, or one of its offers taken: it stays away for a week (rough-patch.ts). */
+      closeRoughPatch() {
+        commit({ ...stateRef.current, roughPatchAt: Date.now() });
+      },
+
       dismissBanner(key: string) {
         const s = stateRef.current;
         if ((s.dismissed ?? []).includes(key)) return;

@@ -9,6 +9,7 @@ export type HqLayout = { order: string[]; hidden: string[] };
  * Saved layouts pick new entries up on their own (hqOrder).
  */
 export const HQ_SECTIONS = [
+  { id: 'care', label: 'Check-ins: name a low mood, rough-patch check (rare)' },
   { id: 'weather', label: 'Weather' },
   { id: 'commute', label: 'SL departures (once a stop is set)' },
   { id: 'countdowns', label: 'Countdowns' },

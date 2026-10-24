@@ -136,6 +136,8 @@ import { meteoTime, needsPlaceInfo, samePlace, staleNote } from '../src/lib/weat
 // step 4 hq
 import { departureText, leaveInMin, nextDepartures, parseDepartures, parseDeviations, parseStops, plannedText, relevantDeviations, routesOf, siteIdOf, slRetryMs } from '../src/lib/sl';
 import { readinessFor } from '../src/lib/readiness';
+import { patchSummary, roughPatch, showRoughPatch, PATCH_QUIET_MS } from '../src/lib/rough-patch';
+import { EMOTIONS, nameItFor, withNamed } from '../src/lib/mood';
 import { heartIn, workoutWindows } from '../src/lib/workout-heart';
 import { movementMap, stillestHour } from '../src/lib/movement';
 // step 2b progress
@@ -316,6 +318,25 @@ assert.equal(totalCoffees(m), 2);
 assert.equal(avgMood(m.days[k]), 3);
 assert.equal(moodDays(m), 1);
 assert.deepEqual(emotionCounts(m), [{ emotion: 'Tired', n: 2 }, { emotion: 'Happy', n: 1 }]);
+// emotion words: saved by name, so the old ones stay; "Want to name it?" asks once, about a low check-in without words
+{
+  const names = EMOTIONS.map((e) => e.name);
+  assert.equal(new Set(names).size, names.length);
+  for (const old of ['Happy', 'Calm', 'Motivated', 'Grateful', 'Excited', 'Tired', 'Stressed', 'Anxious', 'Sad', 'Angry', 'Bored', 'Lonely']) assert.ok(names.includes(old), old);
+  for (const added of ['Overwhelmed', 'Content', 'Hopeful', 'Irritable', 'Proud']) assert.ok(names.includes(added), added);
+  assert.ok(EMOTIONS.filter((e) => e.low).every((e) => !['Happy', 'Proud', 'Hopeful', 'Content'].includes(e.name)));
+  const low = { id: 'l', level: 2 as const, emotions: [], at: 3 };
+  assert.equal(nameItFor([low])?.id, 'l');
+  assert.equal(nameItFor([low, { id: 'ok', level: 3 as const, emotions: [], at: 4 }]), null); // only the latest counts
+  assert.equal(nameItFor([{ ...low, emotions: ['Tired'] }]), null);
+  assert.equal(nameItFor([{ ...low, asked: true }]), null); // asked already (or logged on the Mood screen)
+  assert.equal(nameItFor([{ ...low, late: true }]), null);
+  assert.equal(nameItFor([]), null);
+  const named = withNamed({ ...low, emotions: ['Tired'] }, ['Tired', 'Numb']);
+  assert.deepEqual(named.emotions, ['Tired', 'Numb']);
+  assert.equal(named.asked, true);
+  assert.equal(nameItFor([withNamed(low, [])]), null); // skipped: not asked again
+}
 // latest mood is low (2) -> roasts paused (mild only) even at savage 10
 assert.equal(m.settings.savageLevel, 10);
 assert.equal(effectiveSavage(m), 1);
@@ -3251,13 +3272,14 @@ void (async () => {
   // HQ layout: default order, saved orders keep their order, retired ids drop out and new ones slot in by their default neighbour
   const ids = HQ_SECTIONS.map((x) => x.id);
   assert.deepEqual(hqOrder(), ids);
-  assert.deepEqual(hqOrder({ order: ['achievements', 'gone', 'weather'], hidden: [] }).slice(0, 3), ['achievements', 'weather', 'commute']); // the SL card sits right after weather
+  // the SL card sits right after weather; the check-ins card has no neighbour before it, so it goes on top
+  assert.deepEqual(hqOrder({ order: ['achievements', 'gone', 'weather'], hidden: [] }).slice(0, 4), ['care', 'achievements', 'weather', 'commute']);
   const saved = hqOrder({ order: ['achievements', 'weather'], hidden: [] });
   assert.equal(saved.length, ids.length);
   assert.equal(new Set(saved).size, ids.length);
   const moved = moveSection(null, 'quests', -1);
   assert.equal(moved.order.indexOf('quests'), ids.indexOf('quests') - 1);
-  assert.deepEqual(moveSection(null, 'weather', -1).order, ids); // already first
+  assert.deepEqual(moveSection(null, 'care', -1).order, ids); // already first
   const hidden = toggleSection(null, 'league');
   assert.ok(!hqVisible(hidden).includes('league'));
   assert.ok(hqVisible(toggleSection(hidden, 'league')).includes('league'));
@@ -3568,6 +3590,56 @@ void (async () => {
   const y = readinessFor(rd, noToday, tue)!;
   assert.ok(y.reasons.some((x) => x.includes('Resting heart rate 63')));
   assert.equal(y.tier, 'steady');
+}
+
+// the rough-patch check: 3+ signs over 14 days against the owner's own normal; a sign without enough data doesn't count
+{
+  const now = new Date(2027, 1, 20, 12);
+  const key = (i: number) => dayKey(addDays(now, -i));
+  const day = (sleepMin: number, mood: number, doomMin: number) => ({
+    ...emptyDay(),
+    water: [{ id: 'w', ml: 250, at: 1 }],
+    sleepMin,
+    moods: [{ id: 'm', level: mood as 1 | 2 | 3 | 4 | 5, emotions: [], at: 1 }],
+    screen: { totalMin: doomMin, doomMin, gamesMin: 0, top: [] },
+  });
+  const build = (window: (i: number) => ReturnType<typeof day>) => {
+    const s = defaultState();
+    for (let i = 14; i < 42; i++) s.days[key(i)] = day(450, 3, 30); // the usual: 7 h 30, okay days, 30 min of scrolling
+    for (let i = 0; i < 14; i++) s.days[key(i)] = window(i);
+    return s;
+  };
+  // 8 short nights (70 min under), 6 low days, scrolling doubled
+  const heavy = build((i) => day(i < 8 ? 380 : 450, i < 6 ? 2 : 3, 60));
+  const p = roughPatch(heavy, [], now)!;
+  assert.deepEqual(p.signs.map((x) => x.id), ['sleep', 'mood', 'screen']);
+  assert.equal(p.heavy, false);
+  assert.ok(p.signs[0].text.startsWith('8 short nights'));
+  assert.ok(patchSummary(p).startsWith('The last two weeks: 8 short nights'));
+  assert.ok(patchSummary(p).includes(' and scrolling and games up to about 1h a day (usually 30m)'));
+  // most of the two weeks low: the card also mentions 1177
+  assert.equal(roughPatch(build((i) => day(i < 8 ? 380 : 450, i < 9 ? 2 : 3, 60)), [], now)!.heavy, true);
+  // two signs aren't enough
+  assert.equal(roughPatch(build((i) => day(i < 8 ? 380 : 450, i < 6 ? 2 : 3, 30)), [], now), null);
+  // typed-in nights are guesses: they don't make the sleep sign
+  const typed = build((i) => ({ ...day(i < 8 ? 380 : 450, i < 6 ? 2 : 3, 60), sleepManual: true }));
+  assert.equal(roughPatch(typed, [], now), null);
+  // no usual to compare with (a new owner): sleep and scrolling can't count, however the last days look
+  const fresh = defaultState();
+  for (let i = 0; i < 14; i++) fresh.days[key(i)] = day(300, 1, 200);
+  assert.equal(roughPatch(fresh, [], now), null);
+  // sick days still count as data (a hard week is a hard week), and readiness counts "easy" mornings
+  const sick = build((i) => ({ ...day(i < 8 ? 380 : 450, i < 6 ? 2 : 3, 30), ...(i < 5 ? { energy: 1 as const, sleepRating: 1 as const } : {}) }));
+  sick.pauses = [{ kind: 'sick', from: key(10), to: key(8) }];
+  assert.deepEqual(roughPatch(sick, [], now)!.signs.map((x) => x.id), ['sleep', 'mood', 'readiness']);
+  // shown at most once a week, and not during or soon after a pause
+  const t = now.getTime();
+  assert.equal(showRoughPatch(heavy, t), true);
+  assert.equal(showRoughPatch({ ...heavy, roughPatchAt: t - PATCH_QUIET_MS + 60_000 }, t), false);
+  assert.equal(showRoughPatch({ ...heavy, roughPatchAt: t - PATCH_QUIET_MS }, t), true);
+  assert.equal(showRoughPatch({ ...heavy, pauses: [{ kind: 'sick', from: key(0), to: key(0) }] }, t), false);
+  assert.equal(showRoughPatch({ ...heavy, pauses: [{ kind: 'away', from: key(9), to: key(6) }] }, t), false);
+  assert.equal(showRoughPatch({ ...heavy, pauses: [{ kind: 'away', from: key(12), to: key(8) }] }, t), true);
 }
 
 // heart in training: sets grouped into sessions, activities counted back from when they were logged, zones by max HR

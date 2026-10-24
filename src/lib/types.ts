@@ -107,7 +107,8 @@ export type League = { tier: number; week: string; rivals: Rival[]; history: { w
 export type ProgressPhoto = { id: string; uri: string; at: number };
 export type CoffeeEntry = { id: string; mg: number; at: number; late?: boolean };
 export type MoodLevel = 1 | 2 | 3 | 4 | 5;
-export type MoodEntry = { id: string; level: MoodLevel; emotions: string[]; note?: string; at: number; late?: boolean };
+// `asked`: the emotion words were offered (logged on the Mood screen, or "Want to name it?" answered or skipped)
+export type MoodEntry = { id: string; level: MoodLevel; emotions: string[]; note?: string; at: number; late?: boolean; asked?: true };
 
 export type DayWeather = {
   max: number;
@@ -335,6 +336,7 @@ export type State = {
   rangeTop?: Record<string, string>; // range habit id -> the week (its Monday) whose top-of-range bonus was paid
   // step 5
   dismissed?: string[]; // HQ banners closed: 'wrapped:YYYY-MM', 'season:<id>:<year>' (the newest 20)
+  roughPatchAt?: number; // the rough-patch card was closed or acted on (rough-patch.ts): it stays away for 7 days
 };
 
 export type MedalTier = 'bronze' | 'silver' | 'gold';
