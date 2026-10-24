@@ -1,7 +1,7 @@
 // What a reminder button or a widget tap asks for. Pure, so the background tasks, the app and the logic tests
 // share it (see pending-actions.ts for the queue it travels through).
 import { dayKey } from './dates';
-import type { MoodLevel } from './types';
+import type { DayLog, MoodLevel } from './types';
 
 /** Actions that can wait in the queue until the app runs. Each carries the day it's about and when it was tapped. */
 export type QueuedAction =
@@ -12,6 +12,21 @@ export type QueuedAction =
 
 /** `gymMove` (step 6): "Move it" on a slipping workout's reminder, which opens the app (workout-move.ts). */
 export type ReminderAction = QueuedAction | { kind: 'snooze' } | { kind: 'focus' } | { kind: 'gymMove'; day: string; to?: string };
+
+/** Whether an action can travel through the queue (the rest need the app, or nothing to save). */
+export const isQueued = (a: ReminderAction): a is QueuedAction => a.kind === 'glass' || a.kind === 'coffee' || a.kind === 'habit' || a.kind === 'mood';
+
+/**
+ * Whether a queued tap is already on its day (`d`): an entry with its tap time, or the habit ticked. A drain
+ * that saved but died before letting go of the queue hands the same taps over again; they must not count twice.
+ */
+export function tapLanded(d: DayLog | undefined, a: QueuedAction): boolean {
+  if (!d) return false;
+  if (a.kind === 'glass') return d.water.some((w) => w.at === a.at);
+  if (a.kind === 'coffee') return (d.coffee ?? []).some((c) => c.at === a.at);
+  if (a.kind === 'mood') return (d.moods ?? []).some((m) => m.at === a.at);
+  return (d.habits ?? []).includes(a.habitId);
+}
 
 export const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 

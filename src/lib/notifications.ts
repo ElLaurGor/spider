@@ -1,5 +1,5 @@
 import type { Href } from 'expo-router';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { C } from '@/constants/theme';
 
@@ -31,8 +31,8 @@ import {
   workoutFor,
 } from './selectors';
 import { moodInfo } from './mood';
-import { claimTap, silentButtonsReady } from './pending-actions';
-import { actionFromButton, tapKey, type ReminderAction } from './reminder-actions';
+import { claimTap, enqueue, silentButtonsReady } from './pending-actions';
+import { actionFromButton, isQueued, tapKey, type ReminderAction } from './reminder-actions';
 import type { CalEvent, MoodLevel, State } from './types';
 import { forecastText, type Weather } from './weather';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outside';
@@ -583,9 +583,12 @@ export function onNotificationTap(onAction: (a: ReminderAction) => void, onOpen:
       return;
     }
     const a = actionFromButton(r.actionIdentifier, r.notification.request.content.data);
+    // Off screen, the app's timers (its save among them) wait until it comes back, so a tap this listener
+    // takes then goes through the queue, which applies and saves it before letting go.
+    const take = (x: ReminderAction) => (isQueued(x) && AppState.currentState !== 'active' ? void enqueue(x) : onAction(x));
     if (a?.kind === 'focus') onAction(a);
     // A tap the background task already took (the app was in the background) is skipped here.
-    else if (a) void claimTap(id).then((first) => first && onAction(a), () => onAction(a));
+    else if (a) void claimTap(id).then((first) => first && take(a), () => take(a));
     // The status line stays put; it's refreshed by the replan its button causes.
     if (r.notification.request.identifier !== STATUS_ID) Notifications.dismissNotificationAsync(r.notification.request.identifier).catch(() => {});
   };
