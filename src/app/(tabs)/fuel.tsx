@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CaffeineCurve } from '@/components/caffeine-curve';
+import { lastCallText } from '@/lib/caffeine';
 import { DayPicker } from '@/components/day-picker';
 import { EntryEditor } from '@/components/entry-editor';
 import { FoodSuggestions } from '@/components/food-search';
@@ -107,6 +108,10 @@ function CoffeeCard({ day }: { day: string }) {
   const cups = coffeeOf(dayOf(state, day));
   const over = cups.length > s.coffeeLimit;
   const [editing, setEditing] = useState<string | null>(null);
+  const today = useToday();
+  const now = useNow(60_000, day === today);
+  // Information only: worked back from bedtime with the caffeine curve, never a roast (caffeine.ts).
+  const lastCall = day === today ? lastCallText(state, day, now) : null;
   const cup = cups.find((c) => c.id === editing);
   return (
     <Card accent={over ? C.red : C.yellow}>
@@ -127,6 +132,7 @@ function CoffeeCard({ day }: { day: string }) {
           ))}
         </Row>
       )}
+      {lastCall ? <T small>⏳ {lastCall}</T> : null}
       <CaffeineCurve state={state} day={day} />
       <Row>
         <Btn label="+1 coffee" icon="coffee" onPress={() => actions.addCoffee(day)} style={{ flex: 1 }} />

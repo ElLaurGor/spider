@@ -24,6 +24,8 @@ import { WeatherRow } from '@/components/weather-row';
 import { SlCard } from '@/components/sl-card';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
+import { bedtimeOn, lastCallOn } from '@/lib/caffeine';
+import { slipping } from '@/lib/workout-move';
 import { hqVisible, type HqSectionId } from '@/lib/hq-layout';
 import { ACRONYM, type LineKey } from '@/lib/lines';
 import { cycleInfo, sleepInfo } from '@/lib/body';
@@ -102,6 +104,8 @@ export default function HQ() {
   const upcoming = eventsOn(cal.events, now).filter((e) => e.end > now && !e.allDay).slice(0, 3);
   const unlocked = ACHIEVEMENTS.filter((a) => state.achievements[a.id]).length;
   const coffees = coffeeOf(today).length;
+  const lastCall = lastCallOn(state, todayKey);
+  const coffeeHint = now >= bedtimeOn(todayKey, s.sleepHour) ? 'tap to add one' : lastCall != null && lastCall > now ? `fine till ${fmtTime(lastCall)}` : 'decaf from here';
   const cycle = cycleInfo(state);
   const stage = stageFor(lvl.level);
   const next = nextStage(lvl.level);
@@ -226,7 +230,7 @@ export default function HQ() {
         <Tile icon="fitness_center" color={C.red} label="Gym" onPress={() => router.navigate('/gym')}>
           <Text style={styles.tileVal}>{plan ? (gymDone ? 'Done ✓' : plan.name) : 'Rest'}</Text>
           <T dim small>
-            {week.done}/{week.planned} this week
+            {!gymDone && slipping(state, now) ? '↪ tap to move it' : `${week.done}/${week.planned} this week`}
           </T>
         </Tile>
         <Tile icon="restaurant" color={C.green} label="Fuel" onPress={() => router.navigate('/fuel')}>
@@ -255,7 +259,7 @@ export default function HQ() {
             <Text style={styles.tileUnit}> / {s.coffeeLimit} cups</Text>
           </Text>
           <T dim small>
-            {caffeineMg(today)} mg · tap to add one
+            {caffeineMg(today)} mg · {coffeeHint}
           </T>
         </Tile>
         {health.status !== 'unsupported' ? (

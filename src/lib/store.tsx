@@ -99,6 +99,7 @@ import type {
   State,
   Weekday,
   WorkoutDay,
+  MoveWhy,
 } from './types';
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, needsPlaceInfo, samePlace, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
@@ -118,13 +119,15 @@ import { withoutOldXpHours, withXpHour } from './xp-timeline';
 // step 4: if-then plans, the comeback bonus, weekly range habits
 import { COMEBACK, lastTrainedBefore, missedGymBefore } from './comeback';
 import { recheckDay, recheckTask, recordTask, uncheckTask } from './tasks';
-import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, type CuePrompt } from './if-then';
+import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, planText, type CuePrompt } from './if-then';
+// step 6: moving a slipping workout
+import { copingPlan, copingWeekday, movedTo, moveDayName, moveTargets, withMove, withoutMove, withWhy } from './workout-move';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /** A button on a toast (cluster G: "Catch it!" on a fly). */
 /** What a toast's Undo takes back: one entry just logged with one tap (it lasts as long as the toast). */
 /** `restoreFood` undoes a delete: the meal comes back (photo included) while its toast is up. */
-export type UndoRef = { kind: 'water' | 'coffee' | 'food' | 'set' | 'task' | 'restoreFood'; id: string; day: string };
+export type UndoRef = { kind: 'water' | 'coffee' | 'food' | 'set' | 'task' | 'restoreFood' | 'move'; id: string; day: string };
 export type ToastAction = 'catchFly' | { undo: UndoRef };
 export type Toast = { id: number; text: string; tone: Tone; action?: ToastAction };
 type Msg = { text: string; tone: Tone; action?: ToastAction };
@@ -1499,6 +1502,36 @@ function useStoreValue() {
         run((s) => ({ ...s, plan: { ...s.plan, [day]: workout } }));
       },
 
+      /** A slipping workout moved to another free day this week (workout-move.ts): a rest day then, not a miss. */
+      moveWorkout(from: string, to: string) {
+        run((s, msgs) => {
+          const next = withMove(s, from, to);
+          if (next === s) return s;
+          const workout = movedTo(next, to)?.name ?? 'Workout';
+          msgs.push({ text: L(next, 'gymMoved', { workout, day: moveDayName(to) }), tone: 'info', action: { undo: { kind: 'move', id: from, day: from } } });
+          return next;
+        });
+      },
+
+      unmoveWorkout(from: string) {
+        run((s) => withoutMove(s, from));
+      },
+
+      /** What got in the way of a moved workout, and (optionally) the coping plan it suggests, saved on that weekday. */
+      noteMoveWhy(from: string, why: MoveWhy, savePlan = false) {
+        run((s, msgs) => {
+          let next = withWhy(s, from, why);
+          const day = copingWeekday(next, from);
+          const plan = copingPlan(next, why);
+          const w = day == null ? null : next.plan[day];
+          if (savePlan && day != null && w && plan) {
+            next = { ...next, plan: { ...next.plan, [day]: { ...w, plan } } };
+            msgs.push({ text: `🔗 Saved for ${WEEKDAYS_LONG[day]}s: ${planText(plan)}.`, tone: 'good' });
+          } else if (why === 'sick') msgs.push({ text: '🫖 Then rest is the plan. If it turns into a sick day, sick mode keeps everything fair.', tone: 'info' });
+          return next;
+        });
+      },
+
       // --- water ---
       /** `at`: when it was tapped, for taps applied later from the queue (silent buttons, widget). */
       addWater(ml: number, key?: string, at?: number) {
@@ -2043,6 +2076,10 @@ function useStoreValue() {
        */
       undo(ref: UndoRef) {
         const s = stateRef.current;
+        if (ref.kind === 'move') {
+          actions.unmoveWorkout(ref.id);
+          return;
+        }
         if (ref.kind === 'restoreFood') {
           // A deleted meal, on whichever day it was: back in place, with exactly the XP the delete took.
           const trashed = foodTrash.current.get(ref.id);
@@ -2649,6 +2686,12 @@ function useStoreValue() {
         }
       } else if (a.kind === 'focus') {
         if (!s.activeFocus) actions.startFocus(25);
+      } else if (a.kind === 'gymMove') {
+        // "Move it" on the slipping-workout reminder: to the day it named, or the first one still free.
+        const targets = moveTargets(s, a.day);
+        const to = a.to && targets.includes(a.to) ? a.to : targets[0];
+        if (to) actions.moveWorkout(a.day, to);
+        openSoon('/gym');
       } else actions.logMood(a.level, [], '', a.day, a.at);
     },
     [actions, run, say],

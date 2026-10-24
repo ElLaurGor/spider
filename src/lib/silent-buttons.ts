@@ -65,7 +65,7 @@ async function handleTap(raw: NotificationResponse) {
   const id = r.notification.request.identifier;
   if (!SILENT_BUTTONS.has(r.actionIdentifier)) return; // the body tap and "Focus" open the app instead
   const a = actionFromButton(r.actionIdentifier, r.notification.request.content.data);
-  if (!a || a.kind === 'focus') return;
+  if (!a || a.kind === 'focus' || a.kind === 'gymMove') return;
   if (!(await claimTap(tapKey(id, r.actionIdentifier, r.notification.date)))) return;
   if (a.kind === 'snooze') {
     const cfg = await readBgConfig();

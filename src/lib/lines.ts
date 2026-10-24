@@ -245,6 +245,28 @@ export const LINES = {
       "If you trained and didn't log it, did it even happen? No. No it didn't.",
     ],
   },
+  // step 6: a slipping workout can move to a free day this week (workout-move.ts). Moving is never roasted.
+  gymMoveOffer: {
+    mild: [
+      "{workout} hasn't happened yet. Want to move it to {day} instead?",
+      'Today ran out of room for {workout}? Move it to {day}. Moving is not missing.',
+      'No {workout} so far. One tap moves it to {day}, and today becomes a rest day.',
+    ],
+    savage: [
+      "{workout} is still waiting, unattended. I can rebook it for {day}, if you'd like.",
+      'Today appears fully booked. Shall I move {workout} to {day}? No paperwork, no judgement.',
+      'A rescheduled {workout} still counts. One tap moves it to {day}.',
+      'I can keep {workout} waiting, or move it to {day}. The second option has better odds.',
+    ],
+  },
+  gymMoved: {
+    mild: ['{workout} moved to {day}. Today is a rest day now, not a miss.', 'Done: {workout} is on for {day} instead.'],
+    savage: [
+      "Rebooked: {workout} moved to {day}. Today is officially a rest day. I've updated the paperwork.",
+      '{workout} moved to {day}. Not a miss, a reschedule. I will hold you to it.',
+      'Moved to {day}. The weights have been notified and are coping.',
+    ],
+  },
   gymStarted: {
     mild: ['Workout started! +{xp} XP and +{min} min gaming earned.'],
     savage: [

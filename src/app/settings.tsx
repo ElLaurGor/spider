@@ -8,6 +8,7 @@ import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T, useNow } 
 import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { dayKey, pad } from '@/lib/dates';
+import { lastCallClock } from '@/lib/caffeine';
 import { hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
 import { ACRONYM_REAL, bannedLines, line } from '@/lib/lines';
 import { openHealthSettings } from '@/lib/health';
@@ -259,7 +260,7 @@ export default function SettingsScreen() {
         <SettingRow label="Caffeine per cup">
           <Stepper value={s.caffeinePerCupMg} step={10} min={20} max={300} format={(v) => `${v} mg`} onChange={(v) => set({ caffeinePerCupMg: v })} />
         </SettingRow>
-        <SettingRow label="Coffee curfew" hint="later cups get roasted">
+        <SettingRow label="Coffee curfew" hint={`later cups get roasted · by the caffeine math, last call is ${lastCallClock(s.sleepHour, s.caffeinePerCupMg)}`}>
           <Stepper value={s.coffeeCutoffHour} min={10} max={22} format={(v) => `${pad(v)}:00`} onChange={(v) => set({ coffeeCutoffHour: v })} />
         </SettingRow>
         <SettingRow label="Gaming budget" hint="per day, before bonuses">
