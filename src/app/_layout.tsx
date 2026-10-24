@@ -132,6 +132,16 @@ export default function RootLayout() {
                 }}
               />
               <Stack.Screen
+                name="trek"
+                options={{
+                  headerShown: true,
+                  title: "Trek",
+                  headerStyle: { backgroundColor: C.bg },
+                  headerTintColor: C.text,
+                  headerShadowVisible: false,
+                }}
+              />
+              <Stack.Screen
                 name="records"
                 options={{
                   headerShown: true,

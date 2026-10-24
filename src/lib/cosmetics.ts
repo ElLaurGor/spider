@@ -1,5 +1,5 @@
 // The spider's wardrobe: things to wear, bought with coins, found in season, dropped by legendary
-// chests or unlocked on the monthly Silk Track. Purely for looks: nothing here changes XP, the boss or the league.
+// chests, unlocked on the monthly Silk Track or earned in co-op weeks and on the trek. Purely for looks: nothing here changes XP, the boss or the league.
 import { seasonOn, type SeasonId } from './seasons';
 import { SILK_ITEMS, silkTitles } from './silk-track';
 import type { State } from './types';
@@ -11,11 +11,12 @@ export type Cosmetic = {
   slot: Slot;
   name: string;
   emoji: string;
-  source: 'shop' | 'season' | 'legendary' | 'silk';
+  source: 'shop' | 'season' | 'legendary' | 'silk' | 'reward';
   price?: number;
   season?: SeasonId;
   edition?: string; // Silk Track items: the edition that hands it out
   ring?: string; // auras recolor the avatar's ring
+  note?: string; // reward items: where they're earned
 };
 
 export const SLOTS: { id: Slot; name: string }[] = [
@@ -43,6 +44,12 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'aura_flame', slot: 'aura', name: 'Flame aura', emoji: '🔥', source: 'legendary', ring: '#FF7A1A' },
   { id: 'aura_toxic', slot: 'aura', name: 'Toxic aura', emoji: '☢️', source: 'legendary', ring: '#33D17A' },
   { id: 'unicorn', slot: 'held', name: 'Pocket unicorn', emoji: '🦄', source: 'legendary' },
+  // earned, never sold: co-op weeks (coop.ts) and the trek (trek.ts)
+  { id: 'coop_bracelet', slot: 'held', name: 'Friendship bracelet', emoji: '📿', source: 'reward', note: 'Win a co-op week' },
+  { id: 'aura_duo', slot: 'aura', name: 'Duo aura', emoji: '💞', source: 'reward', ring: '#FF6FAE', note: 'Win 5 co-op weeks' },
+  { id: 'trek_ticket', slot: 'held', name: 'Travel card', emoji: '🎫', source: 'reward', note: 'Walk the tunnelbana trek' },
+  { id: 'trek_map', slot: 'held', name: 'Trail map', emoji: '🗺️', source: 'reward', note: 'Halfway along Sörmlandsleden' },
+  { id: 'trek_pack', slot: 'held', name: 'Trail backpack', emoji: '🎒', source: 'reward', note: 'Walk Sörmlandsleden' },
 ];
 
 /** Silk Track hats, held items and auras (seasonal pieces it hands out are in COSMETICS already). */
@@ -64,6 +71,7 @@ const SEASON_NOTE: Partial<Record<SeasonId, string>> = { halloween: 'Spooky seas
 export function whereToGet(c: Cosmetic) {
   if (c.source === 'legendary') return 'Legendary chests only';
   if (c.source === 'silk') return `Silk Track · ${c.edition ?? 'a monthly edition'}`;
+  if (c.source === 'reward') return c.note ?? 'Earned';
   if (c.source === 'season') return (c.season && SEASON_NOTE[c.season]) ?? 'Seasonal';
   return '';
 }

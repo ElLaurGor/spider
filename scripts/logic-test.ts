@@ -145,6 +145,8 @@ import { movementMap, stillestHour } from '../src/lib/movement';
 import { MEDALS, medalList, medalsFor, medalTotals, needFor, openDays, settleMedals } from '../src/lib/medals';
 import { ghostOf, ghostText, withoutOldXpHours, withXpHour, xpByHour } from '../src/lib/xp-timeline';
 import { NEMESIS_PRIZE, nemesisOf } from '../src/lib/league';
+import { allCoopLines, baseFor, COOP_COINS, coopFor, coopResultText, coopStatus, coopSummary, GOALS, goalOf, isCoopWeek, partnerCount, settleCoop, coopTarget } from '../src/lib/coop';
+import { BOT_KM_A_DAY, botKm, checkTrek, lengthOf, newTrek, ROUTES, trekKm, trekStatus, trekSummary, trekTable } from '../src/lib/trek';
 // step 5 game fixes
 import { recheckDay, recheckTask, uncheckTask } from '../src/lib/tasks';
 import { activityMinutes, bestBeforeDay, isRecord, setSessions, trainMinutes } from '../src/lib/selectors';
@@ -1367,6 +1369,128 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   for (let i = 0; i < 7; i++) nm.days[mk(i)] = emptyDay();
   assert.equal(settle(nm).nemesisPrize, 0);
   assert.equal(settle(nm).nemesis?.beaten, false);
+}
+
+// co-op weeks: every other week a league bot is your partner; your half decides it; coins, never XP
+{
+  assert.ok(isCoopWeek('2026-10-26') && isCoopWeek('2026-11-09'));
+  assert.ok(!isCoopWeek('2026-11-02') && !isCoopWeek('2026-10-19'), 'every other week, none before the first');
+  assert.equal(coopTarget(5, 7), 5);
+  assert.equal(coopTarget(5, 3), 3, 'rough days lower the bar');
+  assert.equal(coopTarget(1, 1), 1);
+  assert.equal(coopTarget(5, 0), null, 'a week of rough days calls it off');
+  const cw = '2026-10-26';
+  const ck = (week: string, i: number) => dayKey(addDays(new Date(`${week}T12:00`), i));
+  const co = defaultState();
+  co.onboarded = true;
+  assert.equal(baseFor(co, 'water', cw), GOALS.water.start, 'no last week: the default bar');
+  for (let i = 0; i < 7; i++) co.days[ck('2026-10-19', i)] = { ...emptyDay(), waterGoalHit: i < 3 };
+  assert.equal(baseFor(co, 'water', cw), 4, 'a little above last week (3 days)');
+  for (let i = 0; i < 7; i++) co.days[ck('2026-10-19', i)].waterGoalHit = i < 6;
+  assert.equal(baseFor(co, 'water', cw), 7, 'capped at the whole week');
+  for (let i = 0; i < 7; i++) co.days[ck('2026-10-19', i)].waterGoalHit = i < 2;
+  co.pauses = [{ from: ck('2026-10-19', 4), to: ck('2026-10-19', 6), kind: 'sick' }];
+  assert.equal(baseFor(co, 'water', cw), 5, "last week's rough days don't lower this week's bar (2 in 4 open days)");
+  co.pauses = [];
+  // the partner: from your league, never the nemesis, the same all week; no step goal without a watch
+  co.league = newLeague(1, cw);
+  const mon = new Date(2026, 9, 26, 9);
+  const c1 = coopFor(co, mon)!;
+  assert.ok(c1 && co.league.rivals.some((r) => r.name === c1.partner.name));
+  assert.notEqual(c1.partner.name, co.league.rivals.find((r) => r.id === nemesisOf(co)?.id)?.name);
+  assert.equal(c1.goal, goalOf(c1.partner.name));
+  assert.notEqual(c1.goal, 'steps');
+  assert.deepEqual(coopFor(co, new Date(2026, 10, 1, 20)), c1, 'the same all week');
+  assert.equal(coopFor({ ...co, league: newLeague(1, '2026-11-02') }, new Date(2026, 10, 3, 9)), null, 'not a co-op week');
+  // progress: the partner gets there by Saturday night; the team counts the slower of you two
+  assert.equal(partnerCount(5, cw, new Date(2026, 9, 26, 0, 0)), 0);
+  assert.equal(partnerCount(5, cw, new Date(2026, 10, 1, 0, 0)), 5);
+  co.coop = { week: cw, partner: { name: 'Hydro Hanna', emoji: '💧' }, goal: 'water', base: 3 };
+  co.days[ck(cw, 0)] = { ...emptyDay(), waterGoalHit: true };
+  const st = coopStatus(co, new Date(2026, 9, 28, 12))!;
+  assert.equal(st.target, 3);
+  assert.equal(st.mine, 1);
+  assert.equal(st.team, Math.min(st.mine, st.theirs));
+  assert.ok(coopSummary(co, new Date(2026, 9, 28, 12))!.includes('1/3 water-goal days'));
+  // settling: only after Sunday, once; a win pays coins and the first win a bracelet, never XP
+  assert.equal(settleCoop(co, new Date(2026, 10, 1, 22)).result, null, 'not before the week is over');
+  co.days[ck(cw, 2)] = { ...emptyDay(), waterGoalHit: true };
+  co.days[ck(cw, 5)] = { ...emptyDay(), waterGoalHit: true };
+  const won = settleCoop(co, new Date(2026, 10, 2, 8));
+  assert.deepEqual(won.result, { count: 3, target: 3, won: true, coins: COOP_COINS });
+  assert.equal(won.state.coins, co.coins + COOP_COINS);
+  assert.equal(won.state.xp, co.xp, 'never XP');
+  assert.deepEqual(won.state.coopRecord, { played: 1, won: 1 });
+  assert.deepEqual(won.items, ['coop_bracelet']);
+  assert.ok(won.state.cosmetics?.owned.includes('coop_bracelet'));
+  assert.equal(settleCoop(won.state, new Date(2026, 10, 3, 8)).result, null, 'settled once');
+  assert.equal(coopStatus(won.state, new Date(2026, 10, 2, 8)), null);
+  assert.ok(coopResultText(won.state, won.state.coop!, won.result!).includes(`+${COOP_COINS} 🪙`));
+  // a miss costs nothing; a week of rough days is called off and not counted
+  const short = { ...co, days: { ...co.days, [ck(cw, 5)]: emptyDay() } };
+  const missed = settleCoop(short, new Date(2026, 10, 9, 8));
+  assert.equal(missed.result?.won, false);
+  assert.equal(missed.state.coins, short.coins);
+  assert.deepEqual(missed.state.coopRecord, { played: 1, won: 0 });
+  const off = settleCoop({ ...co, pauses: [{ from: cw, to: ck(cw, 6), kind: 'sick' }] }, new Date(2026, 10, 2, 8));
+  assert.equal(off.result?.target, 0);
+  assert.equal(off.state.coopRecord, undefined, 'a called-off week is not played');
+  assert.ok(coopResultText(off.state, off.state.coop!, off.result!).includes('Nothing lost'));
+  // the lines: only the placeholders they're given, and nothing about bodies
+  for (const l of allCoopLines()) {
+    for (const m of l.matchAll(/\{(\w+)\}/g)) assert.ok(['name', 'target', 'theirs'].includes(m[1]), l);
+    assert.ok(!/\b(fat|weight|body|belly|thighs?)\b/i.test(l), l);
+  }
+}
+
+// virtual trek: watch steps walk a real route; totals only; waypoints pay coins and cosmetics, never XP
+{
+  for (const r of Object.values(ROUTES)) {
+    assert.equal(r.waypoints[0].km, 0, r.id);
+    assert.ok(r.waypoints.every((w, i) => i === 0 || w.km > r.waypoints[i - 1].km), `${r.id}: waypoints in order`);
+    assert.ok(r.items.every((x) => x.at > 0 && x.at < r.waypoints.length && cosmeticOf(x.id)?.source === 'reward'), r.id);
+    assert.equal(new Set(r.waypoints.map((w) => w.name)).size, r.waypoints.length, r.id);
+  }
+  assert.equal(lengthOf(ROUTES.tunnelbana), 68);
+  assert.equal(lengthOf(ROUTES.sormland), 1000);
+  const tk = defaultState();
+  tk.onboarded = true;
+  tk.league = newLeague(0, '2026-10-26');
+  tk.days['2026-10-25'] = { ...emptyDay(), steps: 50_000 }; // before the start: not counted
+  tk.days['2026-10-26'] = { ...emptyDay(), steps: 8000 };
+  tk.days['2026-10-28'] = { ...emptyDay(), steps: 6000 }; // the 27th had no steps: the spider just stood still
+  tk.trek = newTrek('tunnelbana', '2026-10-26');
+  const at = new Date(2026, 9, 28, 20);
+  assert.equal(trekKm(tk, tk.trek, at), 10.5); // 14 000 steps × 0.75 m
+  assert.equal(trekKm(tk, { ...tk.trek, stepM: 0.7 }, at), 9.8);
+  const step = checkTrek(tk, at);
+  assert.deepEqual(step.passed.map((w) => w.name), ['Vällingby', 'Alvik']);
+  assert.equal(step.coins, 2 * ROUTES.tunnelbana.coins);
+  assert.equal(step.state.trek?.reached, 2);
+  assert.equal(step.state.xp, tk.xp, 'never XP');
+  assert.equal(checkTrek(step.state, at).passed.length, 0, 'each waypoint once');
+  const swap = { ...tk, trek: newTrek('tunnelbana', '2026-10-28', 0.75, 6000) };
+  assert.equal(trekKm(swap, swap.trek, at), 0, "a new trek starts at 0 km: the day's earlier steps don't count again");
+  assert.equal(checkTrek(swap, at).passed.length, 0, 'so switching routes replays nothing');
+  // the finish: the last waypoint, its cosmetic and the finish coins, once
+  const far = { ...step.state, days: { ...step.state.days, '2026-10-29': { ...emptyDay(), steps: 200_000 } } };
+  const fin = checkTrek(far, new Date(2026, 9, 29, 20));
+  assert.ok(fin.finished);
+  assert.deepEqual(fin.items, ['trek_ticket']);
+  assert.equal(fin.coins, (ROUTES.tunnelbana.waypoints.length - 3) * ROUTES.tunnelbana.coins + ROUTES.tunnelbana.finishCoins);
+  assert.deepEqual(fin.state.treksDone, ['tunnelbana']);
+  assert.equal(trekKm(fin.state, fin.state.trek!, new Date(2026, 9, 29, 20)), 68, 'never past the end');
+  assert.equal(checkTrek(fin.state, new Date(2026, 9, 30, 20)).finished, false);
+  assert.ok(trekStatus(fin.state, new Date(2026, 9, 29, 20))!.done);
+  // the bots walk the same route at their own pace, the same numbers every time
+  const bot = tk.league.rivals[0];
+  const b1 = botKm(bot, tk.trek, at);
+  assert.equal(botKm(bot, tk.trek, at), b1);
+  assert.ok(botKm(bot, tk.trek, new Date(2026, 9, 30, 20)) > b1);
+  assert.ok(b1 > 0 && b1 < 3 * BOT_KM_A_DAY * 2);
+  assert.equal(trekTable(tk, tk.trek, at).length, 10);
+  assert.ok(trekSummary(step.state, at)!.startsWith('🚇 Tunnelbanan: 10.5 km · T-Centralen in 3.5 km'), trekSummary(step.state, at)!);
+  assert.equal(trekSummary(defaultState()), null);
 }
 
 // economy: one coin per XP

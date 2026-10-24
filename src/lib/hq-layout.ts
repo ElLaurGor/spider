@@ -24,6 +24,7 @@ export const HQ_SECTIONS = [
   { id: 'league', label: 'League (full card)' },
   { id: 'silk', label: 'Silk Track (full card)' },
   { id: 'medals', label: 'Weekly medals (full card)' },
+  { id: 'trek', label: 'Virtual trek (full card, with watch steps)' },
   { id: 'contract', label: 'Weekly contract (full card)' },
   { id: 'countdowns', label: 'Countdowns' },
   { id: 'swedishDays', label: 'Red days & payday' },
@@ -39,7 +40,7 @@ export const HQ_SECTIONS = [
 export type HqSectionId = (typeof HQ_SECTIONS)[number]['id'];
 
 /** The full weekly cards: the This week card sums them up, so they start hidden (Settings brings any of them back). */
-export const WEEK_PARTS: readonly HqSectionId[] = ['league', 'silk', 'medals', 'contract'];
+export const WEEK_PARTS: readonly HqSectionId[] = ['league', 'silk', 'medals', 'trek', 'contract'];
 const DEFAULT_HIDDEN: readonly HqSectionId[] = WEEK_PARTS;
 
 const IDS: readonly HqSectionId[] = HQ_SECTIONS.map((x) => x.id);

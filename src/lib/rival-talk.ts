@@ -1,5 +1,7 @@
 // The league bots talk back: a rival who passes you gloats, one you pass sulks. At most two a day, and
 // they keep quiet on low-mood, period and paused days. Their lines are about themselves and the race, never your body.
+// A co-op week's partner (coop.ts) doesn't gloat or sulk: it's on your side that week.
+import { partnerName } from './coop';
 import { dayKey } from './dates';
 import { nemesisOf, standings } from './league';
 import { fillLine } from './lines';
@@ -122,7 +124,7 @@ export function rivalTalk(s: State, now = new Date(), roll = Math.random): { tal
   if (quiet || n >= RIVAL_TALK_PER_DAY) return { talk, line: null };
   const climbed = rank < prev.rank;
   const other = table[climbed ? rank : rank - 2]; // just below you (you passed them) or just above you (they passed you)
-  if (!other || other.me) return { talk, line: null };
+  if (!other || other.me || other.name === partnerName(s, now)) return { talk, line: null };
   const pool = climbed ? voiceOf(other.name).beaten : voiceOf(other.name).passed;
   const quote = fillLine(pool[Math.floor(roll() * pool.length) % pool.length], { name: s.settings.userName || 'boss' });
   const tag = nemesisOf(s)?.id === other.id ? ' (your nemesis)' : '';

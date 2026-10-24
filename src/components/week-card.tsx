@@ -11,18 +11,21 @@ import { Bar, Card, H, Icon, T, useNow } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { canSign, contractProgress, goalOf } from '@/lib/contracts';
+import { coopSummary } from '@/lib/coop';
 import { standings, TIERS, weekKeyOf } from '@/lib/league';
 import { medalsFor } from '@/lib/medals';
 import { bossFor } from '@/lib/quests';
 import { monthOf, SILK_TIERS, silkStatus } from '@/lib/silk-track';
 import { useStore } from '@/lib/store';
+import { trekSummary } from '@/lib/trek';
 import { medalLine, weekDaysLeft } from '@/lib/week-card';
 import { ghostOf, ghostText } from '@/lib/xp-timeline';
 
 type Part = 'boss' | 'medals' | 'contract';
 
 /**
- * HQ: the week in one card, a line each for the boss, the league, the Silk Track, the medals and the contract.
+ * HQ: the week in one card, a line each for the boss, the league (and a co-op week), the Silk Track, the medals,
+ * the trek and the contract.
  * The boss, medals and contract open in place; the league and the Silk Track open their screens.
  */
 export function WeekCard() {
@@ -46,6 +49,8 @@ export function WeekCard() {
   const medals = medalsFor(state, week);
   const c = state.contract?.week === week ? state.contract : null;
   const left = weekDaysLeft(date);
+  const coop = coopSummary(state, date);
+  const trek = trekSummary(state, date);
 
   const contractText = c
     ? c.status === 'won'
@@ -87,6 +92,8 @@ export function WeekCard() {
         />
       ) : null}
 
+      {coop ? <Line emoji="🤝" title="Co-op week" detail={coop.replace(/^🤝 /, '')} onPress={() => router.push('/league')} /> : null}
+
       <Line
         emoji={silk.edition.emoji}
         title={`Silk Track · tier ${silk.tier}/${SILK_TIERS}`}
@@ -101,6 +108,8 @@ export function WeekCard() {
           <MedalRows week={week} />
         </View>
       ) : null}
+
+      <Line emoji="🥾" title="Trek" detail={trek ?? 'Pick a route and your watch steps walk it →'} onPress={() => router.push('/trek')} />
 
       {contractText ? <Line emoji="📜" title="Contract" detail={contractText} open={open === 'contract'} onPress={() => toggle('contract')} /> : null}
       {open === 'contract' ? <ContractCard bare /> : null}

@@ -98,6 +98,7 @@ import type {
   ScreenDay,
   Settings,
   State,
+  TrekRoute,
   Weekday,
   WorkoutDay,
   MoveWhy,
@@ -116,6 +117,8 @@ import { checkSilkTrack, SILK_TIERS } from './silk-track';
 import { goldenAllowed } from './tone';
 // step 2b: weekly medals and the ghost of last week
 import { medalList, settleMedals } from './medals';
+import { coopFor, coopIntro, coopResultText, settleCoop } from './coop';
+import { checkTrek, newTrek, ROUTES } from './trek';
 import { withoutOldXpHours, withXpHour } from './xp-timeline';
 // step 4: if-then plans, the comeback bonus, weekly range habits
 import { COMEBACK, lastTrainedBefore, missedGymBefore } from './comeback';
@@ -246,6 +249,43 @@ function checkLeague(s: State, msgs: Msg[]): State {
   const history = [...old.history, { week: old.week, tier: old.tier, rank: r.rank, xp: r.xp }].slice(-26);
   const coins = r.prize + r.nemesisPrize;
   return { ...s, league: newLeague(r.tier, week, history), coins: s.coins + coins, coinsEarned: s.coinsEarned + coins };
+}
+
+/** Settles a finished co-op week (once) and starts this week's when it's a co-op week (coop.ts). */
+function checkCoop(s: State, msgs: Msg[]): State {
+  if (!s.onboarded || !s.league) return s;
+  const now = new Date();
+  const settled = settleCoop(s, now);
+  let next = settled.state;
+  if (settled.result && next.coop) {
+    msgs.push({ text: coopResultText(next, next.coop, settled.result), tone: settled.result.won ? 'epic' : 'info' });
+    for (const id of settled.items) {
+      const c = cosmeticOf(id);
+      if (c) msgs.push({ text: `${c.emoji} ${c.name} for your spider, from your partner. Wear it from the Shop.`, tone: 'epic' });
+    }
+  }
+  if (next.coop?.week === next.league?.week) return next;
+  const fresh = coopFor(next, now);
+  if (fresh) {
+    next = { ...next, coop: fresh };
+    msgs.push({ text: coopIntro(next, fresh), tone: 'info' });
+  }
+  return next;
+}
+
+/** Waypoints the trek's steps reached since the last check: postcards, coins and the odd cosmetic (trek.ts). */
+function checkTrekProgress(s: State, msgs: Msg[]): State {
+  const r = checkTrek(s);
+  if (!r.passed.length) return s;
+  const last = r.passed[r.passed.length - 1];
+  const more = r.passed.length > 1 ? ` (${r.passed.length} waypoints at once)` : '';
+  msgs.push({ text: `📮 Postcard from ${last.name}${more}: ${last.card} +${r.coins} 🪙`, tone: 'good' });
+  for (const id of r.items) {
+    const c = cosmeticOf(id);
+    if (c) msgs.push({ text: `${c.emoji} ${c.name} for your spider. Wear it from the Shop.`, tone: 'epic' });
+  }
+  if (r.finished && s.trek) msgs.push({ text: `🏁 ${ROUTES[s.trek.route].name}, walked end to end. Pick the next trek whenever you like.`, tone: 'epic' });
+  return r.state;
 }
 
 /** Fixes today's quests, completes any that are done, and settles the weekly boss (checkBoss). */
@@ -1011,7 +1051,7 @@ function useStoreValue() {
         return reopen.state;
       };
       const changed = opts.early ? checkDayRollover(apply(prev), msgs) : apply(checkDayRollover(prev, msgs));
-      const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(changed, msgs), msgs), msgs), msgs);
+      const checked = checkCritters(prev, checkContract(checkQuests(checkTrekProgress(checkCoop(checkLeague(changed, msgs), msgs), msgs), msgs), msgs), msgs);
       // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
       const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
       // If-then cues that just happened in the app (if-then.ts): noted on the day, and the latest one prompts.
@@ -2391,6 +2431,16 @@ function useStoreValue() {
           const purchase = { id: uid(), title: c.name, emoji: c.emoji, cost: c.price, at: Date.now() };
           return { ...next, coins: next.coins - c.price, purchases: [...next.purchases, purchase].slice(-100) };
         });
+      },
+
+      /** Starts a trek on `route` at 0 km (a new one replaces the old: what it paid stays earned). Steps from now on count. */
+      startTrek(route: TrekRoute) {
+        run((s) => ({ ...s, trek: newTrek(route, dayKey(), s.trek?.stepM, dayOf(s).steps ?? 0) }));
+      },
+
+      /** The trek's step length in metres: the whole walk is counted again with it, waypoints already paid stay paid. */
+      setTrekStep(stepM: number) {
+        run((s) => (s.trek ? { ...s, trek: { ...s.trek, stepM: Math.max(0.4, Math.min(1.2, Math.round(stepM * 100) / 100)) } } : s));
       },
 
       /** Puts on an owned item, or takes the slot off (null). */

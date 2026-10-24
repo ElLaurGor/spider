@@ -108,6 +108,25 @@ export type Reward = { id: string; title: string; emoji: string; cost: number };
 export type Purchase = { id: string; title: string; emoji: string; cost: number; at: number };
 export type Rival = { id: string; name: string; emoji: string; power: number };
 export type League = { tier: number; week: string; rivals: Rival[]; history: { week: string; tier: number; rank: number; xp: number }[] };
+/** What a co-op week asks of both partners (coop.ts). */
+export type CoopGoal = 'water' | 'train' | 'steps' | 'tasks' | 'quests';
+/**
+ * A co-op week (coop.ts): the league bot partnered with you, the shared goal and its bar for a week with no
+ * rough days (`base`). Kept after the week so it can be settled even if the league has moved on; `result` once settled.
+ */
+export type CoopWeek = {
+  week: string;
+  partner: { name: string; emoji: string };
+  goal: CoopGoal;
+  base: number;
+  result?: { count: number; target: number; won: boolean; coins: number };
+};
+/**
+ * The virtual trek (trek.ts): the route, the day watch steps start counting (`skip`: steps that day from before
+ * the trek began), the step length and the last waypoint handed out.
+ */
+export type TrekRoute = 'tunnelbana' | 'sormland';
+export type Trek = { route: TrekRoute; since: string; skip?: number; stepM: number; reached: number };
 export type ProgressPhoto = { id: string; uri: string; at: number };
 export type CoffeeEntry = { id: string; mg: number; at: number; late?: boolean };
 export type MoodLevel = 1 | 2 | 3 | 4 | 5;
@@ -284,6 +303,8 @@ export type State = {
   doubleXpUntil: number | null;
   bossBombs: Record<string, number>; // week key -> extra boss damage
   league: League | null;
+  coop?: CoopWeek | null; // step 6: this or the last co-op week (lib/coop.ts)
+  coopRecord?: { played: number; won: number }; // co-op weeks settled and won, totals
   activeFocus: { start: number; minutes: number; label?: string } | null;
   trackers: Tracker[];
   windDownItems: string[];
@@ -343,6 +364,8 @@ export type State = {
   // step 5
   dismissed?: string[]; // HQ banners closed: 'wrapped:YYYY-MM', 'season:<id>:<year>' (the newest 20)
   roughPatchAt?: number; // the rough-patch card was closed or acted on (rough-patch.ts): it stays away for 7 days
+  trek?: Trek | null; // the virtual trek walked with watch steps (lib/trek.ts); unset = none started
+  treksDone?: TrekRoute[]; // routes walked to the end, in order
 };
 
 export type MedalTier = 'bronze' | 'silver' | 'gold';
