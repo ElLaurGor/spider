@@ -11,19 +11,20 @@ import { daylightGain, describe, forecastText, rainNote, staleNote, weatherKey }
 
 export function WeatherRow() {
   const { state, weather, outside, quip } = useStore();
-  const now = useNow(60_000); // for the "updated" note once the data gets old
+  const now = useNow(60_000); // for the "updated" note once the data gets old, and a new day
+  const todayKey = dayKey(now);
   const w = weather.data;
-  const airToday = outside.air?.days.find((d) => d.date === dayKey());
+  const airToday = outside.air?.days.find((d) => d.date === todayKey);
   const worst = airToday
     ? state.settings.allergies.map((t) => ({ t, level: pollenLevel(t, airToday.pollen[t] ?? 0) })).sort((a, b) => b.level - a.level)[0]
     : undefined;
-  const today = w?.days.find((d) => d.date === dayKey()) ?? w?.days[0];
+  const today = w?.days.find((d) => d.date === todayKey) ?? w?.days[0];
   const key = today ? weatherKey(today) : null;
   const forecast = today ? forecastText(today) : '';
   const sunrise = today ? fmtTime(today.sunrise) : '';
   const sunset = today ? fmtTime(today.sunset) : '';
   const comment = useMemo(() => (key ? quip(key, { forecast: '', sunrise, sunset }).replace(/^[.\s]+/, '') : ''), [quip, key, sunrise, sunset]);
-  const gain = w ? daylightGain(w.days, dayKey()) : null;
+  const gain = w ? daylightGain(w.days, todayKey) : null;
   const rain = w ? rainNote(w.soon) : null;
 
   if (!state.settings.weather) {

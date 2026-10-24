@@ -39,3 +39,16 @@ export async function readBgConfig(): Promise<BgConfig | null> {
     return null;
   }
 }
+
+// Set by the background check when a storm started while the app was closed: the app's next warnings check
+// doesn't wait for its 15-minute rhythm, so the Storm protocol (State.storm) takes over at once.
+const STORM_KEY = 'spider:bg:storm';
+export const markStormWaiting = () => AsyncStorage.setItem(STORM_KEY, String(Date.now())).catch(() => {});
+export const clearStormWaiting = () => AsyncStorage.removeItem(STORM_KEY).catch(() => {});
+export async function stormWaiting() {
+  try {
+    return (await AsyncStorage.getItem(STORM_KEY)) != null;
+  } catch {
+    return false;
+  }
+}

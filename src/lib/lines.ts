@@ -2252,9 +2252,19 @@ function plusDays(day: string, n: number) {
  * the same line. Replans happen every few minutes, so they never touch the deck.
  * With `perDay` (how many slots each day has, like the ten water reminders) the pool is dealt across the
  * whole week instead: each day carries on where the day before stopped, so a day doesn't replay yesterday's
- * lines in a new order, and every line comes round before any comes round again.
+ * lines in a new order, and every line comes round before any comes round again. `levelOn` gives each earlier
+ * day of the week its own tone (a kind Monday dealt mild lines, not today's savage ones); without it they're
+ * counted at today's.
  */
-export function dayLine(key: LineKey, savageLevel: number, day: string, n: number, vars: Record<string, string | number> = {}, perDay?: number) {
+export function dayLine(
+  key: LineKey,
+  savageLevel: number,
+  day: string,
+  n: number,
+  vars: Record<string, string | number> = {},
+  perDay?: number,
+  levelOn?: (day: string) => number,
+) {
   const { pick, k } = daySlots(key, savageLevel, day, n + 1);
   if (!pick) return '';
   const len = pick.list.length;
@@ -2263,7 +2273,10 @@ export function dayLine(key: LineKey, savageLevel: number, day: string, n: numbe
   const past = (new Date(`${day}T12:00`).getDay() + 6) % 7;
   const monday = plusDays(day, -past);
   let pos = k;
-  for (let i = 0; i < past; i++) pos += daySlots(key, savageLevel, plusDays(monday, i), perDay).seen[pick.id] ?? 0;
+  for (let i = 0; i < past; i++) {
+    const earlier = plusDays(monday, i);
+    pos += daySlots(key, levelOn ? levelOn(earlier) : savageLevel, earlier, perDay).seen[pick.id] ?? 0;
+  }
   // A new shuffle each time round the list; one that would open with the line the last round ended on swaps its first two.
   const round = Math.floor(pos / len);
   const order = shuffled(len, `${monday}|${pick.id}|${round}`);

@@ -2,17 +2,23 @@
 // every 30 minutes (only while the app is in the background, and only with a network). It fetches SMHI warnings
 // and VMAs for the county in bg-config.ts and announces new ones, triaged like the app does (triageAlerts). The
 // app and this task share the seen-list below, so a warning is announced once whichever sees it first.
+// A storm (orange, red, VMA) that starts meanwhile also calms what's already planned for its days (calmPlanned).
 // No theme import: a headless start should stay small.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireOptionalNativeModule } from 'expo';
+import { cancelScheduledNotificationAsync } from 'expo-notifications/build/cancelScheduledNotificationAsync';
+import { getAllScheduledNotificationsAsync } from 'expo-notifications/build/getAllScheduledNotificationsAsync';
 import { getPermissionsAsync } from 'expo-notifications/build/NotificationPermissions';
 import { SchedulableTriggerInputTypes } from 'expo-notifications/build/Notifications.types';
 import { scheduleNotificationAsync } from 'expo-notifications/build/scheduleNotificationAsync';
 import { Platform } from 'react-native';
 
-import { readBgConfig } from './bg-config';
+import { bgTone, markStormWaiting, readBgConfig, writeBgConfig, type BgConfig } from './bg-config';
+import { line } from './lines';
 import { ALERT_LABEL, fetchSmhi, fetchVma, mergeSeen, triageAlerts, type Alert } from './outside';
 import { locked } from './pending-actions';
+import { stormPlan } from './reminder-times';
+import { stormDays } from './storm';
 
 export const ALERT_TASK = 'spider-warnings-check';
 const SEEN_KEY = 'spider:bg:seen';
@@ -59,6 +65,41 @@ export async function checkWarnings(now = Date.now()) {
     });
   }
   if (changed) await addToSeenLedger(seen);
+  // Days the app planned in a normal tone (it didn't know): they go kind now. Already kind means the app saw it.
+  const calm = stormDays(list, now).filter((k) => bgTone(cfg, k) > 1);
+  if (calm.length) await calmPlanned(cfg, calm);
+}
+
+/**
+ * The Storm protocol while the app is closed: the roasts already planned for `days` are taken back and their water
+ * reminders get kind words (stormPlan), lines written in the background use the kind tone, and the app checks
+ * the warnings as soon as it's opened. The app's next replan then plans those days kind itself.
+ */
+export async function calmPlanned(cfg: BgConfig, days: string[]) {
+  const scheduled = await getAllScheduledNotificationsAsync();
+  const { cancel, soften } = stormPlan(
+    scheduled.map((n) => n.identifier),
+    days,
+  );
+  await Promise.all(cancel.map((id) => cancelScheduledNotificationAsync(id).catch(() => {})));
+  for (const n of scheduled.filter((x) => soften.includes(x.identifier))) {
+    const trigger = n.trigger as { value?: unknown; channelId?: string | null } | null;
+    if (typeof trigger?.value !== 'number' || trigger.value <= Date.now()) continue;
+    const progress = n.content.body?.match(/ \(\d+\/\d+ ml\)$/)?.[0] ?? '';
+    await scheduleNotificationAsync({
+      identifier: n.identifier, // replaces it, at the same time
+      content: {
+        title: n.content.title ?? '💧 Hydration check',
+        body: line('waterRemind', 1, { name: cfg.name }, cfg.banned) + progress,
+        color: cfg.color,
+        categoryIdentifier: n.content.categoryIdentifier ?? undefined,
+        data: n.content.data ?? undefined,
+      },
+      trigger: { type: SchedulableTriggerInputTypes.DATE, date: trigger.value, channelId: trigger.channelId ?? undefined },
+    }).catch(() => {});
+  }
+  await writeBgConfig({ ...cfg, tones: { ...cfg.tones, ...Object.fromEntries(days.map((k) => [k, 1])) } });
+  await markStormWaiting();
 }
 
 /** Defines the task and asks WorkManager to run it. Skipped in Expo Go and on installs without the modules. */

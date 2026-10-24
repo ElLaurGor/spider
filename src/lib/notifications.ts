@@ -39,17 +39,15 @@ import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, type Air } from './outsi
 import { bossFinisher } from './boss-plan';
 import { bossFor, questsFor } from './quests';
 import { insightById } from './jit';
-import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
+import { cycleHeadsUpAt, isPlanned, plannedToCancel, wrappedReminder } from './reminder-times';
 import { kalleAnka } from './advent';
-import { PRIZE_DAY } from './prizes';
+import { PRIZE_DAY, prizesAccepted, prizesFor } from './prizes';
 import { lastMoodLow, periodDay, realFlow, toneOn, type DayTone } from './tone';
 import { upcomingDays } from './swedish-days';
 import { moveDayName, moveTargets, slipAt } from './workout-move';
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
-// Notifications re-planned on every app change; gaming/rest alerts are managed separately.
-const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-', 'ifthen-', 'prizes-'];
 const MOOD_HOURS = [13, 20];
 const GAME_IDS = ['game-warn', 'game-over', 'game-way-over'];
 const REST_ID = 'rest-done';
@@ -176,7 +174,7 @@ async function scheduleAt(
 ) {
   const due = new Date(when).getTime();
   if (due <= Date.now()) return; // its time has come: it went out before this replan cancelled it, or it's too late
-  if (kalleAnka(due)) return; // julafton 15:00–16:00: Kalle Anka is on, so planned reminders keep quiet (advent.ts)
+  if (isPlanned(id) && kalleAnka(due)) return; // julafton 15:00–16:00: Kalle Anka is on, so planned reminders keep quiet (advent.ts); timers the owner started still go
   // Android wants some lead time: one due within seconds of a replan still goes, a moment late, instead of never.
   const date = new Date(Math.max(due, Date.now() + 5_000));
   await Notifications.scheduleNotificationAsync({
@@ -188,8 +186,10 @@ async function scheduleAt(
 
 const say = (s: State, key: LineKey, vars: Record<string, string | number> = {}) =>
   line(key, effectiveSavage(s), { name: s.settings.userName || 'boss', ...vars });
-// While a replan runs: how many lines each pool has given each planned day so far ("day|pool" -> count).
+// While a replan runs: how many lines each pool has given each planned day so far ("day|pool" -> count),
+// and each day's tone level as the weekly water deck counts it.
 let planned: Map<string, number> | null = null;
+let levels: Map<string, number> | null = null;
 
 /**
  * A line in the tone of the day it goes out on, not today's (a period or a low mood carries over into it).
@@ -204,7 +204,16 @@ function sayOn(s: State, tone: DayTone, key: LineKey, vars: Record<string, strin
   const slot = `${day}|${key}`;
   const i = n ?? planned?.get(slot) ?? 0;
   if (n == null) planned?.set(slot, i + 1);
-  return dayLine(key, tone.level, day, i, all, perDay);
+  // The days before this one in the week were dealt in their own tone, so the deck counts them that way.
+  const levelOn = (d: string) => {
+    let level = levels?.get(d);
+    if (level == null) {
+      level = toneOn(s, d).level;
+      levels?.set(d, level);
+    }
+    return level;
+  };
+  return dayLine(key, tone.level, day, i, all, perDay, levelOn);
 }
 
 function daySummary(s: State, now: Date) {
@@ -250,16 +259,14 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   }
   if (!permitted) return;
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-  await Promise.all(
-    scheduled
-      .filter((n) => PLANNED_PREFIXES.some((p) => n.identifier.startsWith(p)))
-      .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
-  );
+  // Planned reminders (reminder-times.ts PLANNED_PREFIXES) are planned again below; one about to go off stays as it is.
+  await Promise.all(plannedToCancel(scheduled).map((id) => Notifications.cancelScheduledNotificationAsync(id)));
 
   const { settings: st } = s;
   const now = new Date();
   const jobs: Promise<void>[] = [];
   planned = new Map();
+  levels = new Map();
   // A snoozed water reminder is pointless once the goal is hit or water reminders are off.
   if (!st.notify.water || waterMl(dayOf(s, dayKey(now))) >= waterGoalFor(s, dayKey(now))) {
     jobs.push(Notifications.cancelScheduledNotificationAsync(SNOOZE_ID).catch(() => {}));
@@ -386,9 +393,11 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       }
     }
 
-    // Workdays at the stillest hour (movement map), if turned on. Not on paused, period or low-battery days, or in meetings.
+    // Workdays at the stillest hour (movement map), if turned on. Not on paused, period or low-battery days, in
+    // meetings, or under the Storm protocol: "go for a walk" mustn't argue with a warning to stay in. A low mood
+    // still gets it, in its kind words: a short walk is one of the kinder things to suggest then.
     const moveHour = st.moveNudgeHour;
-    if (moveHour != null && !paused && !period && date.getDay() >= 1 && date.getDay() <= 5 && moveHour > st.wakeHour && moveHour < st.sleepHour) {
+    if (moveHour != null && !paused && !period && !tone.storm && date.getDay() >= 1 && date.getDay() <= 5 && moveHour > st.wakeHour && moveHour < st.sleepHour) {
       const when = atTime(now, d, moveHour, 5);
       if (!(d === 0 && lowBattery(log)) && !(st.respectMeetings && inMeeting(events, when.getTime()))) {
         jobs.push(scheduleAt(`move-${key}`, when, '🚶 Move break', sayOn(s, tone, 'moveNudge', {}, key), CH.remind));
@@ -421,7 +430,9 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   }
   const firstDay = Object.keys(s.days).sort()[0] ?? null;
   if (backupNudge({ ...s, firstDay }, now)) {
-    jobs.push(scheduleAt('backup-remind', sunday.getTime() - 60 * MIN, '💾 Back me up', say(s, 'backupRemind'), CH.remind));
+    // Sunday's own tone: a predicted period day or a storm running into Sunday gets the kind line.
+    const body = sayOn(s, toneOn(s, dayKey(sunday), now, cycle), 'backupRemind', {}, dayKey(sunday));
+    jobs.push(scheduleAt('backup-remind', sunday.getTime() - 60 * MIN, '💾 Back me up', body, CH.remind));
   }
 
   // On its own channel (text hidden on the lock screen) with a title that says nothing.
@@ -441,12 +452,11 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     }
   }
 
-  // League: Sunday 17:00 heads-up with the rank at planning time.
-  if (st.notify.league && s.league && !pausedOn(s, dayKey(now))) {
-    const daysToSun = (7 - now.getDay()) % 7;
-    const at = atTime(now, daysToSun, 17);
+  // League: Sunday 17:00 heads-up with the rank at planning time. Not on a paused or kind Sunday (julafton, a storm, a low patch).
+  const leagueAt = atTime(now, (7 - now.getDay()) % 7, 17);
+  if (st.notify.league && s.league && !pausedOn(s, dayKey(leagueAt)) && !toneOn(s, dayKey(leagueAt), now, cycle).kind) {
     const rank = standings(s, now).findIndex((r) => r.me) + 1;
-    jobs.push(scheduleAt(`league-${dayKey(at)}`, at, '🏆 League ends tonight', `You were #${rank} last I checked. Top 3 get promoted. Go earn XP.`, CH.remind));
+    jobs.push(scheduleAt(`league-${dayKey(leagueAt)}`, leagueAt, '🏆 League ends tonight', `You were #${rank} last I checked. Top 3 get promoted. Go earn XP.`, CH.remind));
   }
 
   // Weekend finisher: Saturday or Sunday at 15:00, when what's still open today can finish the boss. Planned
@@ -477,10 +487,14 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
         CH.remind,
       ),
     );
-    // The S.P.I.D.E.R. Prizes, 10 December at 17:00 (prizes.ts): planned once the month is near.
+    // The S.P.I.D.E.R. Prizes, 10 December at 17:00 (prizes.ts): planned once the month is near, and only when
+    // there's something to hand out (HQ shows no card otherwise) and they weren't accepted already. Under the
+    // Wrapped toggle: the Prizes are the same kind of recap, and that switch is the one that silences recaps.
     const prizes = new Date(now.getFullYear(), PRIZE_DAY.month, PRIZE_DAY.day, 17);
-    if (prizes.getTime() > now.getTime() && prizes.getTime() - now.getTime() < 31 * 86_400_000) {
-      jobs.push(scheduleAt(`prizes-${prizes.getFullYear()}`, prizes, `🏅 The S.P.I.D.E.R. Prizes ${prizes.getFullYear()}`, sayOn(s, toneOn(s, dayKey(prizes), now, cycle), 'prizesReady', {}, dayKey(prizes)), CH.remind));
+    const prizeYear = prizes.getFullYear();
+    const near = prizes.getTime() > now.getTime() && prizes.getTime() - now.getTime() < 31 * 86_400_000;
+    if (near && !prizesAccepted(s, prizeYear) && prizesFor(s, prizeYear, now).length) {
+      jobs.push(scheduleAt(`prizes-${prizeYear}`, prizes, `🏅 The S.P.I.D.E.R. Prizes ${prizeYear}`, sayOn(s, toneOn(s, dayKey(prizes), now, cycle), 'prizesReady', {}, dayKey(prizes)), CH.remind));
     }
   }
 
@@ -500,6 +514,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   }
 
   planned = null;
+  levels = null;
   jobs.push(updateStatusLine(s, events).catch((e) => console.warn('[spider] status line failed', e)));
   await Promise.all(jobs);
 }

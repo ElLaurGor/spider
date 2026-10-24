@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Icon, T } from '@/components/ui';
+import { Icon, T, useNow } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
 import { ALERT_COLOR, ALERT_LABEL, aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel, sourceNote } from '@/lib/outside';
@@ -12,6 +12,9 @@ import { stormOn } from '@/lib/storm';
 export function OutsideAlerts() {
   const { state, outside } = useStore();
   const s = state.settings;
+  // Pinned on HQ for days: the clock ticks so an alert that ends (or a new day) shows without a state change.
+  const now = useNow(60_000);
+  const todayKey = dayKey(now);
   const urgent = outside.warnings;
   // Two failed checks in a row (one blip doesn't count): say so, so silence never passes for an all-clear.
   const down = s.weather?.county
@@ -20,7 +23,7 @@ export function OutsideAlerts() {
         (outside.status.vma?.fails ?? 0) >= 2 ? sourceNote('Krisinformation (VMA)', outside.status.vma) : null,
       ].filter((x): x is string => !!x)
     : [];
-  const today = outside.air?.days.find((d) => d.date === dayKey());
+  const today = outside.air?.days.find((d) => d.date === todayKey);
   const worst =
     today && s.notify.pollen
       ? s.allergies.map((t) => ({ t, level: pollenLevel(t, today.pollen[t] ?? 0) })).sort((a, b) => b.level - a.level)[0]
@@ -28,7 +31,7 @@ export function OutsideAlerts() {
   const pollen = worst && worst.level >= s.pollenAlertLevel ? worst : null;
   const aqi = today && s.notify.air && today.aqi >= s.aqiAlert ? today.aqi : null;
   // The Storm protocol (storm.ts): saved with the state, so it shows even before this run's first check.
-  const storm = stormOn(state, dayKey());
+  const storm = stormOn(state, todayKey, now);
   if (!urgent.length && !pollen && aqi == null && !down.length && !storm) return null;
 
   const accent = storm ? ALERT_COLOR[storm.level] : urgent.length ? ALERT_COLOR[urgent[0].level] : aqi != null ? aqiBand(aqi).color : pollen ? C.yellow : C.border;

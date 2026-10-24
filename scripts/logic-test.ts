@@ -84,7 +84,7 @@ import { webDays, webGeometry, webParams } from '../src/lib/web-art';
 import { bestiary, lastKillDay, LORE } from '../src/lib/bestiary';
 import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
-import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
+import { cycleHeadsUpAt, isPlanned, plannedToCancel, stormPlan, wrappedReminder } from '../src/lib/reminder-times';
 import { EASE_STEP, gentleDay, goldenAllowed, lastMoodLow, periodDay, quietDay, toneOn } from '../src/lib/tone';
 import { gameLineKey, nightVerdictKey, stepsLineKey, verdictLineKey } from '../src/lib/line-context';
 import type { DayLog, Weekday } from '../src/lib/types';
@@ -138,7 +138,7 @@ import { meteoTime, needsPlaceInfo, samePlace, staleNote } from '../src/lib/weat
 // step 4 hq
 import { departureText, leaveInMin, nextDepartures, parseDepartures, parseDeviations, parseStops, plannedText, relevantDeviations, routesOf, siteIdOf, slRetryMs } from '../src/lib/sl';
 import { cancelledNote, type SlDeparture } from '../src/lib/sl';
-import { adviceOf, nextStorm, stormAlertsOf, stormOn } from '../src/lib/storm';
+import { adviceOf, nextStorm, stormAlertsOf, stormDays, stormOn } from '../src/lib/storm';
 import { readinessFor } from '../src/lib/readiness';
 import { patchSummary, roughPatch, showRoughPatch, PATCH_QUIET_MS } from '../src/lib/rough-patch';
 import { EMOTIONS, nameItFor, withNamed } from '../src/lib/mood';
@@ -676,6 +676,20 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
     // no two reminders in a row say the same thing, not even across the end of a round
     const all = week.flatMap((d) => Array.from({ length: 10 }, (_, i) => dayLine('waterRemind', 1, d, i, {}, 10)));
     for (let i = 1; i < all.length; i++) assert.notEqual(all[i], all[i - 1], `slot ${i}`);
+    // a week whose tone changes (a kind Monday, a kind Tuesday): each earlier day is counted in its own tone, so
+    // every list still deals its lines evenly instead of replaying some of them
+    for (const levels of [
+      [1, 8, 8, 8, 8, 8, 8],
+      [8, 1, 8, 8, 8, 8, 8],
+      [10, 3, 10, 10, 10, 10, 10],
+    ]) {
+      const levelOn = (d: string) => levels[week.indexOf(d)];
+      const dealt = week.flatMap((d, j) => Array.from({ length: 10 }, (_, i) => dayLine('waterRemind', levels[j], d, i, {}, 10, levelOn)));
+      for (const list of [pools.waterRemind.mild, pools.waterRemind.savage]) {
+        const counts = list.map((x) => dealt.filter((y) => y === fillLine(x, {})).length);
+        assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, `levels ${levels}: ${counts}`);
+      }
+    }
   }
 
   // lint: lines seen every day have at least 4 savage variants (kind pools are the same in both and exempt)...
@@ -755,6 +769,20 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   assert.equal(stormOn(v, '2027-01-14', at), null);
   assert.equal(nextStorm(v.storm, [], vma, at + 3_600_000), v.storm); // seen again the same day: no save
   assert.notEqual(nextStorm(v.storm, [], vma, at + 86_400_000), v.storm); // next day: moved on once
+  // an orange warning for tomorrow with no end, seen tonight: it holds its own start day (not only tonight's)
+  const tonight = new Date(2027, 0, 13, 20).getTime();
+  const early = { storm: nextStorm(undefined, [alert({ id: 'smhi-9-1', level: 'ORANGE', start: iso(14, 6) })], [], tonight) };
+  assert.equal(stormOn(early, '2027-01-13', tonight), null);
+  assert.equal(stormOn(early, '2027-01-14', tonight)?.id, 'smhi-9-1');
+  assert.equal(stormOn(early, '2027-01-15', tonight), null);
+  // the background check: the days its alerts hold the protocol on, and what it does to what's already planned
+  assert.deepEqual(stormDays(smhi, at), ['2027-01-13', '2027-01-14']);
+  assert.deepEqual(stormDays([alert({ id: 'smhi-1-1', level: 'YELLOW' })], at), []);
+  const planned = ['gym-2027-01-14-shame', 'gym-2027-01-14-pre', 'gym-2027-01-14-move', 'move-2027-01-14', 'evening-2027-01-14', 'water-2027-01-14-600', 'water-2027-01-15-600', 'evening-2027-01-15', 'weekendboss-2027-01-14', 'game-warn'];
+  assert.deepEqual(stormPlan(planned, ['2027-01-14']), {
+    cancel: ['gym-2027-01-14-shame', 'gym-2027-01-14-move', 'move-2027-01-14', 'evening-2027-01-14', 'weekendboss-2027-01-14'],
+    soften: ['water-2027-01-14-600'],
+  });
   // the worst one is the one shown
   const both = { storm: nextStorm(undefined, smhi, vma, at) };
   assert.equal(stormOn(both, '2027-01-13', at)?.level, 'VMA');
@@ -957,6 +985,9 @@ assert.equal(weatherKey(fc({ max: 8, min: 4, rainPct: 0, code: 2, sunshineMin: 1
 assert.equal(weatherKey(fc({ max: 8, min: 4, rainPct: 0, code: 1, sunshineMin: 240 })), 'weatherNice');
 assert.equal(weatherKey(fc({ max: 5, min: 0, rainPct: 40, code: 73, sunshineMin: 0 })), 'weatherCold');
 assert.equal(weatherKey(fc({ max: 4, min: 0, rainPct: 30, code: 85, sunshineMin: 0 })), 'weatherCold');
+assert.equal(weatherKey(fc({ max: 0, min: -3, rainPct: 85, code: 73, sunshineMin: 0 })), 'weatherCold'); // a snow day's 85 % is snow, not an umbrella
+assert.equal(weatherKey(fc({ max: 2, min: -1, rainPct: 70, code: 86 })), 'weatherCold');
+assert.equal(weatherKey(fc({ max: 4, min: 1, rainPct: 60, code: 75 })), 'weatherCold');
 // a grey day in the dark months (under 8 h of daylight) is "dark": its lines say when the light is
 assert.equal(weatherKey(fc({ max: 4, min: 1, rainPct: 10, code: 3, daylightMin: 400 })), 'weatherDark');
 assert.equal(weatherKey(fc({ max: 4, min: 1, rainPct: 10, code: 3, daylightMin: 480 })), 'weatherGrey');
@@ -4466,6 +4497,19 @@ void (async () => {
   assert.equal(w(new Date(2026, 10, 1, 8)), '2026-11-01 10:00 October'); // Sun 1 Nov before 10:00: still October's
   assert.equal(w(new Date(2026, 10, 1, 11)), '2026-12-01 10:00 November');
   assert.equal(w(new Date(2026, 11, 20, 12)), '2027-01-01 10:00 December');
+  // a replan cancels the planned reminders, except one about to go off (a replan just before moved it to
+  // now + 5 s; cancelling it again would lose it), and never the timers or warnings it doesn't plan
+  const nowMs = new Date(2026, 9, 24, 12).getTime();
+  const sched = [
+    { identifier: 'water-2026-10-24-720', trigger: { type: 'date', value: nowMs + 4_000 } },
+    { identifier: 'water-2026-10-24-780', trigger: { type: 'date', value: nowMs + 3_600_000 } },
+    { identifier: 'habit-x-2026-10-24', trigger: { type: 'date', value: nowMs - 1_000 } },
+    { identifier: 'game-warn', trigger: { type: 'date', value: nowMs + 3_600_000 } },
+    { identifier: 'alert-smhi-1', trigger: { type: 'timeInterval', seconds: 1 } },
+    { identifier: 'prizes-2026', trigger: null },
+  ];
+  assert.deepEqual(plannedToCancel(sched, nowMs), ['water-2026-10-24-780', 'prizes-2026']);
+  assert.ok(isPlanned('weekendboss-2026-10-24') && !isPlanned('rest-done') && !isPlanned('snooze-water') && !isPlanned('focus-done'));
 }
 
 // reminder buttons (APK 1.5.0): one action per button, with the day it's about; one key per tap

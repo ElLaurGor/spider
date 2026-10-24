@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Bar, Btn, Card, Chip, Field, H, Row, T } from '@/components/ui';
+import { useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
-import { dayKey } from '@/lib/dates';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult, METRICS, metricInfo, PRESETS, verdictText } from '@/lib/experiments';
 import { useStore } from '@/lib/store';
 import type { ExperimentMetric } from '@/lib/types';
@@ -14,11 +14,11 @@ import type { ExperimentMetric } from '@/lib/types';
  */
 export function ExperimentCard({ compact }: { compact?: boolean }) {
   const { state, actions } = useStore();
+  const today = useToday();
   const e = activeExperiment(state);
   if (!e) return compact ? null : <StartExperiment />;
 
   const r = experimentResult(state, e);
-  const today = dayKey();
   const days = experimentDays(e);
   const doneToday = e.done.includes(today);
 
