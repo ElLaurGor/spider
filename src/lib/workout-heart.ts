@@ -2,27 +2,18 @@
 // and how hard the heart worked in them. Pure; the samples come from health.ts readHeartDay().
 import { activityInfo } from './body';
 import { MIN } from './dates';
-import { activitiesOf } from './selectors';
+import { activitiesOf, setSessions } from './selectors';
 import type { DayLog } from './types';
 
 export type Sample = { at: number; bpm: number };
 export type TrainWindow = { start: number; end: number; label: string };
-
-const GAP = 30 * MIN; // sets further apart than this are separate sessions
-const MARGIN = 5 * MIN;
 
 /**
  * The day's training windows: logged sets grouped into sessions (5 minutes of margin around them) and
  * each timed activity, which is logged when it ends. Overlapping windows merge.
  */
 export function workoutWindows(d: DayLog): TrainWindow[] {
-  const raw: TrainWindow[] = [];
-  const sets = [...d.sets].sort((a, b) => a.at - b.at);
-  for (const set of sets) {
-    const last = raw[raw.length - 1];
-    if (last && set.at - (last.end - MARGIN) <= GAP) last.end = set.at + MARGIN;
-    else raw.push({ start: set.at - MARGIN, end: set.at + MARGIN, label: 'Gym' });
-  }
+  const raw: TrainWindow[] = setSessions(d).map((w) => ({ ...w, label: 'Gym' }));
   for (const a of activitiesOf(d)) raw.push({ start: a.at - a.minutes * MIN, end: a.at, label: activityInfo(a.kind).label });
   raw.sort((a, b) => a.start - b.start);
   const merged: TrainWindow[] = [];

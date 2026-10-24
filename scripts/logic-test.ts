@@ -139,6 +139,12 @@ import { movementMap, stillestHour } from '../src/lib/movement';
 import { MEDALS, medalList, medalsFor, medalTotals, needFor, openDays, settleMedals } from '../src/lib/medals';
 import { ghostOf, ghostText, withoutOldXpHours, withXpHour, xpByHour } from '../src/lib/xp-timeline';
 import { NEMESIS_PRIZE, nemesisOf } from '../src/lib/league';
+// step 5 game fixes
+import { recheckDay, recheckTask, uncheckTask } from '../src/lib/tasks';
+import { activityMinutes, bestBeforeDay, isRecord, setSessions, trainMinutes } from '../src/lib/selectors';
+import { bossSeasonOf, reopenQuests } from '../src/lib/quests';
+import { lastTrainedBefore } from '../src/lib/comeback';
+import { poolFor } from '../src/lib/lines';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -556,6 +562,14 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   for (let i = 0; i < 30; i++) assert.ok(shown(pools.waterLogged.savage).includes(freshLine('waterLogged', 10, keep))); // otherwise what's left
   assert.equal(bannedLines(['nope:1']).length, 0); // ids of lines that no longer exist are skipped
   setLineMemory(undefined);
+  // the pool handed to native code (Web Focus) leaves retired lines out too, unless nothing would be left
+  const guard = pools.focusGuard.savage;
+  banLine(lineId('focusGuard', guard[0]));
+  assert.ok(!poolFor('focusGuard', 10, {}, ['app', 'name']).includes(guard[0]));
+  assert.equal(poolFor('focusGuard', 10, {}, ['app', 'name']).length, guard.length - 1);
+  for (const x of guard) banLine(lineId('focusGuard', x));
+  assert.deepEqual(poolFor('focusGuard', 10, {}, ['app', 'name']), pools.focusGuard.mild.map((x) => fillLine(x, { app: '{app}', name: '{name}' })));
+  setLineMemory(undefined);
 
   // a toast knows which line it shows, even with an emoji or "+10 XP" around it
   const said = freshLine('taskDone', 10);
@@ -772,6 +786,21 @@ const tk = dayKey();
 t.days[tk] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, activities: [{ id: 'a', kind: 'cardio', minutes: 30, at: Date.now() }] };
 assert.ok(trainedOn(t.days[tk]));
 assert.ok(!trainedOn({ water: [], food: [], sets: [], games: [], bonusGameMin: 0 }));
+// training minutes: activities as logged, sessions of sets too (5 min margin each side), an activity's own minutes never twice
+{
+  const at = (h: number, m = 0) => new Date(2027, 0, 12, h, m).getTime();
+  const lift = (id: string, h: number, m: number) => ({ id, exercise: 'Squat', weight: 40, reps: 8, at: at(h, m) });
+  const base = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
+  const sets = { ...base, sets: [lift('a', 18, 0), lift('b', 18, 15), lift('c', 18, 35)] };
+  assert.deepEqual(setSessions(sets), [{ start: at(17, 55), end: at(18, 40) }]);
+  assert.equal(trainMinutes(sets), 45, 'sets alone can finish "Train for 45 minutes"');
+  assert.equal(activityMinutes(sets), 0);
+  const both = { ...sets, activities: [{ id: 'x', kind: 'cardio' as const, minutes: 20, at: at(18, 40) }] }; // cardio 18:20–18:40, among the sets
+  assert.equal(trainMinutes(both), 45, 'the cardio covers 20 of the session: 25 + 20');
+  const twoLogs = { ...base, activities: [{ id: 'k', kind: 'cardio' as const, minutes: 30, at: at(18, 0) }, { id: 'm', kind: 'machines' as const, minutes: 30, at: at(18, 1) }] };
+  assert.equal(trainMinutes(twoLogs), 60, 'two activities logged together keep their own minutes');
+  assert.equal(trainMinutes({ ...sets, sets: [...sets.sets, lift('d', 20, 0)] }), 55, 'a lone set later is a 10-minute session of its own');
+}
 
 // games: recent list and totals
 const gs = defaultState();
@@ -1088,10 +1117,12 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   fresh.days['2027-01-13'] = d0(20);
   assert.equal(ghostOf(fresh, at), null); // no last week to race
 
-  // medals: the bar scales with the week's non-rough days, never below 1
+  // medals: the bar scales with the week's non-rough days, never below 1 / 2 / 3 (or the full bar, if lower)
   assert.deepEqual(needFor([3, 5, 7], 7), { bronze: 3, silver: 5, gold: 7 });
   assert.deepEqual(needFor([3, 5, 7], 5), { bronze: 3, silver: 4, gold: 5 });
-  assert.deepEqual(needFor([1, 2, 3], 1), { bronze: 1, silver: 1, gold: 1 });
+  assert.deepEqual(needFor([1, 2, 3], 1), { bronze: 1, silver: 2, gold: 3 }, 'a rough week never hands out gold for one day');
+  assert.deepEqual(needFor([2, 3, 4], 1), { bronze: 1, silver: 2, gold: 3 });
+  assert.deepEqual(needFor([1, 1, 2], 1), { bronze: 1, silver: 1, gold: 2 }, 'never above the full bar');
   const md = defaultState();
   md.onboarded = true;
   md.settings.gamingBudgetMin = 60;
@@ -1117,18 +1148,33 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   assert.equal(openDays(sick, week), 5);
   assert.equal(medalsFor(sick, week, end).find((m) => m.def.id === 'water')!.tier, 'gold');
   assert.deepEqual(medalsFor({ ...md, pauses: [{ from: mk(0), to: mk(6), kind: 'away' as const }] }, week, end), []); // a week away: nothing to win, nothing missed
+  // a week of low moods and one workout: bronze, not gold, and mood-only days aren't "within the gaming budget"
+  const meh = { ...md, days: { ...md.days } };
+  for (let i = 0; i < 7; i++) meh.days[mk(i)] = { ...emptyDay(), moods: i < 6 ? [{ id: `m${i}`, level: 2 as const, emotions: [], at: new Date(`${mk(i)}T09:00`).getTime() }] : [], xpEarned: 2 };
+  meh.days[mk(6)] = { ...meh.days[mk(6)], activities: [{ id: 'x', kind: 'cardio', minutes: 30, at: new Date(`${mk(6)}T10:00`).getTime() }] };
+  const mehBy = (id: string) => medalsFor(meh, week, end).find((m) => m.def.id === id)!;
+  assert.equal(openDays(meh, week), 1);
+  assert.equal(mehBy('train').tier, 'bronze');
+  assert.equal(mehBy('gaming').count, 1, 'only the day with something besides a check-in');
+  assert.equal(mehBy('gaming').tier, 'bronze');
   // settling: the first rollover only marks where medals start; the next week's pays last week once
   const first = settleMedals(md, new Date(2027, 0, 13, 8));
-  assert.equal(first.award, null);
+  assert.deepEqual(first.awards, []);
   assert.equal(first.state.medalsSince, '2027-01-11');
   const monday = new Date(2027, 0, 18, 8);
   const paid = settleMedals(first.state, monday);
-  assert.equal(paid.award?.week, week);
+  assert.deepEqual(paid.awards.map((a) => a.week), [week]);
   assert.deepEqual(paid.state.medals?.[week], { train: 'gold', water: 'silver', gaming: 'silver' }); // one step-goal day isn't a medal yet
-  assert.equal(paid.award?.xp, 30 + 20 + 20);
-  assert.ok(medalList(paid.award!.won).includes('🥇 Training'));
-  assert.equal(settleMedals(paid.state, new Date(2027, 0, 18, 20)).award, null); // once per week
-  assert.equal(settleMedals({ ...md, medalsSince: '2027-01-18' }, monday).award, null); // weeks before medals arrived aren't paid
+  assert.equal(paid.awards[0].xp, 30 + 20 + 20);
+  assert.ok(medalList(paid.awards[0].won).includes('🥇 Training'));
+  assert.deepEqual(settleMedals(paid.state, new Date(2027, 0, 18, 20)).awards, []); // once per week
+  assert.deepEqual(settleMedals({ ...md, medalsSince: '2027-01-18' }, monday).awards, []); // weeks before medals arrived aren't paid
+  // a whole week without opening the app: the next rollover settles both weeks, oldest first, each once
+  const late = settleMedals(first.state, new Date(2027, 0, 26, 8));
+  assert.deepEqual(late.awards.map((a) => a.week), [week, '2027-01-18']);
+  assert.equal(late.awards[0].xp, 70);
+  assert.deepEqual(late.state.medals?.['2027-01-18'], {}, 'an empty week is settled too, with nothing won');
+  assert.deepEqual(settleMedals(late.state, new Date(2027, 0, 27, 8)).awards, []);
   assert.deepEqual(medalTotals(paid.state), { bronze: 0, silver: 2, gold: 1, weeks: 1 });
   assert.ok(MEDALS.every((m) => m.base[0] <= m.base[1] && m.base[1] <= m.base[2]));
 
@@ -1612,7 +1658,22 @@ void (async () => {
   assert.notEqual(hw.name, BOSSES.find((b) => b.id === hw.id)!.name);
   assert.equal(plainWeek.name, BOSSES.find((b) => b.id === plainWeek.id)!.name);
   const haunted = SECRET_ACHIEVEMENTS.find((a) => a.id === 's_haunted_hero')!;
-  // only bosses beaten while spooky season was on (not just in a week that overlaps it)
+  // the costume is the week's: Halloween starts Sat 24 Oct 2026, so that week's boss wears it from Monday, under one name
+  assert.equal(bossSeasonOf(new Date(2026, 9, 19, 12)), 'halloween');
+  assert.equal(bossFor(defaultState(), new Date(2026, 9, 19, 12)).name, bossFor(defaultState(), new Date(2026, 9, 25, 12)).name);
+  assert.notEqual(bossFor(defaultState(), new Date(2026, 9, 20, 12)).name, BOSSES.find((b) => b.id === bossFor(defaultState(), new Date(2026, 9, 20, 12)).id)!.name);
+  assert.equal(bossSeasonOf(new Date(2026, 9, 26, 12)), 'halloween', 'the week ending Sun 1 Nov');
+  assert.equal(bossSeasonOf(new Date(2026, 10, 2, 12)), null);
+  // nyår: Thu 31 Dec and Fri 1 Jan share a week, and the Old Year is that whole week's boss
+  assert.equal(bossFor(defaultState(), new Date(2026, 11, 28, 12)).name.startsWith('The Old Year'), true);
+  assert.equal(bossFor(defaultState(), new Date(2027, 0, 3, 12)).name, bossFor(defaultState(), new Date(2026, 11, 28, 12)).name);
+  assert.equal(bossSeasonOf(new Date(2026, 11, 21, 12)), null, 'Lucia and the solstice leave the boss as it is');
+  // closing the year is a New Year's Eve quest: on 1 Jan the year is closed
+  const ny = { ...defaultState(), tasks: [{ id: 't', title: 'x', done: false, createdAt: 0 }] };
+  assert.ok(draftFor(ny, new Date(2026, 11, 31, 9)).candidates.includes('nyar_close'));
+  assert.ok(!draftFor(ny, new Date(2027, 0, 1, 9)).candidates.includes('nyar_close'));
+  assert.ok(pickQuests(ny, new Date(2027, 0, 1, 12)).includes('nyar_fresh'), 'the fresh start is all that is left on 1 Jan');
+  // bosses beaten while spooky season was on (a costumed week counts, like its name)
   assert.ok(haunted.test({ ...defaultState(), seasonWins: ['halloween-2026'] }));
   assert.ok(!haunted.test({ ...defaultState(), bossesDefeated: { '2026-10-19': 'procrastinator' } }));
   assert.ok(!haunted.test({ ...defaultState(), seasonWins: ['lucia-2026'] }));
@@ -2328,6 +2389,64 @@ void (async () => {
   const tc = { week: gk(0), from: gk(0), signedAt: 0, goal: 'tasks' as const, target: 2, stake: 100, status: 'open' as const };
   assert.equal(contractProgress(td, tc, addDays(gMon, 6)), 2, 'the deleted one still counts');
 
+  // a task first done on an earlier day, unchecked and checked again: plain XP both ways, so no round trip makes
+  // any, Double XP and the rested pool or not (the check went to Tuesday at 10 XP under Double XP)
+  const firstAt = new Date(`${gk(1)}T10:00`).getTime();
+  let farm: ReturnType<typeof defaultState> = { ...defaultState(), xp: 100, coins: 100, rested: 50, doubleXpUntil: Date.now() + 3_600_000 };
+  farm.tasks = [{ id: 'T', title: 'x', done: true, createdAt: 0, doneAt: firstAt, firstDoneAt: firstAt }];
+  farm.days[gk(1)] = { ...empty(), doneTasks: [{ id: 'T', at: firstAt }], xpEarned: 10 };
+  farm.counters = { ...farm.counters, tasksDone: 1 };
+  const before = { xp: farm.xp, coins: farm.coins, tue: 10, rested: 50, done: 1 };
+  for (let i = 0; i < 20; i++) {
+    farm = uncheckTask(farm, 'T', gk(3));
+    assert.equal(recheckDay(farm, 'T', gk(3)), gk(1), 'back to the day it was first done');
+    farm = recheckTask(farm, 'T', gk(3));
+  }
+  assert.deepEqual({ xp: farm.xp, coins: farm.coins, tue: farm.days[gk(1)].xpEarned, rested: farm.rested, done: farm.counters.tasksDone }, before, '20 round trips, not a point made');
+  assert.ok(farm.tasks[0].done && farm.tasks[0].doneAt === firstAt);
+  assert.deepEqual(doneTasksOn(farm, gk(1)).map((x) => x.id), ['T']);
+  assert.equal(recheckDay({ ...farm, tasks: [{ ...farm.tasks[0], done: false, firstDoneAt: new Date(`${gk(3)}T09:00`).getTime() }] }, 'T', gk(3)), null, "first done today: a normal check, with today's multipliers");
+
+  // records: a set beats every earlier day, and only one a day per exercise (ramping up through today's sets isn't three)
+  const lifts = defaultState();
+  const lift = (id: string, weight: number, n: number) => ({ id, exercise: 'Squat', weight, reps: 5, at: new Date(`${gk(n)}T18:00`).getTime() });
+  assert.equal(isRecord(lifts, gk(1), 'Squat', 40), false, 'a first session has nothing to beat');
+  lifts.days[gk(1)] = { ...empty(), sets: [lift('a', 20, 1), lift('b', 30, 1), lift('c', 40, 1)] };
+  assert.equal(isRecord(lifts, gk(1), 'Squat', 50), false, 'not even its heaviest set');
+  assert.equal(bestBeforeDay(lifts, ' squat', gk(2)), 40);
+  lifts.days[gk(2)] = { ...empty(), sets: [lift('d', 30, 2)] };
+  assert.equal(isRecord(lifts, gk(2), 'Squat', 40), false, 'matching the best is not beating it');
+  assert.equal(isRecord(lifts, gk(2), 'Squat', 42.5), true);
+  lifts.days[gk(2)] = { ...lifts.days[gk(2)], sets: [...lifts.days[gk(2)].sets, lift('e', 42.5, 2)], xpBy: { 'pr:e': 10 } };
+  assert.equal(isRecord(lifts, gk(2), 'Squat', 45), false, 'one record per exercise a day');
+  assert.equal(isRecord(lifts, gk(2), 'Bench press', 45), false, 'another exercise with no history: nothing to beat');
+
+  // an undo that takes a finished quest back under its target opens it again, with exactly what it paid
+  const qAt = new Date(`${gk(2)}T11:00`);
+  const glass = (id: string) => ({ id, ml: 250, at: qAt.getTime() });
+  const qDay = { ...empty(), quests: ['water_noon', 'meals', 'mood'], water: [glass('1'), glass('2'), glass('3')], questsDone: ['water_noon'], xpEarned: 20, xpBy: { 'q:water_noon': 20 } };
+  const qs: ReturnType<typeof defaultState> = { ...defaultState(), onboarded: true, xp: 100, coins: 200, days: { [gk(2)]: qDay } };
+  qs.counters = { ...qs.counters, quests: 1 };
+  const withWater = (s: typeof qs, n: number): typeof qs => ({ ...s, days: { ...s.days, [gk(2)]: { ...s.days[gk(2)], water: s.days[gk(2)].water.slice(0, n) } } });
+  const ro = reopenQuests(qs, withWater(qs, 2), qAt);
+  assert.deepEqual(ro.reopened.map((q) => q.id), ['water_noon']);
+  assert.deepEqual(ro.state.days[gk(2)].questsDone, []);
+  assert.equal(ro.state.xp, 80, 'the 20 it got under Double XP, not the plain 10');
+  assert.equal(ro.state.counters.quests, 0);
+  assert.equal(reopenQuests(qs, qs, qAt).state, qs, 'nothing went down: nothing reopens');
+  const synced2 = { ...withWater(qs, 2), days: { ...withWater(qs, 2).days, [gk(2)]: { ...withWater(qs, 2).days[gk(2)], steps: 4000 } } };
+  assert.equal(reopenQuests(qs, synced2, qAt).reopened.length, 0, 'a change with new watch numbers never reopens one');
+  // every quest done and the chest still shut: the all-done bonus and the chest go back too; once it's opened, the day stays done
+  const doneAll = { ...qs, days: { [gk(2)]: { ...qDay, questsDone: ['water_noon', 'meals', 'mood'], questsAllDone: true, questsAllDoneAt: qAt.getTime(), chestReady: true, bonusGameMin: 15, bonusEarnedMin: 15, xpBy: { 'q:water_noon': 10, 'quests-all': 15 } } } };
+  const shut = reopenQuests(doneAll, withWater(doneAll, 1), qAt);
+  assert.deepEqual(shut.reopened.map((q) => q.id), ['water_noon']);
+  assert.equal(shut.state.days[gk(2)].questsAllDone, undefined);
+  assert.equal(shut.state.days[gk(2)].chestReady, undefined);
+  assert.equal(shut.state.days[gk(2)].bonusGameMin, 0);
+  assert.equal(shut.state.xp, 100 - 10 - 15);
+  const opened = { ...doneAll, days: { [gk(2)]: { ...doneAll.days[gk(2)], chest: { kind: 'coins' as const, amount: 50, text: '50 coins' } } } };
+  assert.equal(reopenQuests(opened, withWater(opened, 1), qAt).reopened.length, 0, 'the chest is open: the day stays done');
+
   // a forgotten gaming timer stops itself: an hour past bedtime, at least 4 h in
   const gc = defaultState(); // sleepHour 23
   const at = (h: number, m = 0) => new Date(2026, 9, 21, h, m).getTime();
@@ -2473,6 +2592,13 @@ void (async () => {
   assert.equal(missedGymBefore({ ...cb, days: { ...cb.days, '2027-01-13': { ...blankDay(), activities: [{ id: 'a', kind: 'cardio', minutes: 20, at: 0 }] } } }, thu), null, 'trained since: nothing to come back from');
   assert.equal(missedGymBefore(startPause(cb, 'sick', 1, '2027-01-12'), thu), null, 'a paused day is never missed');
   assert.equal(missedGymBefore(defaultState(), thu), null, 'nothing logged yet: no comeback');
+  const flow = { ...cb, days: { ...cb.days, '2027-01-12': { ...cb.days['2027-01-12'], period: { flow: 'medium' as const, symptoms: [] } } } };
+  assert.equal(missedGymBefore(flow, thu), null, 'a period day is rest, never a miss');
+  const low = { ...cb, days: { ...cb.days, '2027-01-12': { ...cb.days['2027-01-12'], moods: [{ id: 'm', level: 1 as const, emotions: [], at: noon('2027-01-12').getTime() }] } } };
+  assert.equal(missedGymBefore(low, thu), null, 'a low-mood day is rest too');
+  assert.equal(lastTrainedBefore(cb, thu), '2027-01-11', 'the line names the last workout (Monday), not the miss');
+  assert.equal(lastTrainedBefore(defaultState(), thu), null);
+  assert.ok(!LINES.comebackWorkout.savage.concat(LINES.comebackWorkout.mild).some((x) => /is history/.test(x)));
   assert.ok(COMEBACK.xp > 0 && COMEBACK.min > 0);
 
   // after a lost contract: a different goal, the one last week came closest to
@@ -2792,8 +2918,15 @@ void (async () => {
   assert.equal(nov1.state.silk?.month, '2026-10'); // nothing earned in November yet
   const nov2 = checkSilkTrack({ ...nov1.state, days: { ...nov1.state.days, '2026-11-02': { ...emptyDay(), xpEarned: 100 } } }, '2026-11-02');
   assert.deepEqual(nov2.unlocked.map((u) => [u.edition.name, u.tier]), [['Mys edition', 1]]);
-  assert.deepEqual(nov2.state.silk, { month: '2026-11', tier: 1 });
+  assert.deepEqual(nov2.state.silk, { month: '2026-11', tier: 1, prev: { month: '2026-10', tier: 6 } });
   assert.equal(checkSilkTrack(nov2.state, '2026-11-02').unlocked.length, 0);
+  // October XP that lands after November's first tier (a watch sync, a boss settled late) still pays October's tier
+  const synced = { ...nov2.state, days: { ...nov2.state.days, '2026-10-31': { ...emptyDay(), xpEarned: 400 + tierXp(7) - 700 } } };
+  const caught = checkSilkTrack(synced, '2026-11-02');
+  assert.deepEqual(caught.unlocked.map((u) => [u.edition.name, u.tier]), [['Halloween edition', 7]]);
+  assert.deepEqual(caught.state.silk, { month: '2026-11', tier: 1, prev: { month: '2026-10', tier: 7 } });
+  assert.equal(silkStatus(caught.state, '2026-10').tier, 7);
+  assert.deepEqual(checkSilkTrack(synced, '2026-11-03').unlocked, [], 'two days in, October is closed');
   // a record two months old isn't caught up: that edition is over
   assert.deepEqual(checkSilkTrack(late, '2026-12-05').unlocked, []);
 
@@ -2861,7 +2994,8 @@ void (async () => {
     assert.equal(picks.filter((q) => /^(easter_|valborg_|midsommar_|nyar_)/.test(q)).length, 1, `${id}: ${picks}`);
   }
   assert.equal(bossFor(defaultState(), new Date(2026, 11, 31, 12)).name, 'The Old Year');
-  assert.notEqual(bossFor(defaultState(), new Date(2026, 11, 28, 12)).name, 'The Old Year');
+  assert.equal(bossFor(defaultState(), new Date(2026, 11, 28, 12)).name, 'The Old Year', "Monday of nyår's week already");
+  assert.notEqual(bossFor(defaultState(), new Date(2026, 11, 27, 12)).name, 'The Old Year');
 
   // Easter eggs: per year, 30 coins each in the store, all five unlock a secret
   const eg = defaultState();

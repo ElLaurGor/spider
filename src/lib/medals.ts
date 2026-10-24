@@ -1,7 +1,8 @@
 // Weekly medals: bronze, silver or gold for how many days something happened this week ("trained 4 days",
 // "water goal on 5 days"). Counted per week, never in a row, and a missed medal is simply not won: nothing is
 // lost or taken back. Rough days (sick or away, a low mood, a period day) lower the bar instead of counting
-// against you, and anything done on one still counts. Awarded once, at the first rollover of the next week.
+// against you, and anything done on one still counts; gold still takes at least 3 (bronze 1, silver 2), so a
+// week of rough days can't hand out gold for one. Awarded once, at the first rollover after the week.
 import { addDays, dayKey, MIN, startOfWeek } from './dates';
 import { roughDay, usedOn } from './day-filters';
 import { weekKeyOf } from './league';
@@ -29,6 +30,8 @@ export type MedalDef = {
 };
 
 const days = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
+/** A day used for more than a mood check-in (and what that paid): staying in the gaming budget only counts on those. */
+const usedBeyondMood = (d: DayLog | undefined) => !!d && (usedOn({ ...d, moods: [], questsDone: [], xpEarned: 0 }) || !!d.doneTasks?.length);
 const hasSteps = (s: State) => Object.values(s.days).some((d) => d.steps != null);
 
 export const MEDALS: MedalDef[] = [
@@ -57,8 +60,8 @@ export const MEDALS: MedalDef[] = [
     label: 'Within the gaming budget',
     unit: days,
     base: [3, 5, 6],
-    // Days you used the app: an untouched day isn't a win for the budget.
-    count: (s, ds) => ds.filter((d) => usedOn(d.log) && gamingUsedMs(s, d.key) <= gamingBudgetMin(s, d.key) * MIN).length,
+    // Days you used the app for more than a mood check-in: an untouched day isn't a win for the budget.
+    count: (s, ds) => ds.filter((d) => usedBeyondMood(d.log) && gamingUsedMs(s, d.key) <= gamingBudgetMin(s, d.key) * MIN).length,
   },
   {
     id: 'habits',
@@ -93,10 +96,13 @@ export function openDays(s: State, week: string) {
   return n;
 }
 
-/** What each medal needs in a week with `open` non-rough days: the full bar scaled down, at least 1. */
+/** The least each tier needs however rough the week (or the full bar, when that's lower). */
+const FLOOR = [1, 2, 3] as const;
+
+/** What each medal needs in a week with `open` non-rough days: the full bar scaled down, never below FLOOR. */
 export const needFor = (base: [number, number, number], open: number): Record<MedalTier, number> => {
-  const scale = (n: number) => Math.max(1, Math.ceil((n * open) / 7));
-  return { bronze: scale(base[0]), silver: scale(base[1]), gold: scale(base[2]) };
+  const scale = (i: 0 | 1 | 2) => Math.max(Math.min(FLOOR[i], base[i]), Math.ceil((base[i] * open) / 7));
+  return { bronze: scale(0), silver: scale(1), gold: scale(2) };
 };
 
 /** Every medal for a week: progress, what each tier needs, the tier reached and the next one. Empty when the whole week was rough. */
@@ -115,23 +121,32 @@ export function medalsFor(s: State, week = weekKeyOf(), now = new Date()): Medal
 
 export type MedalAward = { week: string; won: { def: MedalDef; tier: MedalTier; count: number }[]; xp: number };
 
+/** How many finished weeks a rollover looks back for medals not settled yet (a week the app wasn't opened at all). */
+const SETTLE_WEEKS = 4;
+
 /**
  * At a rollover: the first time, marks this week as where medals start (old weeks aren't paid out). Later,
- * settles the week that just ended, once. Returns the state with `medals`/`medalsSince` set and what was won.
+ * settles every finished week since then that isn't settled yet (up to SETTLE_WEEKS back), each once, oldest
+ * first. Returns the state with `medals`/`medalsSince` set and what each week won.
  */
-export function settleMedals(s: State, now = new Date()): { state: State; award: MedalAward | null } {
+export function settleMedals(s: State, now = new Date()): { state: State; awards: MedalAward[] } {
   const thisWeek = weekKeyOf(now);
-  if (!s.medalsSince) return { state: { ...s, medalsSince: thisWeek }, award: null };
-  const week = dayKey(addDays(startOfWeek(now), -7));
-  if (week < s.medalsSince || s.medals?.[week]) return { state: s, award: null };
-  const end = addDays(new Date(`${week}T12:00`), 6);
-  end.setHours(23, 59, 59, 0);
-  const won = medalsFor(s, week, end)
-    .filter((m) => m.tier)
-    .map((m) => ({ def: m.def, tier: m.tier as MedalTier, count: m.count }));
-  const tiers = Object.fromEntries(won.map((w) => [w.def.id, w.tier]));
-  const xp = won.reduce((a, w) => a + MEDAL_XP[w.tier], 0);
-  return { state: { ...s, medals: { ...s.medals, [week]: tiers } }, award: { week, won, xp } };
+  if (!s.medalsSince) return { state: { ...s, medalsSince: thisWeek }, awards: [] };
+  let state = s;
+  const awards: MedalAward[] = [];
+  for (let back = SETTLE_WEEKS; back >= 1; back--) {
+    const week = dayKey(addDays(startOfWeek(now), -7 * back));
+    if (week < s.medalsSince || state.medals?.[week]) continue;
+    const end = addDays(new Date(`${week}T12:00`), 6);
+    end.setHours(23, 59, 59, 0);
+    const won = medalsFor(state, week, end)
+      .filter((m) => m.tier)
+      .map((m) => ({ def: m.def, tier: m.tier as MedalTier, count: m.count }));
+    const tiers = Object.fromEntries(won.map((w) => [w.def.id, w.tier]));
+    state = { ...state, medals: { ...state.medals, [week]: tiers } };
+    awards.push({ week, won, xp: won.reduce((a, w) => a + MEDAL_XP[w.tier], 0) });
+  }
+  return { state, awards };
 }
 
 /** "🥇 Water goal, 🥈 Training" */

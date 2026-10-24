@@ -241,10 +241,10 @@ export const LINES = {
     ],
   },
   gymStarted: {
-    mild: ['Workout started! +20 XP and +30 min gaming earned.'],
+    mild: ['Workout started! +{xp} XP and +{min} min gaming earned.'],
     savage: [
-      "Workout started. +30 min gaming earned. Don't spend it all in one rage-quit.",
-      'Look who showed up. +20 XP. The bar was low, but you cleared it.',
+      "Workout started. +{min} min gaming earned. Don't spend it all in one rage-quit.",
+      'Look who showed up. +{xp} XP. The bar was low, but you cleared it.',
       'First set down. The couch is filing a missing person report.',
     ],
   },
@@ -648,8 +648,8 @@ export const LINES = {
     ],
   },
   questsAllDone: {
-    mild: ['All 3 daily quests done! +30 XP and +15 min gaming.'],
-    savage: ['Daily quests: cleared. +30 XP, +15 min gaming. Main character behavior.', 'All quests done. You have earned your loot. +30 XP, +15 min.'],
+    mild: ["Today's quests: all done! +{xp} XP and +{min} min gaming."],
+    savage: ['{count} for {count}. Daily quests cleared. +{xp} XP, +{min} min gaming. Main character behavior.', 'All quests done. You have earned your loot. +{xp} XP, +{min} min.'],
   },
   // Each boss's own taunts while it's still fresh (quests.ts BOSSES ids). The mild ones hint at its weakness.
   taunt_procrastinator: {
@@ -1459,8 +1459,8 @@ export const LINES = {
     savage: ['Plan B: {minutes} min, done indoors. The rain lost.', '{minutes} min of plan B. The weather tried. You did not care.'],
   },
   comebackWorkout: {
-    mild: ['Welcome back! First workout since {day}: +{min} min gaming and a free crit, {dmg} damage on the boss.'],
-    savage: ['Look who is back. +{min} min gaming and a free {dmg}-damage crit on the boss. New mission starts now.', 'The comeback is on. +{min} min and a guaranteed crit for {dmg}. {day} is history.'],
+    mild: ['Welcome back! Last workout: {day}. +{min} min gaming and a free crit, {dmg} damage on the boss.'],
+    savage: ['Look who is back. +{min} min gaming and a free {dmg}-damage crit on the boss. New mission starts now.', 'The comeback is on. +{min} min and a guaranteed crit for {dmg}. Momentum: restored.'],
   },
   rangeWeekMin: {
     mild: ["{habit}: {done}. That's the week's goal. Anything more is extra."],
@@ -1599,10 +1599,16 @@ function seeded(seed: string) {
   };
 }
 
-/** A whole pool, for native code that picks its own line later. Keeps `{keep}` placeholders for it to fill. */
+/**
+ * A whole pool, for native code that picks its own line later, without retired lines (unless that leaves
+ * nothing at all). Keeps `{keep}` placeholders for it to fill.
+ */
 export function poolFor(key: LineKey, savageLevel: number, vars: Record<string, string | number>, keep: string[] = []) {
   const pool: Pool = LINES[key];
-  const list = savageLevel >= 5 && pool.savage.length > 0 ? pool.savage : pool.mild;
+  const unretired = (xs: string[]) => xs.filter((t) => !banned.has(lineId(key, t)));
+  const savage = unretired(pool.savage);
+  const mild = unretired(pool.mild);
+  const list = savageLevel >= 5 && savage.length ? savage : mild.length ? mild : savageLevel > 1 && savage.length ? savage : pool.mild.length ? pool.mild : pool.savage;
   const kept = Object.fromEntries(keep.map((k) => [k, `{${k}}`]));
   return list.map((t) => fillLine(t, { ...kept, ...vars }));
 }

@@ -43,7 +43,7 @@ import { pushWidgetFor, useBackgroundSync } from './background-sync';
 import { drainQueued, onQueued } from './pending-actions';
 import type { ReminderAction } from './reminder-actions';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
-import { bossFor, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questsFor, questXpOf, reducedDay, rerollFor, validDraft, weekKey } from './quests';
+import { bossFor, bossSeasonOf, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questsFor, reducedDay, reopenQuests, rerollFor, validDraft, weekKey } from './quests';
 import { bossRecap, lastWeekKey } from './boss-recap';
 import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
 import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
@@ -58,6 +58,7 @@ import { nightPhone, nightWindow } from './night';
 import { BURN_XP, BURN_XP_MAX, EGG_COINS, eggsLeft, eggsThisYear, staleTasks, type EggId } from './traditions';
 import {
   activitiesOf,
+  bestBeforeDay,
   caffeineMg,
   coffeeOf,
   dayOf,
@@ -67,6 +68,7 @@ import {
   gamePenalty,
   gamingBudgetMin,
   gamingUsedMs,
+  isRecord,
   moodsOf,
   proteinOf,
   syncedSleep,
@@ -100,7 +102,7 @@ import type {
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, needsPlaceInfo, samePlace, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
 import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, triageAlerts, warningsOf, type Air, type Alert, type SourceStatus } from './outside';
-import { ACHIEVEMENTS, activityXp, BADGE_NOTE, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, titleFor, XP } from './xp';
+import { ACHIEVEMENTS, activityXp, BADGE_NOTE, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, SET_XP_DAILY, titleFor, XP } from './xp';
 // cluster B: economy & progression
 import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWorn, type Slot } from './cosmetics';
 import { chestShelf, SHELF_MAX, withChestGold } from './loot';
@@ -113,7 +115,8 @@ import { goldenAllowed } from './tone';
 import { medalList, settleMedals } from './medals';
 import { withoutOldXpHours, withXpHour } from './xp-timeline';
 // step 4: if-then plans, the comeback bonus, weekly range habits
-import { COMEBACK, missedGymBefore } from './comeback';
+import { COMEBACK, lastTrainedBefore, missedGymBefore } from './comeback';
+import { recheckDay, recheckTask, recordTask, uncheckTask } from './tasks';
 import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, type CuePrompt } from './if-then';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
@@ -274,8 +277,11 @@ function checkQuests(s: State, msgs: Msg[]): State {
   const ids = questsFor(next).map((q) => q.id); // ignores retired quest ids saved earlier
   if (!d.questsAllDone && ids.length > 0 && ids.every((id) => (d.questsDone ?? []).includes(id))) {
     next = patchDay(next, key, (x) => ({ ...x, questsAllDone: true, questsAllDoneAt: Date.now(), chestReady: true }));
-    msgs.push({ text: `${L(next, 'questsAllDone')} 🎁 A loot chest is waiting on HQ.`, tone: 'epic' });
-    next = reward(next, msgs, XP.questsAll, BONUS_MIN.questsAll);
+    // Announced with what it actually paid (Double XP and the rested share included), ahead of any level-up it brings.
+    const at = msgs.length;
+    next = reward(next, msgs, XP.questsAll, BONUS_MIN.questsAll, key, { ref: 'quests-all' });
+    const vars = { count: ids.length, xp: dayOf(next, key).xpBy?.['quests-all'] ?? XP.questsAll, min: BONUS_MIN.questsAll };
+    msgs.splice(at, 0, { text: `${L(next, 'questsAllDone', vars)} 🎁 A loot chest is waiting on HQ.`, tone: 'epic' });
   }
 
   return checkBoss(next, msgs);
@@ -300,8 +306,9 @@ function slay(s: State, msgs: Msg[], boss: Boss, late = false): State {
     },
     'bosses',
   );
-  const season = seasonOn(when);
-  if (season) next = { ...next, seasonWins: [...(next.seasonWins ?? []), `${season.id}-${when.getFullYear()}`] };
+  // A costumed boss counts for its season all week, like its name; otherwise the day it fell decides.
+  const season = (boss.final ? null : bossSeasonOf(new Date(`${boss.key}T12:00`))) ?? seasonOn(when)?.id;
+  if (season) next = { ...next, seasonWins: [...(next.seasonWins ?? []), `${season}-${when.getFullYear()}`] };
   if (late) {
     msgs.push({ text: `${boss.emoji} ${L(next, 'bossLateKill', { boss: boss.name, xp: XP.boss })}`, tone: 'epic' });
     next = earnBonus(reward(next, msgs, XP.boss, 0, dayKey(sunday)), dayKey(), BONUS_MIN.boss);
@@ -500,12 +507,13 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
   next = withChestGold(next, today);
   const shelf = chestShelf(next, now);
   for (const c of shelf.slice(0, Math.max(0, shelf.length - SHELF_MAX))) next = openChestOn(next, c.key, c.gold, msgs, true);
-  // Last week's medals, once (medals.ts), and XP timelines older than the ghost needs.
+  // Finished weeks' medals, once each (medals.ts), and XP timelines older than the ghost needs.
   const medals = settleMedals(withoutOldXpHours(next, today), now);
   next = medals.state;
-  if (medals.award?.won.length) {
-    next = reward(next, msgs, medals.award.xp, 0, today, { ref: `medals:${medals.award.week}` });
-    msgs.push({ text: L(next, 'medalsWeek', { medals: medalList(medals.award.won), xp: medals.award.xp }), tone: 'epic' });
+  for (const award of medals.awards) {
+    if (!award.won.length) continue;
+    next = reward(next, msgs, award.xp, 0, today, { ref: `medals:${award.week}` });
+    msgs.push({ text: L(next, 'medalsWeek', { medals: medalList(award.won), xp: award.xp }), tone: 'epic' });
   }
   return next;
 }
@@ -582,13 +590,17 @@ function checkGolden(s: State, msgs: Msg[]): State {
   return fresh.length ? { ...s, goldenFound: { ...found, [g.id]: Date.now() } } : s;
 }
 
+/** What the day's workout paid, for its line: the XP as credited (Double XP, rested share) and its bonus minutes (perks). */
+const workoutVars = (s: State, key: string) => ({ xp: dayOf(s, key).xpBy?.workout ?? XP.workout, min: workoutBonusMin(s) });
+
 /** The first training of the day counts as a workout: XP, bonus gaming time, counter. */
 function startWorkout(s: State, msgs: Msg[]): State {
   const key = dayKey();
   if (dayOf(s, key).workoutCounted) return s;
-  const next = bump(patchDay(s, key, (d) => ({ ...d, workoutCounted: true })), 'workouts');
-  msgs.push({ text: L(next, 'gymStarted'), tone: 'epic' });
-  return comebackBonus(reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' }), msgs, key);
+  const at = msgs.length;
+  const next = reward(bump(patchDay(s, key, (d) => ({ ...d, workoutCounted: true })), 'workouts'), msgs, XP.workout, workoutBonusMin(s), key, { ref: 'workout' });
+  msgs.splice(at, 0, { text: L(next, 'gymStarted', workoutVars(next, key)), tone: 'epic' }); // ahead of any level-up it brings
+  return comebackBonus(next, msgs, key);
 }
 
 /**
@@ -606,13 +618,21 @@ function comebackBonus(s: State, msgs: Msg[], key = dayKey()): State {
     critDamage: (d.critDamage ?? 0) + dmg,
     critBy: { ...d.critBy, comeback: { id: 'comeback', dmg } },
   }));
-  msgs.push({ text: L(next, 'comebackWorkout', { day: WEEKDAYS_LONG[new Date(`${missed}T12:00`).getDay()], min: COMEBACK.min, dmg }), tone: 'epic' });
+  // The line names the last workout, never the miss.
+  const since = lastTrainedBefore(s);
+  const day =
+    since == null
+      ? 'a while ago'
+      : since >= dayKey(addDays(new Date(), -6))
+        ? dayName(since)
+        : new Date(`${since}T12:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+  msgs.push({ text: L(next, 'comebackWorkout', { day, min: COMEBACK.min, dmg }), tone: 'epic' });
   return next;
 }
 
 /**
  * The day's last set or activity was deleted: the workout it counted comes off the books, with its XP,
- * the counter, its bonus minutes and the workout quests (unless every quest was already done).
+ * the counter and its bonus minutes. The workout quests reopen in run() (reopenQuests), like any undone quest.
  */
 function undoWorkout(s: State, msgs: Msg[], key = dayKey()): State {
   const d = dayOf(s, key);
@@ -623,25 +643,8 @@ function undoWorkout(s: State, msgs: Msg[], key = dayKey()): State {
     next = unreward(next, key, 'comeback', COMEBACK.xp, COMEBACK.min);
     next = patchDay(next, key, (x) => ({ ...withoutCrit(x, 'comeback'), comeback: undefined }));
   }
-  if (!d.questsAllDone) {
-    for (const q of ['workout', 'train_minutes']) {
-      if (!(dayOf(next, key).questsDone ?? []).includes(q)) continue;
-      next = bump(patchDay(next, key, (x) => ({ ...x, questsDone: (x.questsDone ?? []).filter((id) => id !== q) })), 'quests', -1);
-      next = unreward(next, key, `q:${q}`, questXpOf(q));
-    }
-  }
   msgs.push({ text: 'Nothing logged for training today anymore, so the workout is off the books.', tone: 'info' });
   return next;
-}
-
-/** The heaviest weight for an exercise in sets logged before `at` (what a set had to beat to be a record). */
-function bestBefore(s: State, exercise: string, at: number) {
-  const id = exercise.trim().toLowerCase();
-  let best: number | undefined;
-  for (const d of Object.values(s.days)) {
-    for (const x of d.sets) if (x.at < at && x.exercise.trim().toLowerCase() === id) best = Math.max(best ?? 0, x.weight);
-  }
-  return best;
 }
 
 function recomputePr(s: State, exercise: string): State {
@@ -991,7 +994,13 @@ function useStoreValue() {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
       const quiet = !!opts.quiet;
-      const changed = opts.early ? checkDayRollover(fn(prev, msgs), msgs) : fn(checkDayRollover(prev, msgs), msgs);
+      // An undo or a delete that took a finished quest back under its target opens it again, with its XP (quests.ts).
+      const apply = (base: State) => {
+        const reopen = reopenQuests(base, fn(base, msgs));
+        if (reopen.reopened.length) msgs.push({ text: `🗡️ Open again: ${reopen.reopened.map((q) => q.title).join(', ')}.`, tone: 'info' });
+        return reopen.state;
+      };
+      const changed = opts.early ? checkDayRollover(apply(prev), msgs) : apply(checkDayRollover(prev, msgs));
       const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(changed, msgs), msgs), msgs), msgs);
       // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
       const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
@@ -1782,23 +1791,26 @@ function useStoreValue() {
           const id = name.toLowerCase();
           const setId = uid();
           const firstOfDay = !dayOf(s, key).workoutCounted;
-          const prevBest = s.prs[id];
+          // A record beats every earlier day, once per exercise a day: ramping up through today's sets isn't one.
+          const isPR = isRecord(s, key, name, weight);
+          const paidSets = Object.keys(dayOf(s, key).xpBy ?? {}).filter((k) => k.startsWith('s:')).length;
           let next = patchDay(s, key, (d) => ({
             ...d,
             workoutCounted: true,
             sets: [...d.sets, { id: setId, exercise: name, weight, reps, at: Date.now() }],
           }));
-          if (prevBest === undefined || weight > prevBest) next = { ...next, prs: { ...next.prs, [id]: weight } };
-          const isPR = prevBest !== undefined && weight > prevBest;
+          if (s.prs[id] === undefined || weight > s.prs[id]) next = { ...next, prs: { ...next.prs, [id]: weight } };
 
           const undo: ToastAction = { undo: { kind: 'set', id: setId, day: key } };
           if (firstOfDay) {
-            next = bump(next, 'workouts');
-            msgs.push({ text: `${L(next, 'gymStarted')}`, tone: 'epic', ...(isPR ? {} : { action: undo }) });
-            next = comebackBonus(reward(next, msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' }), msgs, key);
+            const at = msgs.length;
+            next = reward(bump(next, 'workouts'), msgs, XP.workout, workoutBonusMin(next), key, { ref: 'workout' });
+            msgs.splice(at, 0, { text: L(next, 'gymStarted', workoutVars(next, key)), tone: 'epic', ...(isPR ? {} : { action: undo }) });
+            next = comebackBonus(next, msgs, key);
           }
           // Each part is recorded so deleting the set takes back exactly it (and the record, if it was one).
-          next = reward(next, msgs, XP.set, 0, key, { ref: `s:${setId}` });
+          // Sets past the day's cap still count as training, just without XP (no boss or league damage from junk sets).
+          if (paidSets < SET_XP_DAILY) next = reward(next, msgs, XP.set, 0, key, { ref: `s:${setId}` });
           if (isPR) {
             next = bump(next, 'prs');
             msgs.push({ text: `🔥 ${L(next, 'gymPR', { exercise: name, weight })} +${XP.pr} XP`, tone: 'epic', action: undo });
@@ -1813,16 +1825,21 @@ function useStoreValue() {
       },
 
       removeSet(id: string) {
+        const resting = stateRef.current.restEndsAt != null;
         run((s, msgs) => {
           const key = dayKey();
           const set = dayOf(s, key).sets.find((x) => x.id === id);
           if (!set) return s;
           let next = patchDay(s, key, (d) => withoutCrit({ ...d, sets: d.sets.filter((x) => x.id !== id) }, id));
-          next = unreward(next, key, `s:${id}`, XP.set);
+          // Only what it was paid: a set past the day's XP cap got nothing.
+          if (dayOf(s, key).xpBy?.[`s:${id}`] != null) next = unreward(next, key, `s:${id}`, XP.set);
           // A record set taken back: its XP and the record count go too, so logging it again isn't a second record.
           if (dayOf(s, key).xpBy?.[`pr:${id}`] != null) next = bump(unreward(next, key, `pr:${id}`, XP.pr), 'prs', -1);
+          // The rest that the latest set started goes with it.
+          if (s.restEndsAt != null && dayOf(s, key).sets.every((x) => x.at <= set.at)) next = { ...next, restEndsAt: null };
           return undoWorkout(recomputePr(next, set.exercise), msgs, key);
         });
+        if (resting && stateRef.current.restEndsAt == null) void cancelRestDone();
       },
 
       /**
@@ -1835,7 +1852,7 @@ function useStoreValue() {
           const set = dayOf(s, key).sets.find((x) => x.id === id);
           if (!set) return s;
           let next = patchDay(s, key, (d) => ({ ...d, sets: d.sets.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
-          const best = bestBefore(s, set.exercise, set.at);
+          const best = bestBeforeDay(s, set.exercise, key);
           if (dayOf(s, key).xpBy?.[`pr:${id}`] != null && best !== undefined && patch.weight <= best) {
             next = bump(unreward(next, key, `pr:${id}`, XP.pr), 'prs', -1);
           }
@@ -1964,17 +1981,12 @@ function useStoreValue() {
           const task = s.tasks.find((t) => t.id === id);
           if (!task) return s;
           const today = dayKey();
-          // The day's own record of finished tasks: what contracts and the boss weakness count, even after Clear.
-          const record = (x: State, key: string, at: number | null) =>
-            patchDay(x, key, (d) => ({ ...d, doneTasks: [...(d.doneTasks ?? []).filter((t) => t.id !== id), ...(at == null ? [] : [{ id, at }])] }));
           if (!task.done) {
-            const first = task.firstDoneAt;
-            if (first != null && dayKey(first) !== today) {
-              // Done again after being unchecked: it goes back to the day it was first done, for its XP only.
-              const key = dayKey(first);
-              const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: true, doneAt: first } : t));
-              msgs.push({ text: `✅ Back to done. It counts for ${dayName(key)}, when you finished it.`, tone: 'info', action: { undo: { kind: 'task', id, day: key } } });
-              return reward(record(bump({ ...s, tasks }, 'tasksDone'), key, first), msgs, XP.task, 0, key);
+            const back = recheckDay(s, id, today);
+            if (back) {
+              // Done again after being unchecked: it goes back to the day it was first done, for its plain XP only (tasks.ts).
+              msgs.push({ text: `✅ Back to done. It counts for ${dayName(back)}, when you finished it.`, tone: 'info', action: { undo: { kind: 'task', id, day: back } } });
+              return recheckTask(s, id, today);
             }
             const now = Date.now();
             const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: true, doneAt: now, firstDoneAt: t.firstDoneAt ?? now } : t));
@@ -1982,13 +1994,9 @@ function useStoreValue() {
             const undo: ToastAction = { undo: { kind: 'task', id, day: today } };
             if (age >= IMMORTAL_DAYS) msgs.push({ text: L(s, 'immortalSlain', { task: task.title, days: age }), tone: 'epic', action: undo });
             else msgs.push({ text: L(s, 'taskDone'), tone: 'good', action: undo });
-            return reward(record(bump({ ...s, tasks }, 'tasksDone'), today, now), msgs, XP.task, BONUS_MIN.task, today, { ref: `t:${id}` });
+            return reward(recordTask(bump({ ...s, tasks }, 'tasksDone'), id, today, now), msgs, XP.task, BONUS_MIN.task, today, { ref: `t:${id}` });
           }
-          // Unchecked: it comes off the day it was done (contracts, the boss weakness), with what it paid.
-          const key = task.doneAt ? dayKey(task.doneAt) : today;
-          const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: false, doneAt: undefined, firstDoneAt: t.firstDoneAt ?? t.doneAt } : t));
-          const next = patchDay(record(bump({ ...s, tasks }, 'tasksDone', -1), key, null), key, (d) => withoutCrit(d, id));
-          return unreward(next, key, `t:${id}`, XP.task, key === today ? BONUS_MIN.task : 0);
+          return uncheckTask(s, id, today);
         });
       },
 
@@ -1998,11 +2006,12 @@ function useStoreValue() {
 
       /**
        * A toast's Undo: takes back the one entry it announced, with exactly what that entry was paid
-       * (unreward). Only today's entries, only while they're still there.
+       * (unreward). Only today's entries, only while they're still there. A task can be an earlier day's
+       * ("Back to done"): toggleTask finds its day itself.
        */
       undo(ref: UndoRef) {
         const s = stateRef.current;
-        if (ref.day !== dayKey()) return;
+        if (ref.kind !== 'task' && ref.day !== dayKey()) return;
         const d = dayOf(s, ref.day);
         if (ref.kind === 'water') {
           if (!d.water.some((w) => w.id === ref.id)) return;

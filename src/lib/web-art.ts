@@ -25,7 +25,7 @@ export function webParams(s: State, key = dayKey()): WebParams {
   const habits = habitsDone(s, key).length;
   const quests = (d.questsDone ?? []).length;
   const tasks = doneTasksOn(s, key).length;
-  const train = trainMinutes(d) + d.sets.length * 3;
+  const train = trainMinutes(d); // sets count through their sessions
   const overMin = Math.max(0, (gamingUsedMs({ ...s, activeGame: null }, key) - gamingBudgetMin(s, key) * MIN) / MIN);
   const mood = avgMood(d);
   const empty = !d.water.length && !habits && !quests && !tasks && !train && !d.sleepMin && mood == null;

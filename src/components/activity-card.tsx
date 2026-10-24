@@ -6,7 +6,7 @@ import { Btn, Card, Chip, H, Row, Stepper, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { ACTIVITIES, activityInfo } from '@/lib/body';
 import { fmtTime } from '@/lib/dates';
-import { activitiesOf, dayOf, trainMinutes } from '@/lib/selectors';
+import { activitiesOf, activityMinutes, dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { ActivityKind } from '@/lib/types';
 
@@ -21,7 +21,7 @@ export function ActivityCard() {
 
   const today = dayOf(state);
   const list = [...activitiesOf(today)].sort((a, b) => a.at - b.at);
-  const total = trainMinutes(today);
+  const total = activityMinutes(today);
   const entry = list.find((a) => a.id === editing);
 
   return (

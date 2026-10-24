@@ -25,7 +25,9 @@ import { eggsFoundOn, eggsLeft, oldTasksDoneOn, staleTasks } from './traditions'
 import type { DayLog, State } from './types';
 import { WEAK_SPOT_QUESTS, weakSpot } from './weak-spot';
 import { healShare } from './perks';
-import { levelForXp } from './xp';
+import { BONUS_MIN, levelForXp, XP } from './xp';
+import { unreward } from './ledger';
+import { withoutCrit } from './critters';
 
 export type Quest = {
   id: string;
@@ -176,7 +178,7 @@ const QUESTS: QuestDef[] = [
     id: 'nyar_close',
     xp: 20,
     season: 'nyar',
-    available: (s) => s.tasks.some((t) => !t.done),
+    available: (s, date) => date.getMonth() === 11 && s.tasks.some((t) => !t.done), // New Year's Eve: on 1 Jan the year is closed
     build: (s, _d, date) => ({ title: '🎆 Close the year: finish 3 tasks', progress: tasksDoneOn(s, date), target: 3 }),
   },
   { id: 'nyar_fresh', xp: 20, season: 'nyar', available: () => true, build: (_s, d) => ({ title: '🎆 Fresh start: 3 glasses of water before 12:00', progress: before(d, 12), target: 3 }) },
@@ -342,6 +344,38 @@ export function questInfo(s: State, id: string, date = new Date()): Quest | null
   return { id, xp: def.xp, ...q, progress: Math.min(q.progress, q.target) };
 }
 
+/**
+ * After an undo or a delete: today's finished quests it pushed back under their target open again, with what
+ * they paid. Only progress that went down counts (a goal raised later never reopens one), and a change that
+ * brought new watch numbers never reopens anything. Once every quest is done they stay done, unless the chest
+ * is still unopened: then the all-done bonus and the chest go back too.
+ */
+export function reopenQuests(prev: State, next: State, now = new Date()): { state: State; reopened: Quest[] } {
+  const key = dayKey(now);
+  const before = dayOf(prev, key);
+  const after = dayOf(next, key);
+  const done = after.questsDone ?? [];
+  if (!done.length || before.steps !== after.steps || (after.questsAllDone && after.chest)) return { state: next, reopened: [] };
+  const reopened = questsFor(next, now).filter((q) => {
+    if (!done.includes(q.id) || q.progress >= q.target) return false;
+    const was = questInfo(prev, q.id, now);
+    return was != null && q.progress < was.progress;
+  });
+  if (!reopened.length) return { state: next, reopened };
+  const ids = reopened.map((q) => q.id);
+  const patch = (s: State, fn: (d: DayLog) => DayLog): State => ({ ...s, days: { ...s.days, [key]: fn(dayOf(s, key)) } });
+  let s = patch({ ...next, counters: { ...next.counters, quests: Math.max(0, next.counters.quests - ids.length) } }, (d) => ({
+    ...d,
+    questsDone: (d.questsDone ?? []).filter((id) => !ids.includes(id)),
+  }));
+  for (const q of reopened) s = unreward(s, key, `q:${q.id}`, q.xp);
+  if (after.questsAllDone) {
+    s = patch(s, (d) => ({ ...withoutCrit(d, 'quests-all'), questsAllDone: undefined, questsAllDoneAt: undefined, chestReady: undefined }));
+    s = unreward(s, key, 'quests-all', XP.questsAll, BONUS_MIN.questsAll);
+  }
+  return { state: s, reopened };
+}
+
 // ---- weekly boss ----
 
 export const BOSSES = [
@@ -485,6 +519,18 @@ export const rageWeaknessOf = (id: string, week: string) => {
   return others[hash(`${week}:rage`) % others.length].id;
 };
 
+/**
+ * The season that dresses up the boss of `date`'s week (Halloween, or nyår's Old Year), decided for the whole
+ * week: when any of its days is in season, the boss wears it from Monday to the recap, under one name.
+ */
+export function bossSeasonOf(date: Date | number): 'halloween' | 'nyar' | null {
+  for (let i = 0; i < 7; i++) {
+    const id = seasonOn(addDays(startOfWeek(date), i))?.id;
+    if (id === 'halloween' || id === 'nyar') return id;
+  }
+  return null;
+}
+
 /** `now`: paused days after it don't shrink the boss yet (a pause planned for later can't make today's fight easier). */
 export function bossFor(s: State, date: Date | number = new Date(), now: Date | number = Date.now()) {
   const monday = startOfWeek(date);
@@ -492,8 +538,8 @@ export function bossFor(s: State, date: Date | number = new Date(), now: Date | 
   const kings = kingWeeksOf(s);
   const final = kings.includes(key);
   const base = final ? FINAL_BOSS : BOSSES[weekIndexOf(monday) % BOSSES.length];
-  // Halloween dresses every boss up; at nyår the boss is the Old Year itself.
-  const season = final ? undefined : seasonOn(date)?.id;
+  // Halloween dresses every boss up; at nyår the boss is the Old Year itself. All week, whatever day it's asked.
+  const season = final ? null : bossSeasonOf(monday);
   const skin = season === 'halloween' ? HALLOWEEN[base.id as (typeof BOSSES)[number]['id']] : season === 'nyar' ? { name: 'The Old Year', emoji: '🕰️' } : null;
   const rank = final ? kings.indexOf(key) + 1 : bossRank(s, monday);
   const name = (skin?.name ?? base.name) + (rank > 1 ? ` ${roman(rank)}` : '');

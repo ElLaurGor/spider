@@ -188,11 +188,14 @@ export function monthXp(s: State, month: string) {
   return xp;
 }
 
+/** The tier already handed out in `month`: the month on record, or the one before it. */
+const givenIn = (s: State, month: string) => (s.silk?.month === month ? s.silk.tier : s.silk?.prev?.month === month ? s.silk.prev.tier : 0);
+
 /** Where the track stands in a month: XP, tier reached (never below what was already handed out) and the next step. */
 export function silkStatus(s: State, month: string) {
   const edition = editionFor(month);
   const xp = monthXp(s, month);
-  const tier = Math.max(tierForXp(xp), s.silk?.month === month ? s.silk.tier : 0);
+  const tier = Math.max(tierForXp(xp), givenIn(s, month));
   const next = tier < SILK_TIERS ? { tier: tier + 1, xp: tierXp(tier + 1), reward: edition.rewards[tier] } : null;
   const from = tierXp(tier);
   const progress = next ? Math.max(0, Math.min(1, (xp - from) / (next.xp - from))) : 1;
@@ -202,9 +205,12 @@ export function silkStatus(s: State, month: string) {
 /** A reward that just unlocked; `had` when it was already in the wardrobe (a seasonal piece bought earlier). */
 export type Unlocked = SilkReward & { had: boolean };
 
-/** Hands out every tier `month` has reached but not yet given. */
+/**
+ * Hands out every tier `month` has reached but not yet given. The record keeps the latest month and the one
+ * before it (`prev`), so XP that lands late on last month still finds what it already gave.
+ */
 export function grantSilk(s: State, month: string): { state: State; unlocked: Unlocked[] } {
-  const given = s.silk?.month === month ? s.silk.tier : 0;
+  const given = givenIn(s, month);
   const tier = tierForXp(monthXp(s, month));
   if (tier <= given) return { state: s, unlocked: [] };
   const w = s.cosmetics ?? { owned: [], worn: {} };
@@ -212,21 +218,33 @@ export function grantSilk(s: State, month: string): { state: State; unlocked: Un
     .rewards.filter((r) => r.tier > given && r.tier <= tier)
     .map((r) => ({ ...r, had: w.owned.includes(r.id) }));
   const owned = [...new Set([...w.owned, ...unlocked.map((r) => r.id)])];
-  return { state: { ...s, cosmetics: { ...w, owned }, silk: { month, tier } }, unlocked };
+  const cur = s.silk;
+  const silk =
+    !cur || cur.month === month
+      ? { month, tier, ...(cur?.prev ? { prev: cur.prev } : {}) }
+      : cur.month < month
+        ? { month, tier, prev: { month: cur.month, tier: cur.tier } }
+        : { ...cur, prev: { month, tier } };
+  return { state: { ...s, cosmetics: { ...w, owned }, silk }, unlocked };
 }
 
+/** Days into a month that XP landing late on the month before still counts for its track (a watch sync, a boss settled on Monday). */
+const LATE_DAYS = 2;
+
 /**
- * Checks the track after XP moved: last month first if it's still the one on record (XP that landed on its
- * last day late, like a boss settled on Monday), then this month. Returns what unlocked, per edition.
+ * Checks the track after XP moved: last month first while it's still the one on record, or during the first
+ * LATE_DAYS of this month when it's the one before, then this month. Returns what unlocked, per edition.
  */
 export function checkSilkTrack(s: State, today: string) {
   const month = monthOf(today);
+  const last = prevMonth(month);
+  const late = s.silk?.month === last || (s.silk?.prev?.month === last && Number(today.slice(8, 10)) <= LATE_DAYS);
   const out: { edition: Edition; unlocked: Unlocked[]; tier: number }[] = [];
   let next = s;
-  for (const m of s.silk?.month === prevMonth(month) ? [prevMonth(month), month] : [month]) {
+  for (const m of late ? [last, month] : [month]) {
     const r = grantSilk(next, m);
     next = r.state;
-    if (r.unlocked.length) out.push({ edition: editionFor(m), unlocked: r.unlocked, tier: next.silk?.tier ?? 0 });
+    if (r.unlocked.length) out.push({ edition: editionFor(m), unlocked: r.unlocked, tier: givenIn(next, m) });
   }
   return { state: next, unlocked: out };
 }
