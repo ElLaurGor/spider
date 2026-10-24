@@ -23,7 +23,7 @@ import { habitsDone, habitsFor, RANGE_TOP_XP, rangeText, rangeWeek } from './hab
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
 import { banLine, fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, lineMemory, onLineMemory, poolFor, setLineMemory, unbanLine, type LineKey } from './lines';
 import { jetlagRemark, lateCoffeeRemark, lateGameRemark, withJitSaid } from './jit';
-import { IMMORTAL_DAYS, taskAgeDays, tomorrowKey } from './memory';
+import { eveningKey, IMMORTAL_DAYS, taskAgeDays, tomorrowKey } from './memory';
 import { moodInfo } from './mood';
 import {
   cancelEverything,
@@ -54,7 +54,7 @@ import { isSnow, seasonOn, winterOf } from './seasons';
 import { catchFly as catchPendingFly, caughtCount, critDamage, FLIES, rollCritters, withoutCrit } from './critters';
 import { unlockPages } from './diary';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, spansBetween, startFocusGuard, stopFocusGuard, unlocksBetween, usageBetween } from './screentime';
-import { nightPhone, nightWindow } from './night';
+import { inBedFrom, nightPhone, nightWindow } from './night';
 import { BURN_XP, BURN_XP_MAX, EGG_COINS, eggsLeft, eggsThisYear, staleTasks, type EggId } from './traditions';
 import {
   activitiesOf,
@@ -1052,6 +1052,7 @@ function useStoreValue() {
   const [healthState, setHealthState] = useState<HealthStatus>(healthSupported ? 'needs-permission' : 'unsupported');
   const [health, setHealth] = useState<HealthData | null>(null);
   const [healthMissing, setHealthMissing] = useState<string[]>([]); // asked for but not granted ("heart rate", "sleep")
+  const watchSleep = useRef(false); // Health Connect is connected: last night's bedtime comes from the watch
 
   /**
    * Applies the watch's numbers: today's (awarding the step goal once), and the final ones for the past week.
@@ -1096,6 +1097,7 @@ function useStoreValue() {
       try {
         const status = ask ? await connectHealth() : await healthStatus();
         setHealthState(status);
+        watchSleep.current = status === 'connected';
         if (status !== 'connected') return;
         setHealthMissing(await missingHealthAccess().catch(() => []));
         const data = await readHealth();
@@ -1173,11 +1175,17 @@ function useStoreValue() {
         }
         if (finals.length) run((s) => finals.reduce((next, f) => patchDay(next, f.key, (d) => ({ ...d, screen: f.screen })), s));
       }
-      // Last night's phone use in bed, read once a day after 05:00 (cluster F).
+      // Last night's phone use in bed, read once a day after 05:00 (cluster F). It counts from the watch's bedtime
+      // when that was later than the target, so with the watch connected it waits for last night's sleep (until
+      // 10:00), and counts once more if the watch's bedtime arrives after a first count.
       const now = new Date();
       const nightKey = dayKey(now);
-      if (now.getHours() >= 5 && !dayOf(stateRef.current, nightKey).night) {
-        const { bed, end } = nightWindow(now, stateRef.current.settings.sleepHour);
+      const today = dayOf(stateRef.current, nightKey);
+      const { bed: target, end } = nightWindow(now, stateRef.current.settings.sleepHour);
+      const bed = inBedFrom(target, today.bedAt);
+      const counted = today.night ? (today.night.from ?? target) : null;
+      const waitForWatch = watchSleep.current && today.bedAt == null && now.getHours() < 10;
+      if (now.getHours() >= 5 && counted !== bed && !waitForWatch) {
         const night = nightPhone(await spansBetween(bed, end), bed, end);
         run((s) => patchDay(s, nightKey, (d) => ({ ...d, night })));
       }
@@ -2327,7 +2335,7 @@ function useStoreValue() {
 
       toggleWindDown(item: string) {
         run((s, msgs) => {
-          const key = dayKey(new Date(Date.now() - 4 * 3_600_000)); // after midnight still counts as "tonight"
+          const key = eveningKey(); // after midnight still counts as "tonight"
           const done = dayOf(s, key).windDown ?? [];
           const list = done.includes(item) ? done.filter((x) => x !== item) : [...done, item];
           let next = patchDay(s, key, (d) => ({ ...d, windDown: list }));

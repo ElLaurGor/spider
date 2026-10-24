@@ -10,6 +10,12 @@ export function nightWindow(morning: Date | number, sleepHour: number) {
   return { bed: bed.getTime(), end: end.getTime() };
 }
 
+/**
+ * When phone time starts counting as "in bed": the target bedtime, or the watch's bedtime when that came later
+ * (scrolling on the sofa before a late night isn't phone in bed).
+ */
+export const inBedFrom = (targetBed: number, watchBed?: number | null) => (watchBed != null ? Math.max(targetBed, watchBed) : targetBed);
+
 /** Under this many minutes in bed with the phone isn't worth mentioning. */
 export const NIGHT_MIN = 10;
 
@@ -26,7 +32,7 @@ export function nightPhone(spans: { label: string; start: number; end: number }[
     time.set(s.label, (time.get(s.label) ?? 0) + (b - a));
   }
   const lateMin = Math.round(total / 60_000);
-  if (lateMin < NIGHT_MIN) return { lateMin, lastAt: null, top: null };
+  if (lateMin < NIGHT_MIN) return { lateMin, lastAt: null, top: null, from: bed };
   const top = [...time.entries()].sort((x, y) => y[1] - x[1])[0][0];
-  return { lateMin, lastAt, top };
+  return { lateMin, lastAt, top, from: bed };
 }

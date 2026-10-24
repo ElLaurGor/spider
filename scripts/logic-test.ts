@@ -34,6 +34,7 @@ import { newLeague, rivalXp, settle, standings, weekKeyOf, TIERS } from '../src/
 import { coinsFor, rollChest } from '../src/lib/economy';
 import { daysLeft, nextDate, upcoming } from '../src/lib/countdowns';
 import { insights } from '../src/lib/insights';
+import { bhKeep, permP } from '../src/lib/stats';
 import { countedDay, firstDataDay, roughDay, usedOn } from '../src/lib/day-filters';
 import { hallOfFame } from '../src/lib/records';
 import { monthWrapped } from '../src/lib/wrapped';
@@ -118,10 +119,10 @@ import { xpForLevel } from '../src/lib/xp';
 // cluster F
 import { allSaintsDay, easterSunday, holidayOn, holidaysOf, isDayOff, isKlamdag, isPayday, midsummerEve, paydayOf, upcomingDays } from '../src/lib/swedish-days';
 import { allEggsSomeYear, EGGS, eggsFoundOn, eggsLeft, oldTasksDoneOn, staleTasks } from '../src/lib/traditions';
-import { nightPhone, nightWindow } from '../src/lib/night';
+import { inBedFrom, nightPhone, nightWindow } from '../src/lib/night';
 import { autoBackupDue } from '../src/lib/backup-due';
 import { workoutFor } from '../src/lib/selectors';
-import { clockLabel, nightClock, nightOf, rhythmOf, withNights } from '../src/lib/sleep';
+import { asleepMin, clockLabel, nightClock, nightOf, rhythmOf, stagedMin, withNights } from '../src/lib/sleep';
 import { nightWindow as sleepWindow, ZEPP } from '../src/lib/sleep';
 import { allDayLocal } from '../src/lib/calendar-days';
 import { pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
@@ -367,6 +368,12 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   delete pd.days[wed];
   for (const k of ['2027-01-13', '2027-01-14', '2027-01-15']) flow(k); // 4 days in, the usual length
   assert.ok(!periodDay(pd, '2027-01-16')); // a 5th day only if the run is still under the usual 4
+  // spotting: a kind day itself, but a day of it doesn't make tomorrow a period day or shorten the usual length
+  const sp = structuredClone(pd);
+  sp.days['2026-12-30'] = blank({ period: { flow: 'spotting', symptoms: [] } });
+  assert.ok(periodDay(sp, '2026-12-30'));
+  assert.ok(!periodDay(sp, '2026-12-31'));
+  assert.ok(periodDay(sp, '2027-01-15')); // the real period's day 4: the usual is still 4, not dragged down by a 1-day run
   pd.settings.easyOnPeriod = false;
   assert.equal(toneOn(pd, '2027-01-14', at).kind, false); // "go easy" off: the usual tone
   assert.ok(gentleDay(pd, '2027-01-14')); // recaps stay kind on period days either way
@@ -607,7 +614,8 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   const blank = (extra: Partial<DayLog> = {}): DayLog => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0, ...extra });
   const g = defaultState();
   const fri = new Date(2027, 0, 15, 22); // Fri 15 Jan 2027, 22:00 (bedtime 23:00)
-  for (let i = 10; i >= 1; i--) {
+  // 20 evenings: a finding needs 8+ days on each side and a clear test (stats.ts)
+  for (let i = 20; i >= 1; i--) {
     const d = addDays(fri, -i);
     const late = i % 2 === 0; // every other evening: a game until 23:30
     const end = new Date(d);
@@ -615,7 +623,7 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
     g.days[dayKey(d)] = blank({ games: [{ start: end.getTime() - 3_600_000, end: end.getTime() }] });
   }
   // the morning after rates the night: worse after late gaming
-  for (let i = 9; i >= 0; i--) {
+  for (let i = 19; i >= 0; i--) {
     const k = dayKey(addDays(fri, -i));
     const lateBefore = (i + 1) % 2 === 0;
     g.days[k] = { ...(g.days[k] ?? blank()), sleepRating: lateBefore ? 2 : 4 };
@@ -637,14 +645,14 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
 
   // late coffee: shorter nights after cups past the 15:00 curfew, and the caffeine left at bedtime
   const c = defaultState();
-  for (let i = 10; i >= 1; i--) {
+  for (let i = 20; i >= 1; i--) {
     const d = addDays(fri, -i);
     const late = i % 2 === 0;
     const cup = new Date(d);
     cup.setHours(late ? 17 : 9, 0, 0, 0);
     c.days[dayKey(d)] = blank({ coffee: [{ id: `c${i}`, mg: 90, at: cup.getTime() }] });
   }
-  for (let i = 9; i >= 0; i--) {
+  for (let i = 19; i >= 0; i--) {
     const k = dayKey(addDays(fri, -i));
     c.days[k] = { ...(c.days[k] ?? blank()), sleepMin: (i + 1) % 2 === 0 ? 360 : 450 };
   }
@@ -860,6 +868,23 @@ assert.equal(ci.daysUntil, 16);
 assert.ok(isPredictedPeriod(ci, atTime(new Date(), 16, 12)));
 assert.ok(!isPredictedPeriod(ci, atTime(new Date(), 10, 12)));
 assert.equal(cycleInfo(defaultState()), null);
+// spotting: mid-cycle it isn't a period (no restart, no shifted prediction); before a period it doesn't move the start
+{
+  const sp = structuredClone(cy);
+  const spot = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, period: { flow: 'spotting' as const, symptoms: [] } };
+  sp.days[mk(-26)] = spot; // mid-cycle
+  sp.days[mk(-14)] = spot; // two days before the second period
+  sp.days[mk(-13)] = spot;
+  assert.deepEqual(periodStarts(sp), [mk(-40), mk(-12)]);
+  const si = cycleInfo(sp)!;
+  assert.equal(si.cycleDay, 13);
+  assert.equal(si.daysUntil, 16);
+  assert.equal(si.avgLength, 28);
+  sp.days[mk(0)] = spot; // spotting today, mid-cycle: no "period day 13"
+  assert.equal(cycleInfo(sp)!.periodDay, null);
+  assert.equal(cycleInfo(sp)!.daysUntil, 16);
+  assert.equal(periodStarts({ ...defaultState(), days: { [mk(-3)]: spot } }).length, 0); // spotting alone: no cycle at all
+}
 
 // report: sleep ratings count even without watch data
 const rs = defaultState();
@@ -898,6 +923,74 @@ for (let i = 1; i <= 20; i++) {
 const found = insights(ins);
 assert.ok(found.some((x) => x.id === 'train_mood'), JSON.stringify(found.map((x) => x.id)));
 assert.equal(insights(defaultState()).length, 0);
+// ...but not with fewer than 8 days on a side
+const fewIns = structuredClone(ins);
+for (let i = 15; i <= 20; i++) delete fewIns.days[dayKey(atTime(new Date(), -i, 12))];
+assert.ok(!insights(fewIns).some((x) => x.id === 'train_mood'));
+// sick days are left out: no gym and a low mood on them don't make training look like a mood fix
+const sickIns = structuredClone(ins);
+for (let i = 1; i <= 20; i++) {
+  const k = dayKey(atTime(new Date(), -i, 12));
+  sickIns.days[k] = { ...sickIns.days[k], moods: [{ id: 'm' + i, level: 4, emotions: [], at: Date.now() }] };
+}
+for (let i = 2; i <= 20; i += 2) sickIns.days[dayKey(atTime(new Date(), -i, 12))].moods = [{ id: 's' + i, level: 4, emotions: [], at: Date.now() }];
+for (let i = 1; i <= 7; i += 2) {
+  const k = dayKey(atTime(new Date(), -i, 12));
+  sickIns.days[k] = { ...sickIns.days[k], moods: [{ id: 's' + i, level: 1, emotions: [], at: Date.now() }] };
+  sickIns.pauses = [...(sickIns.pauses ?? []), { kind: 'sick', from: k, to: k }];
+}
+assert.ok(!insights(sickIns).some((x) => x.id === 'train_mood'), JSON.stringify(insights(sickIns).map((x) => x.text)));
+
+// stats: the same numbers always give the same p-value; a clear gap is small, an even split large; the cut keeps what survives
+{
+  const a = [5, 5, 5, 5, 5, 5, 5, 5, 4, 5];
+  const b = [3, 3, 3, 2, 3, 3, 3, 3, 3, 3];
+  assert.equal(permP(a, b), permP(a, b));
+  assert.ok(permP(a, b) < 0.01, String(permP(a, b)));
+  assert.ok(permP([3, 4, 3, 4, 3, 4, 3, 4], [4, 3, 4, 3, 4, 3, 4, 3]) > 0.5);
+  assert.deepEqual(bhKeep([0.001, 0.02, 0.04, 0.5]), [true, true, true, false]);
+  assert.deepEqual(bhKeep([0.04, 0.3, 0.6, 0.9]), [false, false, false, false]); // 0.04 alone among 4 tries isn't enough
+}
+
+// insights on noise: 60 days of independent random logs show nothing (they showed 4 findings on average before)
+{
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const pick = <T extends number>(lo: T, hi: T) => (lo + Math.floor(rnd() * (hi - lo + 1))) as T;
+  const noise = defaultState();
+  noise.trackers = [{ id: 'hd', name: 'Headache', emoji: 'x', kind: 'scale', createdAt: 0 }];
+  for (let i = 1; i <= 61; i++) {
+    const date = atTime(new Date(), -i, 12);
+    const at = (h: number) => atTime(date, 0, h).getTime();
+    noise.days[dayKey(date)] = {
+      water: Array.from({ length: pick(4, 12) }, (_, j) => ({ id: `w${i}-${j}`, ml: 250, at: at(8 + j) })),
+      food: [], games: rnd() < 0.5 ? [{ start: at(20), end: at(20) + pick(30, 240) * 60_000 }] : [], bonusGameMin: 0,
+      sets: rnd() < 0.5 ? [{ id: `s${i}`, exercise: 'Squat', weight: 40, reps: 10, at: at(17) }] : [],
+      coffee: Array.from({ length: pick(0, 4) }, (_, j) => ({ id: `c${i}-${j}`, mg: 90, at: at(8 + j * 3) })),
+      moods: [{ id: `m${i}`, level: pick<2 | 3 | 4 | 5>(2, 5), emotions: [], at: at(13) }],
+      steps: pick(3000, 13000), sleepMin: pick(340, 520), sleepRating: pick<2 | 3 | 4 | 5>(2, 5), energy: pick<2 | 3 | 4 | 5>(2, 5),
+      tracks: { hd: pick(1, 4) },
+    };
+  }
+  assert.deepEqual(insights(noise).map((x) => x.id), []);
+}
+
+// weekdays: not the day score (which mostly says where the workouts are planned), one measure at a time
+{
+  const wk = defaultState();
+  wk.plan = { 0: null, 1: { name: 'Legs', exercises: [] }, 2: null, 3: null, 4: null, 5: null, 6: null }; // Mondays planned, never trained: the day score would call Mondays bad
+  for (let i = 1; i <= 91; i++) {
+    const date = atTime(new Date(), -i, 12);
+    const sunday = date.getDay() === 0;
+    wk.days[dayKey(date)] = {
+      water: Array.from({ length: sunday ? 4 : 8 }, (_, j) => ({ id: `w${i}-${j}`, ml: 250 + (j % 2) * 10, at: date.getTime() })),
+      food: [], sets: [], games: [], bonusGameMin: 0, steps: 8000 + (i % 3) * 500,
+    };
+  }
+  const wkIns = insights(wk).filter((x) => x.id === 'weekday');
+  assert.equal(wkIns.length, 1);
+  assert.ok(wkIns[0].text.startsWith('Sundays: you drink about') && wkIns[0].text.includes('% less water'), wkIns[0].text);
+}
 
 // wrapped: always intro + finale, data slides only with data
 const wnow = new Date();
@@ -1649,7 +1742,7 @@ void (async () => {
 // weather insights: sunny days vs the rest (mood), rainy days vs dry ones (steps)
 {
   const ws = defaultState();
-  for (let i = 1; i <= 12; i++) {
+  for (let i = 1; i <= 20; i++) {
     const key = dayKey(addDays(new Date(), -i));
     const sunnyDay = i % 2 === 0;
     ws.days[key] = {
@@ -1763,11 +1856,21 @@ void (async () => {
       energy: luteal ? 2 : 4,
     };
   }
+  // counted back from the next period (29 May, then the predicted 26 June)
   assert.equal(phaseOn(cy, '2026-05-01'), 'period');
   assert.equal(phaseOn(cy, '2026-05-08'), 'follicular');
-  assert.equal(phaseOn(cy, '2026-05-15'), 'ovulation');
-  assert.equal(phaseOn(cy, '2026-05-20'), 'luteal');
+  assert.equal(phaseOn(cy, '2026-05-15'), 'ovulation'); // 14 days before
+  assert.equal(phaseOn(cy, '2026-05-20'), null); // 9 days before: between mid-cycle and the last week, unnamed
+  assert.equal(phaseOn(cy, '2026-05-24'), 'luteal'); // the week before
+  assert.equal(phaseOn(cy, '2026-06-20'), 'luteal'); // the week before the predicted start
+  assert.equal(phaseOn(cy, '2026-06-27'), null); // past the predicted start with nothing logged: late, not "the week before" forever
   assert.equal(phaseOn(defaultState(), '2026-05-20'), null);
+  // a 35-day cycle: mid-cycle is still about 14 days before the next period, not cycle day 14–16
+  const long = defaultState();
+  for (const k of ['2026-01-01', '2026-01-02', '2026-02-05', '2026-02-06']) long.days[k] = { ...blank(), period: { flow: 'medium', symptoms: [] } };
+  assert.equal(phaseOn(long, '2026-01-22'), 'ovulation');
+  assert.equal(phaseOn(long, '2026-01-15'), 'follicular');
+  assert.equal(phaseOn(long, '2026-02-01'), 'luteal');
   const stats = cycleStats(cy, cnow)!;
   assert.equal(stats.cycles, 1);
   assert.equal(stats.phases.find((p) => p.phase === 'luteal')?.sleepMin, 480);
@@ -1784,7 +1887,7 @@ void (async () => {
     { id: 'hd', name: 'Headache', emoji: 'x', kind: 'scale', createdAt: 0 },
     { id: 'al', name: 'Allergy', emoji: 'y', kind: 'check', createdAt: 0 },
   ];
-  for (let i = 1; i <= 20; i++) {
+  for (let i = 1; i <= 30; i++) {
     const key = dayKey(addDays(cnow, -i));
     const short = i % 2 === 0;
     const drop = i % 3 === 0;
@@ -1796,7 +1899,7 @@ void (async () => {
     };
   }
   const hd = detective(dt, dt.trackers[0], cnow);
-  assert.equal(hd.logged, 20);
+  assert.equal(hd.logged, 30);
   assert.equal(hd.clues[0]?.id, 'short_sleep', JSON.stringify(hd.clues));
   assert.ok(hd.clues[0].text.includes('higher'));
   const al = detective(dt, dt.trackers[1], cnow);
@@ -1805,13 +1908,15 @@ void (async () => {
   for (const c of [...hd.clues, ...al.clues]) assert.ok(!/caus/i.test(c.text), c.text);
   assert.equal(detective(defaultState(), dt.trackers[0], cnow).clues.length, 0);
 
-  // self-experiments: the days she did it vs the two weeks before; any days count, never "in a row"
+  // self-experiments: the days it was done vs the two weeks before; any days count, never "in a row"
   const ex = defaultState();
+  const doneDays = ['2026-06-15', '2026-06-17', '2026-06-18', '2026-06-19', '2026-06-21', '2026-06-23', '2026-06-24', '2026-06-26'];
+  const nightAfter = (k: string) => dayKey(addDays(new Date(`${k}T12:00`), 1));
   for (let i = 0; i < 30; i++) {
     const key = dayKey(addDays(new Date(2026, 5, 1, 12), i));
-    ex.days[key] = { ...blank(), sleepMin: ['2026-06-16', '2026-06-18', '2026-06-20', '2026-06-22'].includes(key) ? 480 : 420 };
+    ex.days[key] = { ...blank(), sleepMin: doneDays.map(nightAfter).includes(key) ? 480 : 420 };
   }
-  const exp = { id: 'e', title: 'No screens after 22:00', emoji: 'x', metric: 'sleepMin' as const, from: '2026-06-15', days: 14, done: ['2026-06-15', '2026-06-17', '2026-06-19', '2026-06-21'], startedAt: 0 };
+  const exp = { id: 'e', title: 'No screens after 22:00', emoji: 'x', metric: 'sleepMin' as const, from: '2026-06-15', days: 14, done: doneDays, startedAt: 0 };
   assert.deepEqual([experimentDays(exp)[0], experimentDays(exp)[13]], ['2026-06-15', '2026-06-28']);
   const done = experimentResult(ex, exp, new Date(2026, 5, 30, 12));
   assert.ok(done.ended);
@@ -1819,7 +1924,18 @@ void (async () => {
   assert.equal(done.during, 480);
   assert.equal(done.before, 420);
   assert.equal(done.verdict, 'better');
-  assert.ok(verdictText(exp, done).includes('better'));
+  assert.ok(verdictText(exp, done).startsWith('Looks like it helped'), verdictText(exp, done));
+  // a gap as big as the noise around it is "no clear difference", not a win
+  const noisy = structuredClone(ex);
+  for (let i = 0; i < 30; i++) {
+    const key = dayKey(addDays(new Date(2026, 5, 1, 12), i));
+    const during = doneDays.map(nightAfter).includes(key);
+    noisy.days[key] = { ...blank(), sleepMin: (during ? 435 : 420) + (i % 2 ? 45 : -45) };
+  }
+  assert.equal(experimentResult(noisy, exp, new Date(2026, 5, 30, 12)).verdict, 'same');
+  // sick days count on neither side
+  const sick = startPause(structuredClone(ex), 'sick', 7, '2026-06-17');
+  assert.equal(experimentResult(sick, exp, new Date(2026, 5, 30, 12)).nDuring, 3); // 17–23 June paused: 15, 24 and 26 are left
   const mid = experimentResult(ex, exp, new Date(2026, 5, 20, 12));
   assert.ok(!mid.ended);
   assert.equal(mid.day, 6);
@@ -2903,7 +3019,15 @@ void (async () => {
   assert.equal(nightUse.top, 'TikTok');
   assert.equal(dayKey(nightUse.lastAt!), '2026-10-13');
   assert.equal(new Date(nightUse.lastAt!).getMinutes(), 47);
-  assert.deepEqual(nightPhone([{ label: 'X', start: at(23, 0), end: at(23, 5) }], win.bed, win.end), { lateMin: 5, lastAt: null, top: null });
+  assert.deepEqual(nightPhone([{ label: 'X', start: at(23, 0), end: at(23, 5) }], win.bed, win.end), { lateMin: 5, lastAt: null, top: null, from: win.bed });
+  // with the watch: counted from the watch's bedtime when that was later (the sofa before a late night isn't bed)
+  const watchBed = at(0, 30);
+  assert.equal(inBedFrom(win.bed, watchBed), watchBed);
+  assert.equal(inBedFrom(win.bed, at(22)), win.bed); // in bed early: still from the target bedtime
+  assert.equal(inBedFrom(win.bed, undefined), win.bed);
+  const fromWatch = nightPhone(spans, inBedFrom(win.bed, watchBed), win.end);
+  assert.equal(fromWatch.lateMin, 17); // TikTok from 00:30 to 00:47 only
+  assert.equal(fromWatch.from, watchBed);
 
   // automatic backup: Sundays without one yet, or anything over a week old
   const sunday = new Date(2026, 9, 18, 10);
@@ -3023,6 +3147,10 @@ void (async () => {
   assert.equal(eveningKey(late), '2027-01-13');
   assert.equal(tomorrowKey(late), '2027-01-14');
   assert.equal(tomorrowKey(new Date(2027, 0, 13, 21).getTime()), '2027-01-14');
+  // by the clock: on the night the clocks go back (25 Oct 2026), 03:30 is still that evening, not "4 hours ago" = the new day
+  assert.equal(eveningKey(new Date(2026, 9, 25, 3, 30)), '2026-10-24');
+  assert.equal(tomorrowKey(new Date(2026, 9, 25, 3, 30)), '2026-10-25');
+  assert.equal(eveningKey(new Date(2026, 9, 25, 4, 0)), '2026-10-25');
   const tt = defaultState();
   tt.tasks = [
     { id: 'a', title: 'A', done: false, createdAt: 0 },
@@ -3076,6 +3204,13 @@ void (async () => {
   assert.equal(night.bedAt, at(-1));
   assert.equal(night.wakeAt, at(7));
   assert.deepEqual(night.stages, { deep: 120, light: 140, rem: 150, awake: 30 });
+  // asleep: the stages that aren't awake, not wake − bed − awake (that counted the 40-minute gap as sleep)
+  assert.equal(asleepMin(night), 410);
+  assert.equal(stagedMin(night), 440); // what the stage shares are of: they add up to 100 %
+  // a split night without stages: two stretches of sleep, the gap between them isn't sleep
+  const plain = nightOf([{ start: at(-1), end: at(3), stages: [] }, { start: at(4), end: at(7), stages: [] }], key)!;
+  assert.equal(asleepMin(plain), 420);
+  assert.equal(plain.stages, null);
   assert.equal(nightOf([nap], key), null);
   assert.equal(nightOf([{ ...main, stages: [{ start: at(-1), end: at(5), stage: 2 }] }], key)!.stages, null); // only "sleeping"
   assert.equal(nightClock(at(-1), key), -60);

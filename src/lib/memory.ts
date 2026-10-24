@@ -22,13 +22,20 @@ export function immortalTask(s: State, now = Date.now()): { task: Task; days: nu
 
 // ---- tonight's debrief, tomorrow's top 3 ----
 
-const NIGHT_MS = 4 * 3_600_000; // until 04:00 it's still last night
+/** Until 04:00 it's still last night. */
+const NIGHT_ENDS = 4;
 
-/** The evening a moment belongs to. */
-export const eveningKey = (now = Date.now()) => dayKey(now - NIGHT_MS);
+/**
+ * The evening a moment belongs to: before 04:00 it's the day before. By the clock, not "4 hours ago", so the
+ * night the clocks go back (25 hours) doesn't hand 03:00–04:00 to the new day.
+ */
+export const eveningKey = (now: Date | number = Date.now()) => {
+  const d = new Date(now);
+  return dayKey(d.getHours() < NIGHT_ENDS ? addDays(d, -1) : d);
+};
 
 /** The day an evening debrief plans for. */
-export const tomorrowKey = (now = Date.now()) => dayKey(addDays(now - NIGHT_MS, 1));
+export const tomorrowKey = (now: Date | number = Date.now()) => dayKey(addDays(new Date(`${eveningKey(now)}T12:00`), 1));
 
 /** Today's top 3 as picked in last night's debrief: the tasks that still exist, done or not. */
 export function topToday(s: State, now = Date.now()): Task[] {

@@ -1,8 +1,11 @@
-// Two-week self-experiments: "no screens after 22", "coffee only before 13"… She ticks off the days she did
-// it (any days, not in a row), and at the end the outcome on those days is compared with the two weeks before.
-// No XP, no penalty: it's her experiment.
+// Two-week self-experiments: "no screens after 22", "coffee only before 13"… The owner ticks off the days it
+// was done (any days, not in a row), and at the end the outcome on those days is compared with the two weeks
+// before. "Looks like it helped" needs 7+ days on each side and a difference chance alone rarely gives (a
+// permutation test, stats.ts); paused (sick, away) days don't count on either side. No XP, no penalty.
 import { addDays, dayKey, fmtDuration, MIN } from './dates';
+import { pausedOn } from './pause';
 import { avgMood, dayOf } from './selectors';
+import { permP } from './stats';
 import type { Experiment, ExperimentMetric, State } from './types';
 
 export const EXPERIMENT_DAYS = 14;
@@ -43,13 +46,15 @@ export const activeExperiment = (s: State) => (s.experiments ?? []).find((e) => 
 export const experimentDays = (e: Experiment) => Array.from({ length: e.days }, (_, i) => dayKey(addDays(new Date(`${e.from}T12:00`), i)));
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
-const MIN_EACH = 3;
+const MIN_EACH = 7; // days needed on each side
+/** One planned comparison, not a search through many, so a looser bar than Insights' is fair. */
+const P_EXPERIMENT = 0.1;
 
 export type ExperimentResult = {
   day: number; // 1-based day of the experiment today (capped at its length)
   ended: boolean;
   doneCount: number;
-  during: number | null; // average outcome on the days she did it
+  during: number | null; // average outcome on the days it was done
   before: number | null; // average outcome in the two weeks before it started
   nDuring: number;
   nBefore: number;
@@ -61,18 +66,29 @@ export function experimentResult(s: State, e: Experiment, now = new Date()): Exp
   const days = experimentDays(e);
   const elapsed = days.filter((k) => k <= today).length;
   const ended = today > days[days.length - 1];
-  const during = e.done.map((k) => metricOn(s, k, e.metric)).filter((v): v is number => v != null);
+  const during = e.done
+    .filter((k) => !pausedOn(s, k))
+    .map((k) => metricOn(s, k, e.metric))
+    .filter((v): v is number => v != null);
   const before: number[] = [];
   for (let i = 1; i <= EXPERIMENT_DAYS; i++) {
     const key = dayKey(addDays(new Date(`${e.from}T12:00`), -i));
-    if (!s.days[key]) continue;
+    if (!s.days[key] || pausedOn(s, key)) continue;
     const v = metricOn(s, key, e.metric);
     if (v != null) before.push(v);
   }
   const a = avg(during);
   const b = avg(before);
   const step = e.metric === 'sleepMin' ? 15 : 0.3; // smallest difference worth calling
-  const verdict = a == null || b == null || during.length < MIN_EACH || before.length < MIN_EACH ? 'unknown' : a - b >= step ? 'better' : b - a >= step ? 'worse' : 'same';
+  const clear = () => permP(during, before) < P_EXPERIMENT;
+  const verdict =
+    a == null || b == null || during.length < MIN_EACH || before.length < MIN_EACH
+      ? 'unknown'
+      : a - b >= step && clear()
+        ? 'better'
+        : b - a >= step && clear()
+          ? 'worse'
+          : 'same';
   return { day: Math.max(1, elapsed), ended, doneCount: e.done.length, during: a, before: b, nDuring: during.length, nBefore: before.length, verdict };
 }
 
@@ -81,10 +97,13 @@ export function verdictText(e: Experiment, r: ExperimentResult) {
   const m = metricInfo(e.metric);
   if (r.verdict === 'unknown') {
     return r.nBefore < MIN_EACH
-      ? `Not enough ${m.label.toLowerCase()} logged in the two weeks before to compare with.`
-      : `Not enough data yet: ${m.what} on at least 3 days you did it.`;
+      ? `Not enough yet: ${m.label.toLowerCase()} on at least ${MIN_EACH} days in the two weeks before is needed to compare with.`
+      : `Not enough yet: ${m.what} on at least ${MIN_EACH} days you did it.`;
   }
   const vs = `${fmtMetric(e.metric, r.during!)} vs ${fmtMetric(e.metric, r.before!)} before`;
   if (r.verdict === 'same') return `No clear difference in ${m.label.toLowerCase()} (${vs}). Useful to know too.`;
-  return `${m.label} was ${r.verdict === 'better' ? 'better' : 'worse'} on the days you did it: ${vs}.`;
+  const what = m.label.toLowerCase();
+  return r.verdict === 'better'
+    ? `Looks like it helped: ${what} was better on the days you did it (${vs}).`
+    : `Looks like it didn't help: ${what} was worse on the days you did it (${vs}).`;
 }

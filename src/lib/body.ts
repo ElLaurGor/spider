@@ -1,6 +1,7 @@
 // Training activities, sleep ratings and the menstrual cycle.
-import { addDays, dayKey, startOfDay } from './dates';
+import { addDays, dayKey, isDayKey, startOfDay } from './dates';
 import { dayOf, onPeriod } from './selectors';
+import { realFlow } from './tone';
 import type { ActivityKind, PeriodFlow, Rating, State } from './types';
 
 export const ACTIVITIES: { kind: ActivityKind; label: string; emoji: string }[] = [
@@ -31,20 +32,50 @@ export const SYMPTOMS = ['Cramps', 'Headache', 'Bloating', 'Tired', 'Mood swings
 
 const noon = (key: string) => new Date(`${key}T12:00`);
 const DAY = 86_400_000;
+const daysBetween = (a: string, b: string) => Math.round((noon(b).getTime() - noon(a).getTime()) / DAY); // noon to noon: DST-proof
 
-/** First day of each period, oldest first. Up to 3 unlogged days inside a period don't split it. */
-export function periodStarts(s: State): string[] {
+/** One period: `start` is its first day of real flow, `lastFlow` its last, `end` its last logged day (trailing spotting too). */
+export type PeriodRun = { start: string; lastFlow: string; end: string };
+
+/**
+ * Every period, oldest first: a run of logged flow days (up to 3 unlogged days inside don't split it) with
+ * real flow in it. Spotting before the first real day doesn't move the start, and a run of spotting only
+ * (mid-cycle spotting) isn't a period at all, so it can't restart the cycle or shift the prediction.
+ */
+export function periodRuns(s: State): PeriodRun[] {
   const keys = Object.keys(s.days)
-    .filter((k) => onPeriod(s.days[k]))
+    .filter((k) => isDayKey(k) && onPeriod(s.days[k]))
     .sort();
-  return keys.filter((k) => {
-    for (let back = 1; back <= 3; back++) {
-      const prev = s.days[dayKey(addDays(noon(k), -back))];
-      if (prev && onPeriod(prev)) return false;
-    }
-    return true;
+  const runs: string[][] = [];
+  for (const k of keys) {
+    const prev = runs.at(-1);
+    if (prev && daysBetween(prev[prev.length - 1], k) <= 3) prev.push(k);
+    else runs.push([k]);
+  }
+  return runs.flatMap((run) => {
+    const real = run.filter((k) => realFlow(s.days[k]));
+    return real.length ? [{ start: real[0], lastFlow: real[real.length - 1], end: run[run.length - 1] }] : [];
   });
 }
+
+/** First day of each period, oldest first. */
+export const periodStarts = (s: State): string[] => periodRuns(s).map((r) => r.start);
+
+/** Cycle lengths between starts that look like real cycles (15–60 days), the latest six. */
+const cycleLengths = (starts: string[]) =>
+  starts
+    .slice(1)
+    .map((k, i) => daysBetween(starts[i], k))
+    .filter((n) => n >= 15 && n <= 60)
+    .slice(-6);
+const averageLength = (lengths: number[]) => (lengths.length ? Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length) : 28);
+
+/** The periods and the usual cycle length: what phaseOn() needs, worked out once for a whole screen. */
+export function cycleMap(s: State) {
+  const runs = periodRuns(s);
+  return { runs, avgLength: averageLength(cycleLengths(runs.map((r) => r.start))) };
+}
+export type CycleMap = ReturnType<typeof cycleMap>;
 
 export type CycleInfo = {
   cycleDay: number; // 1 = first day of the latest period
@@ -57,32 +88,22 @@ export type CycleInfo = {
 };
 
 export function cycleInfo(s: State, now = new Date()): CycleInfo | null {
-  const starts = periodStarts(s);
-  if (!starts.length) return null;
-  const startDates = starts.map(noon);
-  const lengths = startDates
-    .slice(1)
-    .map((d, i) => Math.round((d.getTime() - startDates[i].getTime()) / DAY))
-    .filter((n) => n >= 15 && n <= 60)
-    .slice(-6);
-  const avgLength = lengths.length ? Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length) : 28;
+  const runs = periodRuns(s);
+  if (!runs.length) return null;
+  const lengths = cycleLengths(runs.map((r) => r.start));
+  const avgLength = averageLength(lengths);
+  // How many days each period lasted (first to last real flow), to shade the predicted days.
+  const avgPeriodDays = Math.round(runs.reduce((a, r) => a + daysBetween(r.start, r.lastFlow) + 1, 0) / runs.length);
 
-  // How many days each period lasted, to shade the predicted days.
-  const durations = starts.map((k) => {
-    let n = 0;
-    while (onPeriod(dayOf(s, dayKey(addDays(noon(k), n))))) n++;
-    return Math.max(1, n);
-  });
-  const avgPeriodDays = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
-
-  const last = startDates[startDates.length - 1];
-  const today = startOfDay(now).getTime();
-  const cycleDay = Math.round((today - startOfDay(last).getTime()) / DAY) + 1; // round: a 23-hour day isn't a short day
-  const nextStart = addDays(startOfDay(last), avgLength);
-  const daysUntil = Math.round((nextStart.getTime() - today) / DAY);
+  const latest = runs[runs.length - 1];
+  const today = dayKey(now);
+  const cycleDay = daysBetween(latest.start, today) + 1;
+  const nextStart = addDays(startOfDay(noon(latest.start)), avgLength);
+  const daysUntil = Math.round((nextStart.getTime() - startOfDay(now).getTime()) / DAY); // round: a 23-hour day isn't a short day
   return {
     cycleDay,
-    periodDay: onPeriod(dayOf(s, dayKey(now))) ? cycleDay : null,
+    // Spotting mid-cycle isn't a period day; flow inside the latest period is.
+    periodDay: onPeriod(dayOf(s, today)) && today >= latest.start && today <= latest.end ? cycleDay : null,
     avgLength,
     cycles: lengths.length,
     avgPeriodDays,
@@ -95,8 +116,8 @@ export function cycleInfo(s: State, now = new Date()): CycleInfo | null {
 export function isPredictedPeriod(info: CycleInfo | null, date: Date) {
   if (!info) return false;
   const t = startOfDay(date).getTime();
-  const start = startOfDay(info.nextStart).getTime();
-  return t >= start && t < start + info.avgPeriodDays * DAY;
+  const start = startOfDay(info.nextStart);
+  return t >= start.getTime() && t < addDays(start, info.avgPeriodDays).getTime(); // whole days, so DST can't add one
 }
 
 // ---- cluster D: cycle phases ----
@@ -105,16 +126,29 @@ export type CyclePhase = 'period' | 'follicular' | 'ovulation' | 'luteal';
 export const PHASES: CyclePhase[] = ['period', 'follicular', 'ovulation', 'luteal'];
 export const PHASE_NAMES: Record<CyclePhase, string> = {
   period: 'your period',
-  follicular: 'the week after your period',
+  follicular: 'the days after your period',
   ovulation: 'mid-cycle',
   luteal: 'the week before your period',
 };
 
-/** Where a logged day falls in the cycle, counted from the period start before it. Null before the first logged period. */
-export function phaseOn(s: State, key: string, starts = periodStarts(s)): CyclePhase | null {
-  if (onPeriod(dayOf(s, key))) return 'period';
-  const start = [...starts].reverse().find((k) => k <= key);
-  if (!start) return null;
-  const cycleDay = Math.round((noon(key).getTime() - noon(start).getTime()) / DAY) + 1;
-  return cycleDay <= 13 ? 'follicular' : cycleDay <= 16 ? 'ovulation' : 'luteal';
+/**
+ * Where a logged day falls in the cycle, counted back from the next period (the one that came, or the predicted
+ * one): its last 7 days are the week before it, 12–16 days before it is mid-cycle (ovulation is about 14 days
+ * before a period, whatever the cycle length), and the days after a period until then are follicular. The days
+ * in between (8–11 before) aren't named. Null before the first logged period, and for days past a predicted
+ * start that hasn't come: a late period isn't "the week before" forever.
+ */
+export function phaseOn(s: State, key: string, map = cycleMap(s)): CyclePhase | null {
+  const { runs, avgLength } = map;
+  let i = -1;
+  for (let j = 0; j < runs.length && runs[j].start <= key; j++) i = j;
+  if (i < 0) return null;
+  const run = runs[i];
+  if (key <= run.end) return 'period';
+  const next = runs[i + 1]?.start ?? dayKey(addDays(noon(run.start), avgLength));
+  const until = daysBetween(key, next);
+  if (until <= 0) return null;
+  if (until <= 7) return 'luteal';
+  if (until >= 12 && until <= 16) return 'ovulation';
+  return until > 16 ? 'follicular' : null;
 }

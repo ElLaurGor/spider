@@ -6,7 +6,7 @@ import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtDuration, fmtTime, MIN, WEEKDAYS } from '@/lib/dates';
 import { openHealthSettings, readSleepNight } from '@/lib/health';
 import { dayOf } from '@/lib/selectors';
-import { clockLabel, rhythmOf, type Night, type StageKind } from '@/lib/sleep';
+import { asleepMin, clockLabel, rhythmOf, stagedMin, type Night, type StageKind } from '@/lib/sleep';
 import { useStore } from '@/lib/store';
 import type { SleepStages } from '@/lib/types';
 
@@ -176,7 +176,8 @@ export default function SleepScreen() {
   const loading = result?.key !== day;
   const night = loading ? null : result.night;
   const inBed = night ? Math.round((night.wakeAt - night.bedAt) / MIN) : 0;
-  const asleep = night ? inBed - (night.stages?.awake ?? 0) : 0;
+  const asleep = night ? asleepMin(night) : 0;
+  const staged = night ? stagedMin(night) : 0; // the stage shares add up to 100 %, a split night's gap left out
 
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
@@ -227,7 +228,7 @@ export default function SleepScreen() {
                     label={l.label}
                     color={l.color}
                     value={fmtDuration(min * MIN)}
-                    sub={`${Math.round((min / Math.max(1, inBed)) * 100)} %`}
+                    sub={`${Math.round((min / Math.max(1, staged)) * 100)} %`}
                   />
                 );
               })}

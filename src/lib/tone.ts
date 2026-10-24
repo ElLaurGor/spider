@@ -18,27 +18,31 @@ export type PeriodForecast = { nextStart: Date; avgPeriodDays: number };
 const noon = (key: string) => new Date(`${key}T12:00`);
 const before = (key: string, n = 1) => dayKey(addDays(noon(key), -n));
 const flowOn = (d?: DayLog) => d?.period?.flow != null;
+/** Real flow (light or more). Spotting alone doesn't start a period or count toward one (body.ts uses this too). */
+export const realFlow = (d?: DayLog) => flowOn(d) && d?.period?.flow !== 'spotting';
 
-/** How many days a period usually lasts: the average run of logged flow days (5 until one has ended). */
+/** How many days a period usually lasts: the average run of logged flow days (5 until one has ended). A run of spotting only isn't a period. */
 function usualPeriodDays(s: State, running: string) {
   const keys = Object.keys(s.days)
     .filter((k) => flowOn(s.days[k]))
     .sort();
-  const runs: { last: string; n: number }[] = [];
+  const runs: { last: string; n: number; real: boolean }[] = [];
   for (const k of keys) {
     const prev = runs.at(-1);
     if (prev && before(k) === prev.last) {
       prev.last = k;
       prev.n++;
-    } else runs.push({ last: k, n: 1 });
+      prev.real ||= realFlow(s.days[k]);
+    } else runs.push({ last: k, n: 1, real: realFlow(s.days[k]) });
   }
-  const done = runs.filter((r) => r.last !== running); // the period still going doesn't count yet
+  const done = runs.filter((r) => r.real && r.last !== running); // the period still going doesn't count yet
   return done.length ? Math.round(done.reduce((a, r) => a + r.n, 0) / done.length) : 5;
 }
 
 /**
- * A period day: flow logged that day, or a period still running (flow logged the day before and the run
- * not yet longer than usual), so day 2 counts before it's logged. A day with its own period entry (say,
+ * A period day: flow logged that day (spotting too: a kind day costs nothing), or a period still running
+ * (real flow in the run up to yesterday and the run not yet longer than usual), so day 2 counts before it's
+ * logged. A day of spotting doesn't make tomorrow a period day. A day with its own period entry (say,
  * symptoms only) goes by that entry.
  */
 export function periodDay(s: State, key: string) {
@@ -46,8 +50,12 @@ export function periodDay(s: State, key: string) {
   if (flowOn(d)) return true;
   if (d?.period) return false;
   let run = 0;
-  for (let k = before(key); flowOn(s.days[k]); k = before(k)) run++;
-  return run > 0 && run + 1 <= usualPeriodDays(s, before(key));
+  let real = false;
+  for (let k = before(key); flowOn(s.days[k]); k = before(k)) {
+    run++;
+    real ||= realFlow(s.days[k]);
+  }
+  return real && run + 1 <= usualPeriodDays(s, before(key));
 }
 
 /** Whether a day falls inside the predicted next period. */
