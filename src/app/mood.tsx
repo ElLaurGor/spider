@@ -136,7 +136,9 @@ export default function MoodScreen() {
                 if (editing?.id === m.id) clear();
                 actions.removeMood(m.id, day);
               }}
-              hitSlop={8}>
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Delete check-in">
               <Icon name="close" size={18} color={C.faint} />
             </Pressable>
           </Row>

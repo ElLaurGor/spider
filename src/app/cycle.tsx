@@ -100,7 +100,7 @@ export default function CycleScreen() {
           Flow
         </T>
         <Row gap={6} style={{ flexWrap: 'wrap' }}>
-          <Chip label="None" active={!log.flow} color={C.card2} onPress={() => setFlow(null)} />
+          <Chip label="None" active={!log.flow} color={C.faint} onPress={() => setFlow(null)} />
           {FLOWS.map((f) => (
             <Chip key={f.flow} label={f.label} active={log.flow === f.flow} color={f.color} onPress={() => setFlow(f.flow)} />
           ))}

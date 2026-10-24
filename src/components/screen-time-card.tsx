@@ -44,7 +44,7 @@ export function ScreenTimeCard() {
     <Card accent={over ? C.red : C.blue}>
       <H
         right={
-          <Pressable onPress={screen.refresh} hitSlop={8}>
+          <Pressable onPress={screen.refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Refresh screen time">
             <Icon name="refresh" size={20} color={C.dim} />
           </Pressable>
         }>

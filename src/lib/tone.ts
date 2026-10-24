@@ -78,6 +78,18 @@ export function toneOn(s: State, key: string, now = new Date(), forecast?: Perio
 }
 
 /**
+ * The last mood check-in on or before `key`, however many days back, was low (2 or under). A silence after
+ * a low check-in isn't something to roast: the comeback pings use it, since toneOn only carries a mood one day.
+ */
+export function lastMoodLow(s: State, key: string) {
+  const last = Object.keys(s.days)
+    .filter((k) => k <= key && s.days[k].moods?.length)
+    .sort()
+    .at(-1);
+  return (last ? (s.days[last].moods?.at(-1)?.level ?? 5) : 5) <= 2;
+}
+
+/**
  * A gentle day for recaps (diary, morning callbacks, rival talk): a low mood that day, a period day
  * (logged or running, whatever the setting) or any pause. Nothing on such a day gets roasted afterwards.
  */

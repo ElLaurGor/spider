@@ -1,6 +1,6 @@
 import type { AndroidSymbol } from 'expo-symbols';
 import { SymbolView } from 'expo-symbols';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -180,6 +180,8 @@ export function Chip({ label, onPress, active, color = C.red }: { label: string;
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!active }}
       style={({ pressed }) => [
         styles.chip,
         active && { backgroundColor: color, borderColor: color },
@@ -194,6 +196,16 @@ export function Field(props: TextInputProps) {
   return <TextInput placeholderTextColor={C.faint} {...props} style={[styles.field, props.style]} />;
 }
 
+/** Parses a typed number ("12,5" works too); null when it isn't one. */
+export function parseTyped(text: string) {
+  const v = Number(text.trim().replace(',', '.'));
+  return text.trim() && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * − value +. Holding a button repeats it. With `typeable`, tapping the value opens a number field, so
+ * values off the step (a 12 kg kettlebell on a 2.5 kg stepper) can be entered. `label` names it for TalkBack.
+ */
 export function Stepper({
   value,
   onChange,
@@ -201,6 +213,8 @@ export function Stepper({
   min = 0,
   max = 99999,
   format = (v: number) => String(v),
+  label,
+  typeable,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -208,15 +222,73 @@ export function Stepper({
   min?: number;
   max?: number;
   format?: (v: number) => string;
+  label?: string;
+  typeable?: boolean;
 }) {
-  const set = (v: number) => onChange(Math.min(max, Math.max(min, Math.round(v * 100) / 100)));
+  const [typing, setTyping] = useState<string | null>(null);
+  const repeat = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clamp = (v: number) => Math.min(max, Math.max(min, Math.round(v * 100) / 100));
+  const set = (v: number) => onChange(clamp(v));
+  const stop = () => {
+    if (repeat.current) clearInterval(repeat.current);
+    repeat.current = null;
+  };
+  // Held down: one step at once, then about eight a second until released.
+  const hold = (dir: 1 | -1) => {
+    stop();
+    let n = 1;
+    set(value + dir * step);
+    repeat.current = setInterval(() => {
+      n += 1;
+      set(value + dir * step * n);
+    }, 120);
+  };
+  useEffect(() => stop, []);
+  const commit = () => {
+    const v = typing == null ? null : parseTyped(typing);
+    if (v != null) set(Number.isInteger(step) ? Math.round(v) : v); // whole steps take whole numbers (reps, minutes)
+    setTyping(null);
+  };
+  const name = label ? ` ${label}` : '';
   return (
     <Row gap={6}>
-      <Pressable onPress={() => set(value - step)} style={styles.stepBtn} hitSlop={6}>
+      <Pressable
+        onPress={() => set(value - step)}
+        onLongPress={() => hold(-1)}
+        onPressOut={stop}
+        style={styles.stepBtn}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={`Decrease${name}`}>
         <Icon name="remove" size={18} />
       </Pressable>
-      <Text style={styles.stepVal}>{format(value)}</Text>
-      <Pressable onPress={() => set(value + step)} style={styles.stepBtn} hitSlop={6}>
+      {typing != null ? (
+        <TextInput
+          value={typing}
+          onChangeText={setTyping}
+          onSubmitEditing={commit}
+          onBlur={commit}
+          keyboardType="decimal-pad"
+          autoFocus
+          selectTextOnFocus
+          accessibilityLabel={label ? `Type ${label}` : 'Type a value'}
+          style={[styles.stepVal, styles.stepField]}
+        />
+      ) : typeable ? (
+        <Pressable onPress={() => setTyping(String(value))} accessibilityRole="button" accessibilityLabel={`${format(value)}. Tap to type${name}`} hitSlop={4}>
+          <Text style={[styles.stepVal, styles.stepTypeable]}>{format(value)}</Text>
+        </Pressable>
+      ) : (
+        <Text style={styles.stepVal}>{format(value)}</Text>
+      )}
+      <Pressable
+        onPress={() => set(value + step)}
+        onLongPress={() => hold(1)}
+        onPressOut={stop}
+        style={styles.stepBtn}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={`Increase${name}`}>
         <Icon name="add" size={18} />
       </Pressable>
     </Row>
@@ -281,6 +353,8 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   stepVal: { color: C.text, fontFamily: MONO, fontSize: 16, minWidth: 64, textAlign: 'center', fontWeight: '700' },
+  stepTypeable: { textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: C.faint },
+  stepField: { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card2 },
   bubble: {
     flex: 1,
     backgroundColor: C.card2,

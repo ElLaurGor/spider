@@ -114,7 +114,7 @@ export default function BreatheScreen() {
                 <Icon name={on ? 'check_circle' : 'radio_button_unchecked'} size={22} color={on ? C.green : C.dim} />
                 <T style={[{ flex: 1 }, on && { color: C.dim }]}>{item}</T>
               </Pressable>
-              <Pressable onPress={() => actions.setWindDownItems(state.windDownItems.filter((x) => x !== item))} hitSlop={8}>
+              <Pressable onPress={() => actions.setWindDownItems(state.windDownItems.filter((x) => x !== item))} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Remove ${item}`}>
                 <Icon name="close" size={16} color={C.faint} />
               </Pressable>
             </Row>

@@ -110,7 +110,7 @@ export function TrackersCard({ day = dayKey() }: { day?: string }) {
               <T dim small>
                 {KINDS.find((k) => k.kind === t.kind)?.label}
               </T>
-              <Pressable onPress={() => actions.deleteTracker(t.id)} hitSlop={8}>
+              <Pressable onPress={() => actions.deleteTracker(t.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${t.name}`}>
                 <Icon name="close" size={18} color={C.faint} />
               </Pressable>
             </Row>

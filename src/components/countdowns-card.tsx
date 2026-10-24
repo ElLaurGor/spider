@@ -60,7 +60,7 @@ export function CountdownsCard() {
               </T>
             </View>
             <Text style={[styles.days, n <= 7 && { color: C.yellow }]}>{n === 0 ? 'TODAY' : `${n}d`}</Text>
-            <Pressable onPress={() => actions.deleteCountdown(c.id)} hitSlop={8}>
+            <Pressable onPress={() => actions.deleteCountdown(c.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${c.title}`}>
               <Icon name="close" size={18} color={C.faint} />
             </Pressable>
           </Row>

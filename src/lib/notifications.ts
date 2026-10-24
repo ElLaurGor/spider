@@ -40,7 +40,7 @@ import { bossFinisher } from './boss-plan';
 import { bossFor, questsFor } from './quests';
 import { insightById } from './jit';
 import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
-import { periodDay, toneOn, type DayTone } from './tone';
+import { lastMoodLow, periodDay, toneOn, type DayTone } from './tone';
 import { upcomingDays } from './swedish-days';
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
@@ -168,8 +168,10 @@ async function scheduleAt(
   channelId: string,
   buttons?: { category: (typeof CATEGORY)[keyof typeof CATEGORY]; data?: Record<string, string> },
 ) {
-  const date = new Date(when);
-  if (date.getTime() < Date.now() + 5_000) return;
+  const due = new Date(when).getTime();
+  if (due <= Date.now()) return; // its time has come: it went out before this replan cancelled it, or it's too late
+  // Android wants some lead time: one due within seconds of a replan still goes, a moment late, instead of never.
+  const date = new Date(Math.max(due, Date.now() + 5_000));
   await Notifications.scheduleNotificationAsync({
     identifier: id,
     content: { title, body, color: C.red, categoryIdentifier: buttons?.category, data: buttons?.data },
@@ -450,12 +452,15 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   }
 
   // Pushed forward every time the app is used, so these only fire if it's ignored. Not while sick or away,
-  // and not onto a day that's paused or kind (a predicted period day, say).
+  // and not onto a day that's paused or kind (a predicted period day, say). If the last check-in before the
+  // silence was a low one, they're kind too, however long ago it was.
   if (!pausedOn(s, dayKey(now))) {
+    const low = lastMoodLow(s, dayKey(now));
     for (const [id, days] of [['comeback-3', 3], ['comeback-6', 6]] as const) {
       const at = atTime(now, days, 18);
-      const tone = toneOn(s, dayKey(at), now, cycle);
-      if (pausedOn(s, dayKey(at)) || tone.kind) continue;
+      const dayTone = toneOn(s, dayKey(at), now, cycle);
+      if (pausedOn(s, dayKey(at)) || dayTone.kind) continue;
+      const tone = low ? { level: 1, kind: true } : dayTone;
       const title = days === 3 ? '🕷️ Hello?' : sayOn(s, tone, 'comebackTitle', {}, dayKey(at));
       jobs.push(scheduleAt(id, at, title, sayOn(s, tone, 'comeback', {}, dayKey(at)), CH.remind));
     }

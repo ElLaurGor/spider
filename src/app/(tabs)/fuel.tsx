@@ -324,7 +324,7 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
                 {f.kcal} kcal · {f.protein}g
               </T>
             </Pressable>
-            <Pressable onPress={() => actions.removeFood(f.id, day)} hitSlop={8}>
+            <Pressable onPress={() => actions.removeFood(f.id, day, true)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${f.name}`}>
               <Icon name="close" size={18} color={C.faint} />
             </Pressable>
           </Row>
@@ -347,7 +347,7 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
             { key: 'protein', label: 'Protein', value: meal.protein, step: 1, min: 0, max: 300, suffix: 'g' },
           ]}
           onSave={(at, v) => actions.updateFood(meal.id, { at, name: v.name, kcal: v.numbers.kcal, protein: v.numbers.protein }, day)}
-          onDelete={() => actions.removeFood(meal.id, day)}
+          onDelete={() => actions.removeFood(meal.id, day, true)}
           onClose={() => setEditing(null)}
         />
       ) : null}

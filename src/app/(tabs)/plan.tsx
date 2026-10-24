@@ -6,6 +6,7 @@ import { EntryEditor } from '@/components/entry-editor';
 import { HabitsCard } from '@/components/habits-card';
 import { HiddenEgg, ValborgBonfire } from '@/components/swedish-year';
 import { Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, T } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
 import { addDays, fmtTime, WEEKDAYS } from '@/lib/dates';
 import { IMMORTAL_DAYS, taskAgeDays } from '@/lib/memory';
@@ -21,7 +22,8 @@ export default function Plan() {
   const [showDone, setShowDone] = useState(false);
   const [renaming, setRenaming] = useState<Task | null>(null);
 
-  const date = addDays(new Date(), offset);
+  const todayKey = useToday();
+  const date = addDays(noonOf(todayKey), offset);
   const dayEvents = eventsOn(cal.events, date);
   const slots = freeSlots(cal.events, date, state.settings.wakeHour + 1, state.settings.sleepHour - 1);
   const plan = workoutFor(state, date);
@@ -41,7 +43,7 @@ export default function Plan() {
   return (
     <Screen title="PLAN" subtitle="Calendar · habits · tasks">
       <Card>
-        <H right={cal.status === 'granted' ? <Pressable onPress={cal.refresh} hitSlop={8}><Icon name="refresh" size={20} color={C.dim} /></Pressable> : undefined}>
+        <H right={cal.status === 'granted' ? <Pressable onPress={cal.refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Refresh calendar"><Icon name="refresh" size={20} color={C.dim} /></Pressable> : undefined}>
           Calendar
         </H>
 
@@ -71,7 +73,7 @@ export default function Plan() {
           <>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
               {Array.from({ length: 7 }, (_, i) => {
-                const d = addDays(new Date(), i);
+                const d = addDays(noonOf(todayKey), i);
                 return (
                   <Chip
                     key={i}
@@ -216,7 +218,7 @@ function TaskRow({
           </T>
         ) : null}
       </Pressable>
-      <Pressable onPress={onDelete} hitSlop={8}>
+      <Pressable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${title}`}>
         <Icon name="close" size={18} color={C.faint} />
       </Pressable>
     </Row>

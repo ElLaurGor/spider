@@ -121,7 +121,7 @@ export default function BodyScreen() {
                   .map((f) => `${f.label} ${(e[f.key] as number).toFixed(1)}${f.unit === '%' ? '%' : ` ${f.unit}`}`)
                   .join(' · ')}
               </T>
-              <Pressable onPress={() => actions.deleteBody(e.id)} hitSlop={8}>
+              <Pressable onPress={() => actions.deleteBody(e.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete entry">
                 <Icon name="close" size={16} color={C.faint} />
               </Pressable>
             </Row>

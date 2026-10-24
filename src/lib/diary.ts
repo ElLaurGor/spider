@@ -6,7 +6,8 @@ import { addDays, dayKey, fmtDuration, MIN } from './dates';
 import { habitsDone } from './habits';
 import { fillLine } from './lines';
 import { dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, moodsOf, trainMinutes, trainedOn, waterGoalFor, waterMl } from './selectors';
-import { gentleDay } from './tone';
+import { pauseOn } from './pause';
+import { gentleDay, periodDay } from './tone';
 import type { DayLog, DiaryPage, State } from './types';
 
 export const QUESTS_PER_PAGE = 10;
@@ -116,6 +117,12 @@ const CLOSERS = [
 ];
 const KIND_OPENERS = ['Observation log, day {day}. A quieter day.', 'Field notes, day {day}. Today {name} was running low.'];
 const KIND_CLOSERS = ['I turned my sarcasm module down and kept watch.', 'Conclusion: {name} is doing more than it feels like.', 'Rest logged. That counts too.'];
+// Away (holiday, trips): off duty by arrangement, not a low day.
+const AWAY_OPENERS = ['Observation log, day {day}. {name} was away. The web kept itself.', 'Field notes, day {day}. Off duty, by arrangement.'];
+const AWAY_CLOSERS = ['Nothing to report. That was the point.', 'I kept the lights on.'];
+
+/** Away mode and nothing else gentle about the day (no low mood, no period): its page reads as time off. */
+const awayDay = (s: State, key: string) => pauseOn(s, key)?.kind === 'away' && (s.days[key]?.moods?.at(-1)?.level ?? 5) > 2 && !periodDay(s, key);
 
 /** Day number since the first day S.P.I.D.E.R. has data for. */
 export function dayNumber(s: State, key: string) {
@@ -142,8 +149,9 @@ export function writePage(s: State, n: number, now = new Date()): DiaryPage {
     .sort((a, b) => a.r - b.r)
     .slice(0, 3)
     .map((x) => x.f.text);
-  const opener = pick(kind ? KIND_OPENERS : OPENERS, `${seed}:open`);
-  const closer = pick(kind ? KIND_CLOSERS : CLOSERS, `${seed}:close`);
+  const away = kind && awayDay(s, key);
+  const opener = pick(away ? AWAY_OPENERS : kind ? KIND_OPENERS : OPENERS, `${seed}:open`);
+  const closer = pick(away ? AWAY_CLOSERS : kind ? KIND_CLOSERS : CLOSERS, `${seed}:close`);
   const body = chosen.length ? chosen.join(' ') : 'Nothing logged. The human went dark. I waited.';
   const text = fillLine(`${opener} ${body} ${closer}`, { day: dayNumber(s, key), name: s.settings.userName || 'boss' });
   return { n, at: now.getTime(), day: key, text };
