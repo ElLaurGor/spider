@@ -202,7 +202,7 @@ export type DayGoals = {
 };
 
 /** Phone use after bedtime, the night before a day. `lastAt` null = none worth mentioning. */
-export type NightPhone = { lateMin: number; lastAt: number | null; top: string | null };
+export type NightPhone = { lateMin: number; lastAt: number | null; top: string | null; from?: number }; // from: when counting started (night.ts inBedFrom)
 
 export type SleepStages = { deep: number; light: number; rem: number; awake: number }; // minutes
 

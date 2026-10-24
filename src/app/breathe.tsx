@@ -1,10 +1,11 @@
+import { requireOptionalNativeModule } from 'expo';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, Card, Chip, Field, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C } from '@/constants/theme';
-import { dayKey } from '@/lib/dates';
+import { eveningKey } from '@/lib/memory';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { XP } from '@/lib/xp';
@@ -13,7 +14,22 @@ import { XP } from '@/lib/xp';
 const PHASES = ['Breathe in', 'Hold', 'Breathe out', 'Hold'] as const;
 const PHASE_MS = 4000;
 
+/** expo-keep-awake's native side (it ships with expo, so the APK has it); null where it's missing. */
+const keepAwake = requireOptionalNativeModule<{ activate(tag: string): Promise<void>; deactivate(tag: string): Promise<void> }>('ExpoKeepAwake');
+const AWAKE_TAG = 'spider-breathe';
+
+/** Keeps the screen on while mounted: with the eyes closed the screen would time out, and Android stops JS timers then. */
+function useScreenOn() {
+  useEffect(() => {
+    keepAwake?.activate(AWAKE_TAG).catch(() => {});
+    return () => {
+      keepAwake?.deactivate(AWAKE_TAG).catch(() => {});
+    };
+  }, []);
+}
+
 function Breather({ minutes, onDone }: { minutes: number; onDone: () => void }) {
+  useScreenOn();
   const [scale] = useState(() => new Animated.Value(0.55));
   const [phase, setPhase] = useState(0);
   const [left, setLeft] = useState(minutes * 60);
@@ -23,34 +39,35 @@ function Breather({ minutes, onDone }: { minutes: number; onDone: () => void }) 
     onDoneRef.current = onDone;
   });
 
+  // Paced from the start time, not by counting ticks: a late or skipped tick can't stretch the session.
   useEffect(() => {
+    const start = Date.now();
     const total = Math.round((minutes * 60_000) / PHASE_MS);
-    let step = 0;
-    const run = () => {
-      const p = step % 4;
-      setPhase(p);
-      Haptics.selectionAsync().catch(() => {});
-      if (p === 0) Animated.timing(scale, { toValue: 1, duration: PHASE_MS, useNativeDriver: true }).start();
-      if (p === 2) Animated.timing(scale, { toValue: 0.55, duration: PHASE_MS, useNativeDriver: true }).start();
-    };
-    run();
-    const tick = setInterval(() => {
-      step++;
+    let shown = -1;
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const step = Math.floor(elapsed / PHASE_MS);
+      setLeft(Math.max(0, minutes * 60 - Math.floor(elapsed / 1000)));
       if (step >= total) {
-        clearInterval(tick);
+        clearInterval(timer);
         if (!done.current) {
           done.current = true;
           onDoneRef.current();
         }
         return;
       }
-      run();
-    }, PHASE_MS);
-    const clock = setInterval(() => setLeft((x) => Math.max(0, x - 1)), 1000);
-    return () => {
-      clearInterval(tick);
-      clearInterval(clock);
+      if (step === shown) return;
+      shown = step;
+      const p = step % 4;
+      const rest = PHASE_MS - (elapsed % PHASE_MS);
+      setPhase(p);
+      Haptics.selectionAsync().catch(() => {});
+      if (p === 0) Animated.timing(scale, { toValue: 1, duration: rest, useNativeDriver: true }).start();
+      if (p === 2) Animated.timing(scale, { toValue: 0.55, duration: rest, useNativeDriver: true }).start();
     };
+    const timer = setInterval(tick, 250);
+    tick();
+    return () => clearInterval(timer);
   }, [minutes, scale]);
 
   return (
@@ -72,7 +89,7 @@ export default function BreatheScreen() {
   const [running, setRunning] = useState(false);
   const [newItem, setNewItem] = useState('');
   const now = useNow(60_000);
-  const tonight = dayKey(now - 4 * 3_600_000); // after midnight still counts as tonight
+  const tonight = eveningKey(now); // after midnight still counts as tonight
   const done = dayOf(state, tonight).windDown ?? [];
 
   const finish = () => {

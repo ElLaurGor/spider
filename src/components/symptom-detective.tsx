@@ -53,8 +53,8 @@ function Body({ state, trackerId, trackers, onPick }: { state: State; trackerId:
         ))
       ) : (
         <T dim small>
-          {logged < 6
-            ? `${tracker.emoji} ${tracker.name} is logged on ${logged} day${logged === 1 ? '' : 's'} so far. Keep logging it, good days too: I need at least 3 days on each side of a comparison.`
+          {logged < 16
+            ? `${tracker.emoji} ${tracker.name} is logged on ${logged} day${logged === 1 ? '' : 's'} so far. Keep logging it, good days too: I need at least 8 days on each side of a comparison.`
             : `No suspect stands out yet for ${tracker.emoji} ${tracker.name} (${logged} days logged). That can be good news.`}
         </T>
       )}

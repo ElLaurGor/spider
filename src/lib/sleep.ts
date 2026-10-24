@@ -52,7 +52,10 @@ export function nightOf(sessions: RawSession[], key: string): Night | null {
   }
   const segments: StageSegment[] = parts
     .flatMap((p) =>
-      p.stages.map((st) => ({ start: Math.max(st.start, p.start), end: Math.min(st.end, p.end), stage: KIND[st.stage] })),
+      // A session without stages is one stretch of sleep: kept as such, so the gap of a split night stays a gap.
+      p.stages.length
+        ? p.stages.map((st) => ({ start: Math.max(st.start, p.start), end: Math.min(st.end, p.end), stage: KIND[st.stage] }))
+        : [{ start: p.start, end: p.end, stage: 'asleep' as const }],
     )
     .filter((x): x is StageSegment => !!x.stage && x.end > x.start)
     .sort((a, b) => a.start - b.start);
@@ -65,6 +68,15 @@ export function nightOf(sessions: RawSession[], key: string): Night | null {
     segments,
   };
 }
+
+/** Minutes actually asleep: every stretch that isn't awake. Not wake − bed, which counts a split night's gap as sleep. */
+export function asleepMin(night: Night) {
+  if (!night.segments.length) return Math.round((night.wakeAt - night.bedAt) / 60_000);
+  return Math.round(night.segments.filter((x) => x.stage !== 'awake').reduce((a, x) => a + x.end - x.start, 0) / 60_000);
+}
+
+/** Minutes the watch has a stage for (asleep or awake): what the stage percentages are shares of. */
+export const stagedMin = (night: Night) => Math.round(night.segments.reduce((a, x) => a + x.end - x.start, 0) / 60_000);
 
 /**
  * Writes the watch's bed and wake times (and stages) onto each morning's day. Days you never opened

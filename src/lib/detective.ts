@@ -1,12 +1,16 @@
-// The symptom detective: for one custom tracker (headache, allergy, stomach…), which of her usual suspects
-// show up together with it, ranked by how big the difference is. "More often when", never "caused by".
-import { periodStarts, phaseOn } from './body';
+// The symptom detective: for one custom tracker (headache, allergy, stomach…), which of the usual suspects
+// show up together with it, ranked by how big the difference is. "More often when", never "caused by". A clue
+// has to clear the same bar as an insight (stats.ts): 8+ days each side, a permutation test, and the cut
+// across all the suspects, so twelve tries don't accuse one by luck. Paused (sick, away) days are left out.
+import { cycleMap, phaseOn, type CycleMap } from './body';
 import { BED_MG, bedtimeCaffeine } from './caffeine';
 import { addDays, dayKey } from './dates';
-import { coffeeOf, dayOf, onPeriod, trainedOn, waterGoalFor, waterMl } from './selectors';
+import { pausedOn } from './pause';
+import { coffeeOf, dayOf, trainedOn, waterGoalFor, waterMl } from './selectors';
+import { family, MIN_SIDE, permP } from './stats';
 import type { DayLog, State, Tracker } from './types';
 
-type Ctx = { key: string; log: DayLog; prev: DayLog; prevKey: string; starts: string[] };
+type Ctx = { key: string; log: DayLog; prev: DayLog; prevKey: string; map: CycleMap };
 
 /** A suspect: true/false for a day, or null when that day can't tell (e.g. no weather saved). */
 type Suspect = { id: string; emoji: string; when: string; test: (s: State, c: Ctx) => boolean | null };
@@ -52,12 +56,12 @@ export const SUSPECTS: Suspect[] = [
       }),
   },
   { id: 'rest_day', emoji: '🛋️', when: 'on days without training', test: (_s, c) => !trainedOn(c.log) },
-  { id: 'period', emoji: '🩸', when: 'on period days', test: (_s, c) => (c.starts.length ? onPeriod(c.log) : null) },
+  { id: 'period', emoji: '🩸', when: 'on period days', test: (s, c) => (c.map.runs.length ? phaseOn(s, c.key, c.map) === 'period' : null) },
   {
     id: 'premenstrual',
     emoji: '🌙',
     when: 'in the week before your period',
-    test: (s, c) => (c.starts.length >= 2 ? phaseOn(s, c.key, c.starts) === 'luteal' : null),
+    test: (s, c) => (c.map.runs.length >= 2 ? phaseOn(s, c.key, c.map) === 'luteal' : null),
   },
 ];
 
@@ -69,22 +73,21 @@ export type Clue = {
   strength: number;
 };
 
-const MIN_EACH = 3;
 const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 /** Ranked clues for one tracker over the last `windowDays` finished days, plus how many days it was logged. */
 export function detective(s: State, tracker: Tracker, now = new Date(), windowDays = 90): { logged: number; clues: Clue[] } {
   const days: Ctx[] = [];
-  const starts = periodStarts(s);
+  const map = cycleMap(s);
   for (let i = windowDays; i >= 1; i--) {
     const date = addDays(now, -i);
     const key = dayKey(date);
-    if (s.days[key]?.tracks?.[tracker.id] == null) continue;
+    if (s.days[key]?.tracks?.[tracker.id] == null || pausedOn(s, key)) continue;
     const prevKey = dayKey(addDays(date, -1));
-    days.push({ key, log: dayOf(s, key), prev: dayOf(s, prevKey), prevKey, starts });
+    days.push({ key, log: dayOf(s, key), prev: dayOf(s, prevKey), prevKey, map });
   }
   const name = `${tracker.emoji} ${tracker.name}`;
-  const clues: Clue[] = [];
+  const clues = family<Clue>();
   for (const sus of SUSPECTS) {
     const yes: number[] = [];
     const no: number[] = [];
@@ -93,33 +96,40 @@ export function detective(s: State, tracker: Tracker, now = new Date(), windowDa
       if (hit == null) continue;
       (hit ? yes : no).push(c.log.tracks![tracker.id]);
     }
-    if (yes.length < MIN_EACH || no.length < MIN_EACH) continue;
+    if (yes.length < MIN_SIDE || no.length < MIN_SIDE) continue;
+    const test = clues.test(() => permP(yes, no));
     const a = avg(yes);
     const b = avg(no);
     const n = `${yes.length} vs ${no.length} days`;
     if (tracker.kind === 'check') {
       const diff = a - b; // share of days it happened
       if (Math.abs(diff) < 0.2) continue;
-      clues.push({
-        id: sus.id,
-        emoji: sus.emoji,
-        text: `${name} shows up ${diff > 0 ? 'more' : 'less'} often ${sus.when}.`,
-        detail: `${Math.round(a * 100)}% vs ${Math.round(b * 100)}% of days · ${n}`,
-        strength: Math.abs(diff) / 0.3,
-      });
+      clues.add(
+        {
+          id: sus.id,
+          emoji: sus.emoji,
+          text: `${name} shows up ${diff > 0 ? 'more' : 'less'} often ${sus.when}.`,
+          detail: `${Math.round(a * 100)}% vs ${Math.round(b * 100)}% of days · ${n}`,
+          strength: Math.abs(diff) / 0.3,
+        },
+        test,
+      );
     } else {
       const fmt = (x: number) => (tracker.kind === 'scale' ? x.toFixed(1) : String(Math.round(x * 10) / 10));
       const unit = tracker.kind === 'scale' ? '/5' : tracker.unit ? ` ${tracker.unit}` : '';
       const enough = tracker.kind === 'scale' ? Math.abs(a - b) >= 0.6 : Math.abs(a - b) >= Math.max(0.5, Math.abs(b) * 0.2);
       if (!enough) continue;
-      clues.push({
-        id: sus.id,
-        emoji: sus.emoji,
-        text: `${name} tends to be ${a > b ? 'higher' : 'lower'} ${sus.when}.`,
-        detail: `${fmt(a)}${unit} vs ${fmt(b)}${unit} · ${n}`,
-        strength: Math.abs(a - b) / (tracker.kind === 'scale' ? 0.8 : Math.max(0.5, Math.abs(b) * 0.3)),
-      });
+      clues.add(
+        {
+          id: sus.id,
+          emoji: sus.emoji,
+          text: `${name} tends to be ${a > b ? 'higher' : 'lower'} ${sus.when}.`,
+          detail: `${fmt(a)}${unit} vs ${fmt(b)}${unit} · ${n}`,
+          strength: Math.abs(a - b) / (tracker.kind === 'scale' ? 0.8 : Math.max(0.5, Math.abs(b) * 0.3)),
+        },
+        test,
+      );
     }
   }
-  return { logged: days.length, clues: clues.sort((x, y) => y.strength - x.strength) };
+  return { logged: days.length, clues: clues.kept().sort((x, y) => y.strength - x.strength) };
 }

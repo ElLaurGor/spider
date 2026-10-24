@@ -8,7 +8,7 @@ import { dayKey, WEEKDAYS_LONG } from '@/lib/dates';
 import { PITY_AFTER } from '@/lib/economy';
 import { nemesisOf, standings, TIERS } from '@/lib/league';
 import { chestShelf, GOLD_SCORE, SHELF_MAX } from '@/lib/loot';
-import { topToday } from '@/lib/memory';
+import { eveningKey, topToday } from '@/lib/memory';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { gentleDay, toneOn } from '@/lib/tone';
@@ -170,7 +170,7 @@ export function WindDownCard() {
   const hour = new Date(now).getHours();
   const startHour = state.settings.sleepHour - 2;
   const evening = hour >= startHour || hour < 4;
-  const key = dayKey(now - 4 * 3_600_000);
+  const key = eveningKey(now);
   const log = dayOf(state, key);
   if (!evening || log.windDownDone || state.windDownItems.length === 0) return null;
   const done = log.windDown ?? [];

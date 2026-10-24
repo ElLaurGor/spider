@@ -18,7 +18,9 @@ export default function InsightsScreen() {
         text={
           list.length
             ? `I went through your last 60 days. ${list.length} pattern${list.length === 1 ? '' : 's'} stood out. Some of these are on you.`
-            : `Not enough data yet (${days} day${days === 1 ? '' : 's'} logged). Keep logging water, mood, sleep and training for about a week and I'll start finding patterns.`
+            : days < 16
+              ? `Not enough data yet (${days} day${days === 1 ? '' : 's'} logged). A pattern needs 8+ days on each side, so keep logging water, mood, sleep and training for two or three weeks.`
+              : `I went through your last 60 days. Nothing stands out clearly yet. That's a finding too: no habit here is quietly wrecking another.`
         }
       />
       {list.map((i) => (
@@ -37,7 +39,7 @@ export default function InsightsScreen() {
       <SymptomDetective state={state} />
       <ExperimentCard />
       <T dim small style={{ textAlign: 'center' }}>
-        Patterns, not proof. A pattern needs at least 3 days on each side of the comparison before it shows up here.
+        Patterns, not proof. A pattern shows up here only with 8+ days on each side and a difference chance alone rarely gives.
       </T>
     </ScrollView>
   );
