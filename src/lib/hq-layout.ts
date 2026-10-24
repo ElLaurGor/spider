@@ -19,7 +19,7 @@ export const HQ_SECTIONS = [
   { id: 'winddown', label: 'Wind-down (evenings)' },
   { id: 'debrief', label: 'Evening debrief (evenings)' },
   { id: 'level', label: 'Level & day score' },
-  { id: 'week', label: 'This week: boss, league, Silk Track, medals, contract' },
+  { id: 'week', label: 'This week: boss, league and co-op, Silk Track, medals, trek, contract' },
   { id: 'quests', label: 'Daily quests (and the boss, if This week is off)' },
   { id: 'league', label: 'League (full card)' },
   { id: 'silk', label: 'Silk Track (full card)' },

@@ -45,9 +45,11 @@ export function AdventCard() {
       <T dim small>
         {waiting.length
           ? `${waiting.length} door${waiting.length === 1 ? '' : 's'} to open. ${opened.length} of ${ADVENT_DOORS} open.`
-          : date.getMonth() === 10
-            ? 'Door 1 opens on 1 December. A missed door waits for you, so no day is ever lost.'
-            : `${opened.length} of ${ADVENT_DOORS} open. The next door opens tomorrow.`}
+          : opened.length >= ADVENT_DOORS
+            ? `All ${ADVENT_DOORS} doors open. God jul.`
+            : date.getMonth() === 10
+              ? 'Door 1 opens on 1 December. A missed door waits for you, so no day is ever lost.'
+              : `${opened.length} of ${ADVENT_DOORS} open. The next door opens tomorrow.`}
       </T>
       {waiting.length ? <Btn label={`Open door ${waiting[0]}`} icon="redeem" small onPress={() => actions.openAdventDoor(waiting[0])} /> : null}
       {open ? (

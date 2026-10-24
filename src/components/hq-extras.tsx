@@ -96,14 +96,16 @@ export function useNemesis() {
 export function LeagueCard() {
   const { state } = useStore();
   const nemesis = useNemesis();
+  // Ticks each minute: the rivals' XP, the ghost and the co-op week move with the clock, not only with the state.
+  const now = new Date(useNow(60_000));
   if (!state.league) return null;
   const tier = TIERS[state.league.tier];
-  const table = standings(state);
+  const table = standings(state, now);
   const rank = table.findIndex((r) => r.me) + 1;
   const me = table[rank - 1];
   const above = rank > 1 ? table[rank - 2] : null;
-  const ghost = ghostOf(state);
-  const coop = coopSummary(state);
+  const ghost = ghostOf(state, now);
+  const coop = coopSummary(state, now);
   return (
     <Pressable onPress={() => router.push('/league')}>
       <Card>

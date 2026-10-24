@@ -47,17 +47,27 @@ export function pauseEnd(s: State, from: string, days: number): string | null {
   return last;
 }
 
-/** Starts (or changes) the pause covering today. Unchanged state when the month's cap is used up. */
+/**
+ * Starts (or changes) the pause covering today. Unchanged state when the month's cap is used up.
+ * Its days so far keep their kind (sick days stay sick when it turns into away; a switch to sick makes them
+ * sick too), and a pause planned for later (Julfrid's) keeps the days the new one doesn't cover.
+ */
 export function startPause(s: State, kind: Pause['kind'], days: number, today = dayKey()): State {
   const current = pauseOn(s, today);
   const yesterday = dayKey(addDays(noonOf(today), -1));
   const oldest = dayKey(addDays(noonOf(today), -KEEP_DAYS));
-  // Old pauses stay; the current one is re-measured from today, and a planned later one is replaced.
   const rest = pausesOf(s).filter((p) => p !== current && p.from <= today && p.to >= oldest);
-  const past = current && current.from <= yesterday ? [{ ...current, to: yesterday }] : [];
-  const to = pauseEnd({ ...s, pauses: [...rest, ...past] }, today, days);
+  const later = pausesOf(s).filter((p) => p !== current && p.from > today);
+  const pastKind = kind === 'sick' ? 'sick' : current?.kind;
+  const past = current && current.from <= yesterday ? [{ ...current, to: yesterday, kind: pastKind ?? current.kind }] : [];
+  const to = pauseEnd({ ...s, pauses: [...rest, ...past, ...later] }, today, days);
   if (!to) return s;
-  return { ...s, pauses: [...rest, { from: current?.from ?? today, to, kind }] };
+  const after = dayKey(addDays(noonOf(to), 1));
+  const kept = later.filter((p) => p.to > to).map((p) => (p.from > to ? p : { ...p, from: after }));
+  // One pause when the kind carries on; the days so far as their own when it changed.
+  const merged = past.length && past[0].kind === kind;
+  const head = merged ? [] : past;
+  return { ...s, pauses: [...rest, ...head, { from: merged ? past[0].from : today, to, kind }, ...kept] };
 }
 
 /**

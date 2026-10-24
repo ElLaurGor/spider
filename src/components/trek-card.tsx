@@ -36,7 +36,7 @@ export function TrekCard() {
         <T>
           {fmtKm(st.km)} of {Math.round(total)} km
         </T>
-        <Bar pct={(st.km / total) * 100} color={C.green} />
+        <Bar pct={st.km / total} color={C.green} />
         <T dim small>
           {st.done ? 'Walked end to end. Pick the next route.' : `Next: ${st.next?.name} in ${fmtKm(st.toNext)} km`} · {ordinal(st.rank)} of {st.of} on the trail
         </T>

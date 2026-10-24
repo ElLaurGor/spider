@@ -7,7 +7,7 @@ import { habitsDone } from './habits';
 import { fillLine } from './lines';
 import { dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, moodsOf, trainMinutes, trainedOn, waterGoalFor, waterMl } from './selectors';
 import { pauseOn } from './pause';
-import { gentleDay, periodDay } from './tone';
+import { periodDay, quietDay } from './tone';
 import type { DayLog, DiaryPage, State } from './types';
 
 export const QUESTS_PER_PAGE = 10;
@@ -130,8 +130,8 @@ export function dayNumber(s: State, key: string) {
   return Math.round((new Date(`${key}T12:00`).getTime() - new Date(`${first}T12:00`).getTime()) / 86_400_000) + 1;
 }
 
-/** A gentle page: the day's latest mood was low, it was a period day (logged or still running), or a paused day. */
-export const kindDay = (s: State, key: string) => gentleDay(s, key);
+/** A gentle page: a low mood (that day's, or carried from the day before), a period, sick or paused day, Julfrid or a Storm day. */
+export const kindDay = (s: State, key: string) => quietDay(s, key);
 
 /** Writes page `n` from the busiest of the last 7 days (today if nothing else has data). */
 export function writePage(s: State, n: number, now = new Date()): DiaryPage {

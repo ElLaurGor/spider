@@ -52,7 +52,7 @@ import { respectFor } from './respect';
 import { rivalTalk } from './rival-talk';
 import { withNights } from './sleep';
 import { isSnow, seasonOn, winterOf } from './seasons';
-import { julfridPause, openDoor } from './advent';
+import { julfridPlan, openDoor } from './advent';
 import { acceptPrizes } from './prizes';
 import { withNemesis } from './year-wrapped';
 import { catchFly as catchPendingFly, caughtCount, critDamage, FLIES, rollCritters, withoutCrit } from './critters';
@@ -118,7 +118,7 @@ import { credit, earnBonus, penalize, refundPenalty, unreward, withoutUndoRecord
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
 import { restedAfter, restedGain, restedSplit } from './rested';
 import { checkSilkTrack, SILK_TIERS } from './silk-track';
-import { goldenAllowed } from './tone';
+import { goldenAllowed, quietDay } from './tone';
 // step 2b: weekly medals and the ghost of last week
 import { medalList, settleMedals } from './medals';
 import { coopFor, coopIntro, coopResultText, settleCoop } from './coop';
@@ -132,10 +132,12 @@ import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, planText, type
 import { copingPlan, copingWeekday, movedTo, moveDayName, moveTargets, withMove, withoutMove, withWhy } from './workout-move';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
-/** A button on a toast (cluster G: "Catch it!" on a fly). */
-/** What a toast's Undo takes back: one entry just logged with one tap (it lasts as long as the toast). */
-/** `restoreFood` undoes a delete: the meal comes back (photo included) while its toast is up. */
+/**
+ * What a toast's Undo takes back: one entry just logged with one tap (it lasts as long as the toast).
+ * `restoreFood` undoes a delete: the meal comes back (photo included) while its toast is up.
+ */
 export type UndoRef = { kind: 'water' | 'coffee' | 'food' | 'set' | 'task' | 'restoreFood' | 'move'; id: string; day: string };
+/** A button on a toast: "Catch it!" on a fly (cluster G), or an Undo. */
 export type ToastAction = 'catchFly' | { undo: UndoRef };
 export type Toast = { id: number; text: string; tone: Tone; action?: ToastAction };
 type Msg = { text: string; tone: Tone; action?: ToastAction };
@@ -283,7 +285,8 @@ function checkTrekProgress(s: State, msgs: Msg[]): State {
   if (!r.passed.length) return s;
   const last = r.passed[r.passed.length - 1];
   const more = r.passed.length > 1 ? ` (${r.passed.length} waypoints at once)` : '';
-  msgs.push({ text: `📮 Postcard from ${last.name}${more}: ${last.card} +${r.coins} 🪙`, tone: 'good' });
+  const card = last.gentle && quietDay(s, dayKey()) ? last.gentle : last.card;
+  msgs.push({ text: `📮 Postcard from ${last.name}${more}: ${card} +${r.coins} 🪙`, tone: 'good' });
   for (const id of r.items) {
     const c = cosmeticOf(id);
     if (c) msgs.push({ text: `${c.emoji} ${c.name} for your spider. Wear it from the Shop.`, tone: 'epic' });
@@ -2206,12 +2209,12 @@ function useStoreValue() {
         commit({ ...stateRef.current, lineMemory: lineMemory() });
       },
 
-      /** HQ's Wrapped and season banners: closed for that month or season. */
       /** The rough-patch card closed, or one of its offers taken: it stays away for a week (rough-patch.ts). */
       closeRoughPatch() {
         commit({ ...stateRef.current, roughPatchAt: Date.now() });
       },
 
+      /** HQ's Wrapped and season banners: closed for that month or season. */
       dismissBanner(key: string) {
         const s = stateRef.current;
         if ((s.dismissed ?? []).includes(key)) return;
@@ -2739,12 +2742,10 @@ function useStoreValue() {
       /** Julfrid: away mode until the 27th, within the month's cap of paused days (advent.ts). */
       startJulfrid() {
         run((s, msgs) => {
-          const next = julfridPause(s);
-          if (next === s) {
-            msgs.push({ text: 'This month already has 7 paused days, so Julfrid stays a normal holiday. Still no roasts.', tone: 'info' });
-            return s;
-          }
-          msgs.push({ text: L(next, 'julfridOn'), tone: 'good' });
+          const { state: next, result } = julfridPlan(s);
+          if (result === 'cap') msgs.push({ text: 'This month already has 7 paused days, so Julfrid stays a normal holiday. Still no roasts.', tone: 'info' });
+          else if (result === 'gone') msgs.push({ text: 'Those days are already paused, or Julfrid is over. Either way: no roasts.', tone: 'info' });
+          else msgs.push({ text: L(next, 'julfridOn'), tone: 'good' });
           return next;
         });
       },

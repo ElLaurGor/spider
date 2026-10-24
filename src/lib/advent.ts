@@ -5,7 +5,7 @@
 import { cosmeticOf, owns, withOwned } from './cosmetics';
 import { addDays, dayKey } from './dates';
 import { pauseEnd, pausedOn, startPause } from './pause';
-import { firstAdventSunday, isJulfridKey } from './swedish-days';
+import { adventWebStart, firstAdventSunday, isJulfridKey } from './swedish-days';
 import type { State } from './types';
 
 export const ADVENT_DOORS = 24;
@@ -27,12 +27,12 @@ export function adventCandles(date: Date | number = new Date()) {
   return Math.min(4, weeks + 1);
 }
 
-/** The year whose Advent Web is up on a date (first Advent to Trettondedag jul), or null. */
+/** The year whose Advent Web is up on a date (first Advent, or 1 December if that's earlier, to Trettondedag jul), or null. */
 export function adventYear(date: Date | number = new Date()): number | null {
   const d = new Date(date);
   const y = d.getFullYear();
   const key = dayKey(d);
-  if (key >= dayKey(firstAdventSunday(y))) return y;
+  if (key >= dayKey(adventWebStart(y))) return y;
   if (key <= `${y}-01-06`) return y - 1;
   return null;
 }
@@ -109,18 +109,33 @@ export function julfridOffer(s: State, now: Date = new Date()): { from: string; 
 
 /**
  * Away mode for the rest of Julfrid (to annandag jul, so everything counts again on the 27th), within the
- * month's cap of paused days. From the 23rd's evening it's planned to start on the 24th (unless a pause
- * already covers part of it: then it's tomorrow's tap). Unchanged state when there's nothing on offer or
- * the cap is used up.
+ * month's cap of paused days. It starts on the first Julfrid day no pause covers yet: a sick pause running
+ * into Julfrid stays sick, and the days off follow it. From the 23rd's evening it's planned ahead.
+ * `result`: 'gone' when there's nothing left on offer, 'cap' when the month's paused days are used up.
  */
-export function julfridPause(s: State, now: Date = new Date()): State {
+export function julfridPlan(s: State, now: Date = new Date()): { state: State; result: 'ok' | 'gone' | 'cap' } {
   const offer = julfridOffer(s, now);
-  if (!offer) return s;
-  const days = Math.round((new Date(`${offer.to}T12:00`).getTime() - new Date(`${offer.from}T12:00`).getTime()) / 86_400_000) + 1;
-  const today = dayKey(now);
-  if (offer.from === today) return startPause(s, 'away', days, today);
-  if ((s.pauses ?? []).some((p) => p.to >= offer.from && p.from <= offer.to)) return s;
-  const to = pauseEnd(s, offer.from, days);
-  if (!to) return s;
-  return { ...s, pauses: [...(s.pauses ?? []), { from: offer.from, to, kind: 'away' }] };
+  if (!offer) return { state: s, result: 'gone' };
+  let from: string | null = null;
+  let to = offer.from;
+  for (let d = new Date(`${offer.from}T12:00`); dayKey(d) <= offer.to; d = addDays(d, 1)) {
+    const k = dayKey(d);
+    if (pausedOn(s, k)) {
+      if (from) break;
+      continue;
+    }
+    from ??= k;
+    to = k;
+  }
+  if (!from) return { state: s, result: 'gone' };
+  const days = Math.round((new Date(`${to}T12:00`).getTime() - new Date(`${from}T12:00`).getTime()) / 86_400_000) + 1;
+  if (from === dayKey(now)) {
+    const next = startPause(s, 'away', days, from);
+    return next === s ? { state: s, result: 'cap' } : { state: next, result: 'ok' };
+  }
+  const end = pauseEnd(s, from, days);
+  if (!end) return { state: s, result: 'cap' };
+  return { state: { ...s, pauses: [...(s.pauses ?? []), { from, to: end, kind: 'away' }] }, result: 'ok' };
 }
+
+export const julfridPause = (s: State, now: Date = new Date()) => julfridPlan(s, now).state;

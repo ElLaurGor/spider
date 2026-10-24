@@ -38,6 +38,12 @@ export const allSaintsDay = (year: number) => firstOnOrAfter(year, 10, 31, 6);
 /** Första advent: the fourth Sunday before Christmas Day, between 27 November and 3 December. */
 export const firstAdventSunday = (year: number) => firstOnOrAfter(year, 11, 27, 0);
 
+/** When the Advent Web goes up: first Advent, or 1 December when first Advent comes later (2 or 3 Dec), since door 1 is the 1st. */
+export function adventWebStart(year: number) {
+  const first = firstAdventSunday(year);
+  return first.getMonth() === 11 ? new Date(year, 11, 1, 12) : first;
+}
+
 /** Julfrid: julafton, juldagen and annandag jul (24–26 December), by day key. */
 export const isJulfridKey = (key: string) => key.slice(5) >= '12-24' && key.slice(5) <= '12-26';
 
