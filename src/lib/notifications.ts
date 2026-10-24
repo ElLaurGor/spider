@@ -23,7 +23,6 @@ import {
   inMeeting,
   moodsOf,
   lowBattery,
-  onPeriod,
   trainedOn,
   waterGoalFor,
   waterMl,
@@ -40,7 +39,7 @@ import { bossFinisher } from './boss-plan';
 import { bossFor, questsFor } from './quests';
 import { insightById } from './jit';
 import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
-import { lastMoodLow, periodDay, toneOn, type DayTone } from './tone';
+import { lastMoodLow, periodDay, realFlow, toneOn, type DayTone } from './tone';
 import { upcomingDays } from './swedish-days';
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
@@ -411,7 +410,8 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
 
   // On its own channel (text hidden on the lock screen) with a title that says nothing.
   const headsUp = cycle ? cycleHeadsUpAt(cycle) : null;
-  if (st.notify.cycle && cycle && headsUp && !onPeriod(dayOf(s))) {
+  // Spotting isn't the period starting, so it doesn't cancel the heads-up.
+  if (st.notify.cycle && cycle && headsUp && !realFlow(dayOf(s))) {
     jobs.push(scheduleAt(`cycle-${dayKey(cycle.nextStart)}`, headsUp, '🗓️ Heads-up', say(s, 'periodSoon'), CH.private));
   }
 
