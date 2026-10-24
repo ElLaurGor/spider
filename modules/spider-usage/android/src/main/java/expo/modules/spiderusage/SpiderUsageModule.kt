@@ -156,8 +156,10 @@ class SpiderUsageModule : Module() {
     // An app moving between its own activities logs PAUSED(old), RESUMED(new), then STOPPED(old).
     // Only a PAUSED of the activity on screen ends the span: STOPPED always follows a PAUSED, and a
     // late one used to end the span the new activity had just started.
-    // A shutdown ends the span too. A startup with a span still open means the power went (a dead battery
-    // logs no shutdown): the span ends at the last event before it, not hours later after the reboot.
+    // A reboot ends the span too. Android logs no shutdown live: at boot it inserts DEVICE_SHUTDOWN (at the
+    // last saved or last logged event, power loss included), then DEVICE_STARTUP. So the shutdown does the
+    // work, and a span still open at a startup (should a shutdown ever be missing) ends at the event before it,
+    // not hours later at the first lock screen after the reboot.
     while (events.hasNextEvent()) {
       events.getNextEvent(event)
       val before = lastAt

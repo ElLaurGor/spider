@@ -19,6 +19,9 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
       "permissions": [
         "android.permission.READ_CALENDAR",
         "android.permission.WRITE_CALENDAR",
@@ -115,7 +118,8 @@
             }
           ]
         }
-      ]
+      ],
+      "./plugins/with-backup-rules"
     ],
     "experiments": {
       "typedRoutes": true,

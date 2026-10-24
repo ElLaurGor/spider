@@ -43,7 +43,7 @@ import {
 import { pushWidgetFor, useBackgroundSync } from './background-sync';
 import { clearStormWaiting, stormWaiting } from './bg-config';
 import { drainQueued, onQueued } from './pending-actions';
-import type { ReminderAction } from './reminder-actions';
+import { isQueued, tapLanded, type ReminderAction } from './reminder-actions';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, bossSeasonOf, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questsFor, reducedDay, reopenQuests, rerollFor, validDraft, weekKey } from './quests';
 import { bossRecap, lastWeekKey } from './boss-recap';
@@ -175,6 +175,8 @@ const backdated = (key: string, what: string): Msg => ({ text: `${what} added to
  */
 const tappedOn = (past: string | null, at?: number) => (past && at != null && dayKey(at) === past ? past : null);
 const lateTap = (key: string, what: string): Msg => ({ text: `${what} from ${dayName(key)}, tapped before midnight: it counts there.`, tone: 'good' });
+/** How long the splash waits for the queued taps on launch before the app opens anyway. */
+const LOAD_DRAIN_MS = 5000;
 
 const bump = (s: State, counter: keyof State['counters'], by = 1): State => ({
   ...s,
@@ -990,7 +992,10 @@ function useStoreValue() {
         setState(next);
       }
       // Taps queued while the app was closed come first: one from before midnight lands before the day rolls over.
-      await drainRef.current();
+      // A stuck queue lock mustn't keep the splash up: after a while the app opens and the drain finishes later.
+      let waited: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([drainRef.current(), new Promise<void>((done) => (waited = setTimeout(done, LOAD_DRAIN_MS)))]);
+      clearTimeout(waited);
       setFailure(null);
       setReady(true);
     } catch (e) {
@@ -1033,6 +1038,7 @@ function useStoreValue() {
       setFailure(null);
       setReady(true);
       commit(s);
+      void drainRef.current(); // taps queued while the recovery screen was up
     },
     [commit],
   );
@@ -1067,8 +1073,9 @@ function useStoreValue() {
   const run = useCallback(
     /**
      * `quiet`: no golden line, rival remark, respect news or level-up toasts (body and photo logging stay neutral).
-     * `early`: the change lands before the day rolls over, for a queued tap on a day that may not be closed yet:
-     * its goals, medals and banked minutes then count it.
+     * `early`: a queued tap for a day that may not be closed yet. It lands as it is, before the day rolls over and
+     * without the checks; the caller rolls over once after the whole batch (applyTaps), so that day's goals,
+     * medals, banked minutes and co-op count every tap, not just the first.
      */
     (fn: (s: State, msgs: Msg[]) => State, opts: { quiet?: boolean; early?: boolean } = {}) => {
       const prev = stateRef.current;
@@ -1080,7 +1087,13 @@ function useStoreValue() {
         if (reopen.reopened.length) msgs.push({ text: `🗡️ Open again: ${reopen.reopened.map((q) => q.title).join(', ')}.`, tone: 'info' });
         return reopen.state;
       };
-      const changed = opts.early ? checkDayRollover(apply(prev), msgs) : apply(checkDayRollover(prev, msgs));
+      if (opts.early) {
+        const held = apply(prev);
+        commit(held);
+        msgs.forEach((m) => say(m.text, m.tone, m.action));
+        return held;
+      }
+      const changed = apply(checkDayRollover(prev, msgs));
       const checked = checkCritters(prev, checkContract(checkQuests(checkTrekProgress(checkCoop(checkLeague(changed, msgs), msgs), msgs), msgs), msgs), msgs);
       // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
       const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
@@ -1222,7 +1235,8 @@ function useStoreValue() {
   useEffect(() => {
     if (!ready || !state.onboarded) return;
     const first = setTimeout(() => void refreshHealth(false), 0);
-    const every = setInterval(() => void refreshHealth(false), 5 * 60_000);
+    // On screen only: without background access Health Connect hands a headless start nothing to read.
+    const every = setInterval(() => AppState.currentState === 'active' && void refreshHealth(false), 5 * 60_000);
     const steps = setInterval(() => void refreshSteps(), 60_000);
     return () => {
       clearTimeout(first);
@@ -1512,13 +1526,16 @@ function useStoreValue() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') {
-        // Queued taps first (see drainRef), then the tick that wakes up everything else, the day's rollover included.
-        void drainRef.current().finally(() => setTick((t) => t + 1));
-        void refreshCalendar(false);
-        void refreshHealth(false);
-        void refreshWeather(false);
-        void refreshScreen();
-        void refreshOutside(false);
+        // Queued taps first (see drainRef), then the tick and the refreshes that wake up everything else: any of
+        // them can roll the day over, which a tap from before midnight has to beat.
+        void drainRef.current().finally(() => {
+          setTick((t) => t + 1);
+          void refreshCalendar(false);
+          void refreshHealth(false);
+          void refreshWeather(false);
+          void refreshScreen();
+          void refreshOutside(false);
+        });
       } else {
         if (saveTimer.current) clearTimeout(saveTimer.current);
         save();
@@ -2833,6 +2850,7 @@ function useStoreValue() {
   const applyReminder = useCallback(
     (a: ReminderAction) => {
       const s = stateRef.current;
+      if (isQueued(a) && tapLanded(s.days[a.day], a)) return; // handed over again after a drain that saved, then died
       if (a.kind === 'glass') actions.addWater(s.settings.glassMl, a.day, a.at);
       else if (a.kind === 'coffee') actions.addCoffee(a.day, a.at);
       else if (a.kind === 'snooze') {
@@ -2870,18 +2888,39 @@ function useStoreValue() {
     },
     [actions, run, say],
   );
+  /**
+   * Applies taps one at a time, so one that fails doesn't take the rest with it. Taps from before midnight land
+   * first without the rollover (`early`); one plain run then rolls the day over with all of them in it.
+   */
+  const applyTaps = useCallback(
+    (list: ReminderAction[]) => {
+      let held = false;
+      for (const a of list) {
+        try {
+          applyReminder(a);
+          if ('day' in a && a.day !== dayKey()) held = true;
+        } catch (e) {
+          console.warn('[spider] a queued tap failed', a.kind, e);
+        }
+      }
+      if (held) run((s) => s);
+    },
+    [applyReminder, run],
+  );
   useEffect(() => {
     if (!ready) return;
-    return onNotificationTap(applyReminder, openSoon);
-  }, [ready, applyReminder]);
+    return onNotificationTap((a) => applyTaps([a]), openSoon);
+  }, [ready, applyTaps]);
   // The queue (pending-actions.ts): applied and saved before it lets go of the taps. In the background RN stops this
   // runtime's timers once the task that woke it ends, so the save, the replan and the widget can't wait for theirs.
   // Drained on load and on coming back (before the day rolls over), and while the task waits (onQueued).
+  // Not before the store has loaded: taps applied to the default state would be thrown away with the queue.
   useEffect(() => {
-    drainRef.current = () =>
-      drainQueued(
+    drainRef.current = () => {
+      if (!loaded.current) return Promise.resolve();
+      return drainQueued(
         async (q) => {
-          q.forEach(applyReminder);
+          applyTaps(q);
           await saveNow().catch(() => save()); // a failed save keeps retrying (and says so)
         },
         () => pushWidgetFor(stateRef.current),
@@ -2890,7 +2929,8 @@ function useStoreValue() {
           if (n && AppState.currentState !== 'active') await replanNow.current();
         })
         .catch((e) => console.warn('[spider] queue failed', e));
-  }, [applyReminder, saveNow, save]);
+    };
+  }, [applyTaps, saveNow, save]);
   useEffect(() => {
     if (!ready) return;
     return onQueued(() => drainRef.current()); // the background task ran while the app was alive

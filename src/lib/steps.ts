@@ -28,6 +28,17 @@ export function stepsIn(records: StepRecord[], from: number, to: number): number
   return Math.round(total);
 }
 
+/**
+ * What a day's read of Zepp's records gives: their total, or which Health Connect aggregate to ask instead:
+ * `'zepp'` (Zepp's alone) when its records overlap, `'all'` (every source) when Zepp has none that day.
+ * Null when the read failed: unknown, never another source's number.
+ */
+export function zeppSteps(own: StepRecord[] | null, from: number, to: number): number | 'zepp' | 'all' | null {
+  if (own == null) return null;
+  if (!own.length) return 'all';
+  return stepsIn(own, from, to) ?? 'zepp';
+}
+
 export type StepSource = { origin: string; name: string; steps: number | null; records: number; lastEnd: number | null; lastWritten: number | null };
 
 const NAMES: Record<string, string> = {

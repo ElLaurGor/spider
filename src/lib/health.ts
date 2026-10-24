@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 
 import { addDays, atTime, dayKey, startOfDay } from './dates';
 import { nightOf, nightWindow, ZEPP, type Night, type RawSession } from './sleep';
-import { stepsIn, stepSources, type StepRecord, type StepSource } from './steps';
+import { stepSources, zeppSteps, type StepRecord, type StepSource } from './steps';
 
 type HC = typeof import('react-native-health-connect');
 
@@ -158,18 +158,17 @@ async function readStepRecords(lib: HC, from: Date, to: Date, origins?: string[]
 /**
  * A day's steps as Zepp counted them. Always up to midnight, even today: a still-open block (14:00–15:00 at
  * 14:37) must count whole. Zepp's own records are added up directly (steps.ts), so the total doesn't depend
- * on how Health Connect merges overlapping sources; its aggregate is the fallback, and every source when Zepp
- * has nothing. A failed read (rate limit, Health Connect updating) is null, never 0: a 0 would overwrite the day's steps.
+ * on how Health Connect merges overlapping sources. Every source counts only on a day Zepp has no records.
+ * A failed read (rate limit, Health Connect updating) is null, never 0 or another source's number: either
+ * would overwrite the day's steps.
  */
 async function stepsOn(lib: HC, dayStart: Date): Promise<number | null> {
   const end = addDays(dayStart, 1);
-  const own = await readStepRecords(lib, dayStart, end, [ZEPP]);
-  const counted = own ? stepsIn(own, dayStart.getTime(), end.getTime()) : null;
-  if (counted != null && counted > 0) return counted;
-  const filter = range(dayStart, end);
-  const zepp = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter, dataOriginFilter: [ZEPP] }));
-  if (zepp && zepp.COUNT_TOTAL > 0) return zepp.COUNT_TOTAL;
-  const r = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter }));
+  const got = zeppSteps(await readStepRecords(lib, dayStart, end, [ZEPP]), dayStart.getTime(), end.getTime());
+  if (got == null || typeof got === 'number') return got;
+  const r = await safe(() =>
+    lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: range(dayStart, end), ...(got === 'zepp' ? { dataOriginFilter: [ZEPP] } : {}) }),
+  );
   return r ? (r.COUNT_TOTAL ?? 0) : null;
 }
 

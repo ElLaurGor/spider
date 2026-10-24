@@ -104,7 +104,7 @@ import { credit, earnBonus, ledgerOn, penalize, refundPenalty, unreward, without
 import { withoutCrit } from '../src/lib/critters';
 import { createQueue } from '../src/lib/action-queue';
 import { bgTone } from '../src/lib/bg-config';
-import { actionFromButton, SILENT_BUTTONS, statusWithGlass, tapKey, type QueuedAction } from '../src/lib/reminder-actions';
+import { actionFromButton, isQueued, SILENT_BUTTONS, statusWithGlass, tapKey, tapLanded, type QueuedAction } from '../src/lib/reminder-actions';
 import { mergeSeen as mergeSeenLists } from '../src/lib/outside';
 import { DEFAULT_WIDGET_COLORS, forToday, snapshotOf, widgetLines, withQueued } from '../src/lib/widget-data';
 // cluster B
@@ -129,7 +129,7 @@ import { autoBackupDue, backupNudge } from '../src/lib/backup-due';
 import { workoutFor } from '../src/lib/selectors';
 import { asleepMin, clockLabel, nightClock, nightOf, rhythmOf, stagedMin, withNights } from '../src/lib/sleep';
 import { nightWindow as sleepWindow, ZEPP } from '../src/lib/sleep';
-import { sourceName, stepSources, stepsIn } from '../src/lib/steps';
+import { sourceName, stepSources, stepsIn, zeppSteps } from '../src/lib/steps';
 import { allDayLocal } from '../src/lib/calendar-days';
 import { autoBackupsToPrune, orphanPhotos, pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
 import { isDoomscroll } from '../src/lib/doomscroll';
@@ -4016,6 +4016,11 @@ void (async () => {
   assert.equal(sources[0].lastWritten, null);
   assert.equal(sources[1].lastWritten, 5);
   assert.equal(sourceName('com.example'), 'com.example');
+  // a failed read is unknown (never another source's number); every source only on a day Zepp has no records
+  assert.equal(zeppSteps(null, day, end), null);
+  assert.equal(zeppSteps([], day, end), 'all');
+  assert.equal(zeppSteps([rec(8, 9, 1000)], day, end), 1000);
+  assert.equal(zeppSteps([rec(8, 10, 500), rec(9, 11, 500)], day, end), 'zepp');
 }
 {
   const key = '2027-01-12';
@@ -4534,6 +4539,28 @@ void (async () => {
   assert.equal(statusWithGlass('💧 1.2/2.5 L · 🗡️ 1/3 quests · 👹 120 HP', 300), '💧 1.5/2.5 L · 🗡️ 1/3 quests · 👹 120 HP');
   assert.equal(statusWithGlass('💧 0.0/2.0 L', 330), '💧 0.3/2.0 L');
   assert.equal(statusWithGlass('no water here', 250), 'no water here');
+  // only taps that carry a day and a time travel through the queue
+  assert.ok(isQueued({ kind: 'glass', day: '2027-01-13', at }) && isQueued({ kind: 'habit', habitId: 'h', day: '2027-01-13', at }));
+  assert.ok(!isQueued({ kind: 'snooze' }) && !isQueued({ kind: 'focus' }) && !isQueued({ kind: 'gymMove', day: '2027-01-13' }));
+  // a tap handed over again (a drain that saved, then died before letting go) is seen as already there
+  const landedDay = {
+    water: [{ id: 'w', ml: 250, at }],
+    food: [],
+    sets: [],
+    games: [],
+    bonusGameMin: 0,
+    coffee: [{ id: 'c', mg: 80, at: at + 1 }],
+    moods: [{ id: 'm', level: 3 as const, emotions: [], at: at + 2 }],
+    habits: ['h1'],
+  };
+  assert.ok(tapLanded(landedDay, { kind: 'glass', day: '2027-01-13', at }));
+  assert.ok(!tapLanded(landedDay, { kind: 'glass', day: '2027-01-13', at: at + 5 }));
+  assert.ok(tapLanded(landedDay, { kind: 'coffee', day: '2027-01-13', at: at + 1 }));
+  assert.ok(tapLanded(landedDay, { kind: 'mood', level: 3, day: '2027-01-13', at: at + 2 }));
+  assert.ok(tapLanded(landedDay, { kind: 'habit', habitId: 'h1', day: '2027-01-13', at }));
+  assert.ok(!tapLanded(landedDay, { kind: 'habit', habitId: 'h2', day: '2027-01-13', at }));
+  assert.ok(!tapLanded(undefined, { kind: 'glass', day: '2027-01-13', at }));
+  assert.ok(!tapLanded({ ...landedDay, coffee: undefined, moods: undefined, habits: undefined }, { kind: 'coffee', day: '2027-01-13', at: at + 1 }));
   // lines written in the background take that day's tone, and a day the app didn't plan for is a kind one
   assert.equal(bgTone({ tones: { '2027-01-13': 7, '2027-01-14': 1 } }, '2027-01-13'), 7);
   assert.equal(bgTone({ tones: { '2027-01-13': 7 } }, '2027-01-16'), 1);
