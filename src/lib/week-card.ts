@@ -8,7 +8,8 @@ export function medalLine(list: MedalStanding[]): string {
     .filter((m) => m.next)
     .map((m) => ({ m, left: m.need[m.next!] - m.count }))
     .sort((a, b) => a.left - b.left)[0];
-  const hint = closest ? `${MEDAL_EMOJI[closest.m.next!]} ${closest.m.def.label}: ${closest.m.def.unit(closest.left)} to go` : 'all at gold';
+  if (!closest) return won.length ? `${won.join(' ')} · all at gold` : 'none yet';
+  const hint = `${MEDAL_EMOJI[closest.m.next!]} ${closest.m.def.label}: ${closest.m.def.unit(closest.left)} to go`;
   return won.length ? `${won.join(' ')} · next ${hint}` : `none yet · closest ${hint}`;
 }
 

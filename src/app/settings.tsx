@@ -85,7 +85,13 @@ export default function SettingsScreen() {
   const doShare = async () => {
     setBusy(true);
     try {
-      await actions.shareBackup();
+      // The share sheet can't tell a send from a cancel, so ask: only a real send quiets the backup nudges.
+      if (await actions.shareBackup()) {
+        Alert.alert('Did it go through?', 'Say yes once the file is in Drive, mail or somewhere else off this phone. Until then the backup reminders stay on.', [
+          { text: 'Not yet', style: 'cancel' },
+          { text: 'Yes, sent', onPress: actions.markShared },
+        ]);
+      }
     } catch (e) {
       say(`Couldn't send the backup: ${(e as Error).message}`, 'bad');
     } finally {
@@ -420,7 +426,7 @@ export default function SettingsScreen() {
           label="Daily backup"
           hint={
             state.backupFolderUri
-              ? 'Every day when you open the app, into "SPIDER-auto-backup" in the folder you picked. Keeps the last 7 days.'
+              ? 'Every day when you open the app, into "SPIDER-auto-backup" in the folder you picked. Keeps the last 7 days, plus one a week for 5 weeks before that.'
               : 'Pick a folder once and S.P.I.D.E.R. backs up there every day.'
           }
           value={!!state.backupFolderUri}

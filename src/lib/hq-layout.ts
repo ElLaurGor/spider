@@ -93,6 +93,8 @@ export function withWeekCard(layout: HqLayout): HqLayout {
   const firstShown = saved.find((id) => WEEK_PARTS.includes(id) && !hidden.includes(id));
   const at = firstShown ? saved.indexOf(firstShown) : saved.indexOf('quests');
   const order = hqOrder({ order: at >= 0 ? [...saved.slice(0, at), 'week', ...saved.slice(at)] : saved, hidden });
-  const replaced = [...WEEK_PARTS, 'quests'].every((id) => hidden.includes(id));
+  // Only the cards that layout already had: one added since (the trek) can't have been hidden in it yet.
+  const knew = [...WEEK_PARTS, 'quests'].filter((id) => (saved as string[]).includes(id));
+  const replaced = knew.length > 0 && knew.every((id) => hidden.includes(id));
   return { order, hidden: [...new Set([...hidden.filter((id) => id !== 'week'), ...WEEK_PARTS, ...(replaced ? ['week'] : [])])] };
 }
