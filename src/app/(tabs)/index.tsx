@@ -35,7 +35,7 @@ import { immortalTask, yesterdayHighlight } from '@/lib/memory';
 import { MOOD_LEVELS, moodInfo } from '@/lib/mood';
 import { dayScoreFor } from '@/lib/report';
 import { respectFor } from '@/lib/respect';
-import { seasonOn } from '@/lib/seasons';
+import { isAllSaintsDay, seasonOn } from '@/lib/seasons';
 import { gentleDay, toneOn } from '@/lib/tone';
 import {
   caffeineMg,
@@ -65,9 +65,9 @@ const GREETING: Record<ReturnType<typeof timeOfDay>, LineKey> = {
   night: 'greetNight',
 };
 
-/** The greeting for now: in season, half the time the season's own. */
+/** The greeting for now: in season, half the time the season's own (a quiet one on Alla helgons dag). */
 function greetingKey(): LineKey {
-  const season = seasonOn();
+  const season = isAllSaintsDay() ? { line: 'greetAllSaints' as const } : seasonOn();
   return season && Math.random() < 0.5 ? season.line : GREETING[timeOfDay()];
 }
 
@@ -107,6 +107,11 @@ export default function HQ() {
   const insight = insightOfTheDay(state);
   const date = noonOf(todayKey);
   const lastMonth = new Date(date.getFullYear(), date.getMonth() - 1, 1).toLocaleDateString('en-GB', { month: 'long' });
+  // Banners closed with × (or Wrapped opened from its banner) stay closed for that month or that season.
+  const dismissed = state.dismissed ?? [];
+  const wrappedKey = `wrapped:${dayKey(new Date(date.getFullYear(), date.getMonth() - 1, 1)).slice(0, 7)}`;
+  const allSaints = isAllSaintsDay(date);
+  const seasonKey = `season:${allSaints ? 'allsaints' : season?.id}:${season ? dayKey(season.lastDay).slice(0, 4) : ''}`;
   // No verdict on a kind day (low mood, sick, away, period), and a slow morning isn't "tragic" yet.
   const kindToday = toneOn(state, todayKey).kind || gentleDay(state, todayKey);
   const vKey = verdictLineKey(score, new Date(now).getHours(), kindToday);
@@ -365,7 +370,7 @@ export default function HQ() {
       title="S.P.I.D.E.R."
       subtitle={ACRONYM}
       right={
-        <Pressable onPress={() => router.push('/settings')} hitSlop={10} style={styles.gear}>
+        <Pressable onPress={() => router.push('/settings')} hitSlop={10} style={styles.gear} accessibilityRole="button" accessibilityLabel="Settings">
           <Icon name="settings" color={C.dim} />
         </Pressable>
       }>
@@ -375,8 +380,13 @@ export default function HQ() {
       <PauseBanner />
       <LowBatteryCard />
 
-      {date.getDate() <= 5 ? (
-        <Pressable onPress={() => router.push('/wrapped')} style={styles.banner}>
+      {date.getDate() <= 5 && !dismissed.includes(wrappedKey) ? (
+        <Pressable
+          onPress={() => {
+            actions.dismissBanner(wrappedKey); // seen: it doesn't need to stay pinned
+            router.push('/wrapped');
+          }}
+          style={styles.banner}>
           <Text style={{ fontSize: 26 }}>🎁</Text>
           <View style={{ flex: 1 }}>
             <Text style={styles.bannerTitle}>Your {lastMonth} Wrapped is ready</Text>
@@ -384,22 +394,27 @@ export default function HQ() {
               Tap to see your month. Brace yourself.
             </T>
           </View>
-          <Icon name="chevron_right" color={C.dim} />
+          <Pressable onPress={() => actions.dismissBanner(wrappedKey)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Hide the Wrapped banner">
+            <Icon name="close" size={18} color={C.faint} />
+          </Pressable>
         </Pressable>
       ) : null}
 
-      {season ? (
+      {season && !dismissed.includes(seasonKey) ? (
         <View style={styles.banner}>
-          <Text style={{ fontSize: 26 }}>{season.emoji}</Text>
+          <Text style={{ fontSize: 26 }}>{allSaints ? '🕯️' : season.emoji}</Text>
           <View style={{ flex: 1 }}>
             <Text style={styles.bannerTitle}>
-              {season.name}
-              {dayKey(season.lastDay) !== dayKey(now) ? ` · until ${season.lastDay.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · today'}
+              {allSaints ? 'Alla helgons dag · today' : season.name}
+              {allSaints ? '' : dayKey(season.lastDay) !== dayKey(now) ? ` · until ${season.lastDay.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ' · today'}
             </Text>
             <T dim small>
-              {season.about}
+              {allSaints ? 'A day of remembrance. The ghosts can wait.' : season.about}
             </T>
           </View>
+          <Pressable onPress={() => actions.dismissBanner(seasonKey)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Hide the season banner">
+            <Icon name="close" size={18} color={C.faint} />
+          </Pressable>
         </View>
       ) : null}
 

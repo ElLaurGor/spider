@@ -3,7 +3,7 @@
 // up the weekly boss and nyår turns it into the Old Year (quests.ts).
 import { addDays } from './dates';
 import type { LineKey } from './lines';
-import { easterSunday, midsummerEve } from './swedish-days';
+import { allSaintsDay, easterSunday, midsummerEve } from './swedish-days';
 
 export type SeasonId = 'halloween' | 'lucia' | 'solstice' | 'easter' | 'valborg' | 'midsommar' | 'nyar';
 
@@ -63,6 +63,13 @@ export function seasonOn(date: Date | number = new Date()): Season | null {
     return { ...rest, lastDay: new Date(endYear, to[0] - 1, to[1]) };
   }
   return null;
+}
+
+/** Alla helgons dag, a day of remembrance: HQ keeps the spooky-season jokes out of it (it can fall on Halloween). */
+export function isAllSaintsDay(date: Date | number = new Date()) {
+  const d = new Date(date);
+  const a = allSaintsDay(d.getFullYear());
+  return d.getMonth() === a.getMonth() && d.getDate() === a.getDate();
 }
 
 const SNOW = new Set([71, 73, 75, 77, 85, 86]); // WMO weather codes for snow

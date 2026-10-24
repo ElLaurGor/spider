@@ -22,6 +22,8 @@ import {
   inMeeting,
   lastSession,
   waterSlots,
+  foodBase,
+  recentFoods,
 } from '../src/lib/selectors';
 import { SECRET_ACHIEVEMENTS } from '../src/lib/xp';
 import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log';
@@ -44,7 +46,7 @@ import { pickQuests, questsFor, bossFor, BOSSES, WEAKNESS, xpPace } from '../src
 import { habitsFor } from '../src/lib/habits';
 import { weekReport, gradeOf, dayScoreFor } from '../src/lib/report';
 import { RESPECT, respectFor } from '../src/lib/respect';
-import { isSnow, seasonOn, winterOf } from '../src/lib/seasons';
+import { isAllSaintsDay, isSnow, seasonOn, winterOf } from '../src/lib/seasons';
 import { canSign, contractProgress, roughWeek } from '../src/lib/contracts';
 import { daylightGain, describe as wx, rainNote, weatherKey } from '../src/lib/weather';
 import {
@@ -81,7 +83,7 @@ import { bestiary, lastKillDay, LORE } from '../src/lib/bestiary';
 import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
-import { EASE_STEP, gentleDay, goldenAllowed, periodDay, toneOn } from '../src/lib/tone';
+import { EASE_STEP, gentleDay, goldenAllowed, lastMoodLow, periodDay, toneOn } from '../src/lib/tone';
 import { gameLineKey, nightVerdictKey, stepsLineKey, verdictLineKey } from '../src/lib/line-context';
 import type { DayLog, Weekday } from '../src/lib/types';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
@@ -184,6 +186,28 @@ const slots = waterSlots(s);
 assert.equal(slots[0], 8 * 60);
 assert.equal(slots.at(-1), 21 * 60 + 30);
 assert.equal(slots.length, 10);
+
+// quick-add chips: one per food whatever the portion (a tap logs the latest one), photo-only meals left out
+{
+  const f = defaultState();
+  const food = (id: string, name: string, kcal: number, protein: number, at: number, photo?: string) => ({ id, name, kcal, protein, at, photo });
+  f.days[dayKey()] = {
+    water: [],
+    food: [food('a', 'Havregryn (60 g)', 220, 8, 1), food('b', 'Kvarg', 120, 20, 2), food('c', 'Havregryn (80 g)', 290, 10, 3), food('d', 'Meal', 0, 0, 4, 'file:///x.jpg')],
+    sets: [],
+    games: [],
+    bonusGameMin: 0,
+  };
+  assert.deepEqual(
+    recentFoods(f).map((x) => [x.name, x.n]),
+    [
+      ['Havregryn (80 g)', 2],
+      ['Kvarg', 1],
+    ],
+  );
+  assert.equal(foodBase('Ägg (2,5 g)'), 'Ägg');
+  assert.equal(foodBase('Pasta (cooked)'), 'Pasta (cooked)');
+}
 
 // free-time finder + meeting detection (tomorrow, so "now" doesn't clip it)
 const tomorrow = atTime(new Date(), 1, 0);
@@ -576,7 +600,7 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   setLineMemory(undefined);
 
   // lint: lines seen every day have at least 4 savage variants (kind pools are the same in both and exempt)...
-  const DAILY = ['greetMorning', 'greetAfternoon', 'greetEvening', 'greetNight', 'spiderTap', 'waterLogged', 'waterRemind', 'coffeeLogged', 'foodLogged', 'gymSet', 'gymToday', 'gymRemind', 'taskDone', 'habitDone', 'habitRemind', 'moodRemind', 'questDone', 'energyLow', 'energyOk', 'energyHigh', 'windDownRemind', 'windDownDone', 'breathDone', 'sleepRemind', 'rateSleepBad', 'rateSleepOk', 'rateSleepGreat', 'sleepShort', 'sleepGood', 'verdictTragic', 'verdictMid', 'verdictGood', 'verdictGreat', 'verdictMorning', 'weatherRain', 'weatherCold', 'weatherHot', 'weatherNice', 'gameStart', 'stepsLow', 'stepsMid', 'stepsHigh', 'morningBrief', 'eveningReport', 'eveningReady'];
+  const DAILY = ['greetMorning', 'greetAfternoon', 'greetEvening', 'greetNight', 'spiderTap', 'waterLogged', 'waterRemind', 'coffeeLogged', 'foodLogged', 'gymSet', 'gymToday', 'gymRemind', 'taskDone', 'habitDone', 'habitRemind', 'moodRemind', 'questDone', 'energyLow', 'energyOk', 'energyHigh', 'windDownRemind', 'windDownDone', 'breathDone', 'sleepRemind', 'rateSleepBad', 'rateSleepOk', 'rateSleepGreat', 'sleepShort', 'sleepGood', 'verdictTragic', 'verdictMid', 'verdictGood', 'verdictGreat', 'verdictMorning', 'weatherRain', 'weatherCold', 'weatherHot', 'weatherNice', 'weatherGrey', 'gameStart', 'stepsLow', 'stepsMid', 'stepsHigh', 'morningBrief', 'eveningReport', 'eveningReady'];
   for (const k of DAILY) {
     const pool = pools[k];
     assert.ok(pool, k);
@@ -588,6 +612,11 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
     const hits = Object.entries(pools).filter(([, x]) => [...x.mild, ...x.savage].some((t) => new RegExp(`\\b${phrase}`, 'i').test(t)));
     assert.ok(hits.length <= 2, `"${phrase}" in ${hits.length} pools: ${hits.map(([k]) => k).join(', ')}`);
   }
+  // ...and no line is in two pools, so the debrief never repeats HQ's verdict word for word
+  const where = new Map<string, string[]>();
+  for (const [k, x] of Object.entries(pools)) for (const t of new Set([...x.mild, ...x.savage])) where.set(t, [...(where.get(t) ?? []), k]);
+  const twice = [...where].filter(([, ks]) => ks.length > 1);
+  assert.deepEqual(twice, [], twice.map(([t, ks]) => `${ks.join('+')}: ${t}`).join('; '));
 }
 
 // "too far" turns the day's tone down a step (golden lines off), and only that day
@@ -600,6 +629,20 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   assert.ok(!goldenAllowed(t, at));
   t.toneEase = { day: '2027-01-13', steps: 9 };
   assert.equal(toneOn(t, '2027-01-13', at).level, 1);
+}
+
+// a silence after a low check-in stays kind: the last mood counts however many days back it was
+{
+  const q = defaultState();
+  const mood = (level: 1 | 2 | 3 | 4 | 5) => ({ water: [], food: [], sets: [], games: [], bonusGameMin: 0, moods: [{ id: 'm', level, emotions: [], at: 0 }] });
+  assert.ok(!lastMoodLow(q, '2027-01-20'));
+  q.days['2027-01-10'] = mood(4);
+  q.days['2027-01-12'] = mood(2);
+  q.days['2027-01-14'] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 }; // a day with no check-in
+  assert.ok(lastMoodLow(q, '2027-01-20'));
+  assert.ok(!lastMoodLow(q, '2027-01-11'));
+  q.days['2027-01-13'] = mood(3);
+  assert.ok(!lastMoodLow(q, '2027-01-20'));
 }
 
 // just-in-time insights: only what the data shows, once a day, never on a sick day
@@ -744,12 +787,19 @@ assert.equal(gradeOf(10), 'F');
 // weather helpers
 assert.equal(wx(0).label, 'Clear');
 assert.equal(wx(63).label, 'Rain');
-const fc = (f: { date?: string; max: number; min: number; rainPct: number; code: number; daylightMin?: number }) => ({
+const fc = (f: { date?: string; max: number; min: number; rainPct: number; code: number; daylightMin?: number; sunshineMin?: number }) => ({
   date: 'x', rainMm: 0, sunrise: 0, sunset: 0, daylightMin: 600, sunshineMin: 0, ...f,
 });
 assert.equal(weatherKey(fc({ max: 10, min: 2, rainPct: 80, code: 3 })), 'weatherRain');
 assert.equal(weatherKey(fc({ max: 30, min: 18, rainPct: 0, code: 0 })), 'weatherHot');
 assert.equal(weatherKey(fc({ max: 1, min: -5, rainPct: 0, code: 0 })), 'weatherCold');
+// grey days aren't "nice": fog, overcast, or hardly a minute of sun; snow is cold whatever the thermometer says
+assert.equal(weatherKey(fc({ max: 6, min: 2, rainPct: 10, code: 45 })), 'weatherGrey');
+assert.equal(weatherKey(fc({ max: 7, min: 3, rainPct: 20, code: 3, sunshineMin: 200 })), 'weatherGrey');
+assert.equal(weatherKey(fc({ max: 8, min: 4, rainPct: 0, code: 2, sunshineMin: 10 })), 'weatherGrey');
+assert.equal(weatherKey(fc({ max: 8, min: 4, rainPct: 0, code: 1, sunshineMin: 240 })), 'weatherNice');
+assert.equal(weatherKey(fc({ max: 5, min: 0, rainPct: 40, code: 73, sunshineMin: 0 })), 'weatherCold');
+assert.equal(weatherKey(fc({ max: 4, min: 0, rainPct: 30, code: 85, sunshineMin: 0 })), 'weatherCold');
 // daylight: only gains are mentioned; rain: "until" while raining, "from" when it starts within 3 hours
 const dl = (date: string, daylightMin: number) => fc({ date, max: 0, min: 0, rainPct: 0, code: 0, daylightMin });
 assert.equal(daylightGain([dl('2026-12-22', 370), dl('2026-12-23', 372)], '2026-12-22'), 2);
@@ -1594,6 +1644,11 @@ void (async () => {
   assert.equal(seasonOn(new Date(2026, 9, 24))?.id, 'halloween');
   assert.equal(seasonOn(new Date(2026, 10, 1, 23, 59))?.id, 'halloween');
   assert.equal(seasonOn(new Date(2026, 10, 2)), null);
+  // Alla helgons dag (Sat 31 Oct 2026, in spooky season) gets the quiet greeting instead of the jokes
+  assert.ok(isAllSaintsDay(new Date(2026, 9, 31, 9)));
+  assert.ok(!isAllSaintsDay(new Date(2026, 10, 1, 9)));
+  assert.ok(isAllSaintsDay(new Date(2027, 10, 6, 20)));
+  assert.deepEqual(LINES.greetAllSaints.savage, LINES.greetAllSaints.mild);
   assert.equal(seasonOn(new Date(2026, 11, 13))?.id, 'lucia');
   assert.equal(seasonOn(new Date(2026, 11, 21))?.id, 'solstice');
   assert.equal(seasonOn(new Date(2026, 11, 22)), null);
@@ -1934,6 +1989,15 @@ void (async () => {
   assert.ok(/quieter day|running low/.test(kindPage), kindPage);
   assert.ok(!/spite|petition|couch|cactus/.test(kindPage), kindPage);
   assert.deepEqual(writePage(dd, 1, at), writePage(dd, 1, at));
+  // away (a trip, a holiday) is time off, not a low day: no "running low" on its page
+  const away = { ...dd, pauses: [{ from: y, to: y, kind: 'away' as const }] };
+  assert.ok(kindDay(away, y));
+  for (let n = 1; n <= 6; n++) {
+    const t = writePage(away, n, at).text;
+    assert.ok(/away|off duty/i.test(t) && !/running low|quieter day/.test(t), t);
+  }
+  // ...unless the mood was low as well
+  assert.ok(/quieter day|running low/.test(writePage({ ...low, pauses: away.pauses }, 1, at).text));
 
   // the day's web: stable, from water/habits/quests/training/sleep/tasks/gaming/mood, never the body
   const w = defaultState();

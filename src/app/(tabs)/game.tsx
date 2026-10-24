@@ -5,6 +5,7 @@ import { EntryEditor } from '@/components/entry-editor';
 import { ScreenTimeCard } from '@/components/screen-time-card';
 import { Bar, Big, Btn, Card, Chip, Field, H, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
 import { HiddenEgg } from '@/components/swedish-year';
+import { noonOf, useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtClock, fmtDuration, fmtTime, MIN, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { gameLineKey } from '@/lib/line-context';
@@ -18,6 +19,7 @@ export default function Game() {
   const { state, actions, quip } = useStore();
   const active = state.activeGame;
   const now = useNow(1000, !!active);
+  const todayKey = useToday(); // `now` only ticks during a session, so it can't tell the day
   const [game, setGame] = useState('');
   // The session being renamed (its start), so a rename left open doesn't carry over to the next session.
   const [renamingFor, setRenamingFor] = useState<number | null>(null);
@@ -27,11 +29,11 @@ export default function Game() {
   const edited = editing ? dayOf(state, editing.key).games.find((g) => g.start === editing.start) : undefined;
   const editedMin = edited ? Math.round((edited.end - edited.start) / MIN) : 0;
   const recent = recentGames(state);
-  const topGames = gameTotals(state, 7);
+  const topGames = gameTotals(state, 7, noonOf(todayKey));
   const topMax = Math.max(1, ...topGames.map((g) => g.ms));
 
-  const today = dayOf(state);
-  const playKey = active ? dayKey(active.start) : dayKey(now); // a session past midnight keeps its start day's budget
+  const today = dayOf(state, todayKey);
+  const playKey = active ? dayKey(active.start) : todayKey; // a session past midnight keeps its start day's budget
   const budgetMs = gamingBudgetMin(state, playKey) * MIN;
   const usedMs = gamingUsedMs(state, playKey, now);
   const over = usedMs > budgetMs;
@@ -53,7 +55,7 @@ export default function Game() {
   );
 
   const week = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(new Date(), i - 6);
+    const d = addDays(noonOf(todayKey), i - 6);
     const k = dayKey(d);
     const name = i === 6 ? 'Today' : i === 5 ? 'Yesterday' : WEEKDAYS_LONG[d.getDay()];
     return { key: k, name, label: WEEKDAYS[d.getDay()][0], ms: gamingUsedMs(state, k, now), budget: gamingBudgetMin(state, k) * MIN };
@@ -136,7 +138,7 @@ export default function Game() {
           Earned minutes you don&apos;t play are banked at midnight: {bankRate(state).rate} 🪙 each.
         </T>
         {today.games.map((g) => (
-          <SessionRow key={g.start} g={g} onPress={() => setEditing({ key: dayKey(), start: g.start })} />
+          <SessionRow key={g.start} g={g} onPress={() => setEditing({ key: todayKey, start: g.start })} />
         ))}
         {today.games.length > 0 ? (
           <T dim small>

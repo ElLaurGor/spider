@@ -14,7 +14,7 @@ export const LINES = {
       "Good morning, {name}. I've analyzed your potential. It's in there. Somewhere. Buried deep.",
       'Rise and shine, {name}. Mostly rise. The shine is optional at this point.',
       'Morning, {name}. Your bed called. I told it you have a life now. Prove me right.',
-      "Oh good, you're awake. The day was going so well without you.",
+      "Good morning. The day has been waiting for you. Impatiently, I might add.",
       "Morning, {name}. Today's forecast: 100% chance of me judging you.",
       "Welcome back to consciousness, {name}. Today is unclaimed. Claim it.",
     ],
@@ -25,7 +25,7 @@ export const LINES = {
       'Good afternoon, {name}. Half the day is gone. Much like your motivation.',
       'Afternoon, {name}. Still time to turn this day around. Not much. But some.',
       "Ah, {name}. Back to check how badly the day is going? Let's look together.",
-      "If productivity were a sport, you'd be on the bench, {name}. Let's fix that.",
+      "Afternoon, {name}. This morning's output is marked 'pending'. Shall we?",
     ],
   },
   greetEvening: {
@@ -63,7 +63,7 @@ export const LINES = {
       "My spider-sense is tingling. It says you're procrastinating.",
       "With great power comes great responsibility. You have neither, but we're working on it.",
       "I'd roast you harder, but I'm saving my energy for your evening report.",
-      "Error 404: {name}'s discipline not found.",
+      "I ran a full diagnostic on your discipline, {name}. Results: inconclusive.",
     ],
   },
   // A line called "too far" on a toast: retired for good, and today goes softer.
@@ -103,6 +103,11 @@ export const LINES = {
       'Boo. Did that scare you? Your to-do list should.',
       'Spooky season, {name}. The boss is haunted. So is your task list.',
     ],
+  },
+  // Alla helgons dag falls in spooky season some years: a day of remembrance, so quiet in both pools.
+  greetAllSaints: {
+    mild: ["Alla helgons dag, {name}. A quieter day. Candles tonight, if you like.", 'Alla helgons dag. Nothing to roast today. A walk in the early dark is a good way to remember.', "A day for remembering, {name}. I'll keep it quiet."],
+    savage: ["Alla helgons dag, {name}. A quieter day. Candles tonight, if you like.", 'Alla helgons dag. Nothing to roast today. A walk in the early dark is a good way to remember.', "A day for remembering, {name}. I'll keep it quiet."],
   },
   seasonLucia: {
     mild: ['Glad Lucia, {name}! 🕯️ Bring a little light today.'],
@@ -196,10 +201,10 @@ export const LINES = {
     mild: ['{workout} in 30 minutes. Get your gear ready!', "Gym time soon: {workout}. You've got this."],
     savage: [
       '{workout} in 30 minutes. Your excuses have been pre-rejected.',
-      '{workout} today. The couch has been notified of your departure.',
+      '{workout} today. I have cleared your schedule of reasons not to go.',
       "Gym in 30. If you skip, I'll tell the dumbbells. They talk.",
       '{workout} in 30 minutes. The dumbbells have been stretching for this.',
-      "Pack your bag. And no, 'I'm tired' is not a training split.",
+      "Gym bag, water bottle, {workout}. In that order. I'll be counting.",
     ],
   },
   // The pre-gym ping on a kind day (low mood, period): the plan stays, the pressure goes.
@@ -220,7 +225,7 @@ export const LINES = {
   // The Gym tab once something is logged ({done}: "40 min and 3 sets").
   gymLogged: {
     mild: ['{done} logged today. Nice work.'],
-    savage: ['{done} logged today. Keep going or go home. Those are the options.', '{done} logged today. The couch is filing a missing person report.'],
+    savage: ['{done} logged today. Keep going or go home. Those are the options.', '{done} logged today. I have updated your file. It reads better already.'],
   },
   // The Gym tab on a pause or period day. Kind in both pools.
   gymEasyLogged: {
@@ -295,7 +300,7 @@ export const LINES = {
     mild: ['Protein goal reached!'],
     savage: [
       'Protein goal hit. Logged, tracked, done. I have nothing to add.',
-      'Protein goal reached. Protein Goblin mode: activated.',
+      'Protein goal reached. Noted, and frankly a little impressive.',
     ],
   },
   foodNone: {
@@ -347,7 +352,7 @@ export const LINES = {
     mild: ["You're {over} over your gaming budget."],
     savage: [
       "{over} over budget. I'm not mad. I'm just deducting XP.",
-      'Still playing? Your sleep schedule just filed for divorce.',
+      'Still playing? I have informed your sleep schedule. It did not take it well.',
       "{over} over. At this point you don't game there, you live there.",
     ],
   },
@@ -435,7 +440,7 @@ export const LINES = {
     savage: [
       'Morning. {events}. {workout}. The first glass of water is on you.',
       "Wake up, {name}. {events}. {workout}. Let's pretend you're ready.",
-      'Rise and grind. Or just rise. {events}. {workout}.',
+      'Good morning. Briefing: {events}. {workout}. Coffee before the second item, I suggest.',
       'Morning, {name}. {events}. {workout}. Water before scrolling. That is the deal.',
     ],
   },
@@ -490,7 +495,7 @@ export const LINES = {
       'Coffee logged. Productivity not included.',
       'Another coffee? Your heart just started a drum solo.',
       "#{n}. You're not drinking coffee anymore, you're a distribution center.",
-      'Bean juice acquired. {mg} mg and counting.',
+      "{mg} mg on board. I've revised tonight's sleep forecast. Downward.",
     ],
   },
   coffeeLate: {
@@ -614,7 +619,7 @@ export const LINES = {
   },
   mealPhoto: {
     mild: ['Meal photo saved with your log.'],
-    savage: ['Food pic saved. Very influencer of you.', 'Photo saved with the log. Your camera roll thanks you.'],
+    savage: ['Photo saved with the meal. Strictly for the archive.', 'Photo saved with the log. Your camera roll thanks you.'],
   },
   habitDone: {
     mild: ['{habit} done.', 'Nice! {habit} checked off.'],
@@ -642,7 +647,7 @@ export const LINES = {
     mild: ['Quest complete: {quest}! +{xp} XP'],
     savage: [
       'Quest complete: {quest}. +{xp} XP. The bards will sing of this. Quietly.',
-      '{quest}: done. +{xp} XP. Achievement hunter energy.',
+      '{quest}: done. +{xp} XP. Efficient. I approve, quietly.',
       '{quest}: complete. +{xp} XP. Somewhere a boss just flinched.',
       'Quest down: {quest}. +{xp} XP. Next.',
     ],
@@ -753,6 +758,16 @@ export const LINES = {
       '{forecast}. Touch grass today. Literally.',
       '{forecast}. The weather did its part. Your turn.',
       '{forecast}. A walk today is basically free.',
+    ],
+  },
+  // Overcast and fog (most Stockholm days from November to March): daylight is the point, not the view.
+  weatherGrey: {
+    mild: ['{forecast}. Grey, but daylight is daylight. A walk in the brightest hour still counts.', '{forecast}. Overcast. Lunch outside would catch most of the light there is.'],
+    savage: [
+      '{forecast}. Grey again. The sun is on leave. Your walk is not.',
+      '{forecast}. Overcast. Even grey daylight beats the office lamp. I checked.',
+      "{forecast}. Not pretty, but it is light out. Briefly. I'd use it.",
+      "{forecast}. Fog or cloud, the step counter doesn't mind. Neither should you.",
     ],
   },
   backupRemind: {
@@ -957,7 +972,7 @@ export const LINES = {
   },
   screenChill: {
     mild: ['{time} on your phone today. Healthy-ish!'],
-    savage: ['{time} of phone today. Reasonable. Almost like you have hobbies.', 'Only {time} on the phone? Who are you and where is your TikTok?'],
+    savage: ['{time} of phone today. Reasonable. Almost like you have hobbies.', 'Only {time} on the phone. I checked twice. Remarkable restraint.'],
   },
   screenHeavy: {
     mild: ['{time} on your phone today. Maybe take a break?'],
@@ -1062,15 +1077,15 @@ export const LINES = {
   },
   nightMid: {
     mild: ['A steady day. Some wins in there.'],
-    savage: ['Verdict: mid. Painfully mid.', 'Verdict: you existed. Bare minimum achieved.'],
+    savage: ['Closing the books: an average day. The ledger shrugs.', 'Verdict: you existed. Bare minimum achieved.'],
   },
   nightGood: {
     mild: ['A good day. Well done.'],
-    savage: ["Verdict: respectable. Don't get cocky.", 'Verdict: decent. I hate that I said that.'],
+    savage: ['Closing the books: respectable. Do try to repeat it.', "Closing the books: decent. I've noted it. Reluctantly."],
   },
   nightGreat: {
     mild: ['An outstanding day. Sleep well, you earned it.'],
-    savage: ['Verdict: a day worth repeating. Same again tomorrow?', 'Verdict: elite. Who replaced you?'],
+    savage: ['Verdict: a day worth repeating. Same again tomorrow?', 'Closing the books: excellent. I may have to raise my expectations.'],
   },
 
   // ---- cluster D: insights ----

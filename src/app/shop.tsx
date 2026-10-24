@@ -100,7 +100,7 @@ export default function ShopScreen() {
             <Text style={{ fontSize: 22 }}>{r.emoji}</Text>
             <T style={{ flex: 1 }}>{r.title}</T>
             <Btn label={`${r.cost} 🪙`} small kind={state.coins >= r.cost ? 'primary' : 'ghost'} onPress={() => confirmBuy(r.title, r.cost, () => actions.buyReward(r.id))} />
-            <Pressable onPress={() => actions.deleteReward(r.id)} hitSlop={8}>
+            <Pressable onPress={() => actions.deleteReward(r.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${r.title}`}>
               <Icon name="close" size={18} color={C.faint} />
             </Pressable>
           </Row>

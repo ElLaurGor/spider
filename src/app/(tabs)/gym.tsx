@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { router } from 'expo-router';
@@ -10,7 +10,7 @@ import { ProgressPhotos } from '@/components/progress-photos';
 import { Big, Btn, Card, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { WatchCard } from '@/components/watch-card';
 import { HiddenEgg } from '@/components/swedish-year';
-import { useToday } from '@/components/use-today';
+import { noonOf, useToday } from '@/components/use-today';
 import { WorkoutHeartCard } from '@/components/workout-heart';
 import { C } from '@/constants/theme';
 import { fmtClock, WEEK_ORDER, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
@@ -29,16 +29,22 @@ export default function Gym() {
   const [newEx, setNewEx] = useState('');
   const [showSets, setShowSets] = useState(() => dayOf(state).sets.length > 0);
 
-  const now = new Date();
-  const today = dayOf(state);
+  const todayKey = useToday();
+  const now = noonOf(todayKey);
+  const today = dayOf(state, todayKey);
   const plan = workoutFor(state, now);
-  const week = workoutsThisWeek(state);
+  const week = workoutsThisWeek(state, now);
 
   // Plan exercises + anything logged/added today, without duplicates.
   const exercises: string[] = [];
   for (const name of [...(plan?.exercises ?? []), ...today.sets.map((x) => x.exercise), ...extra]) {
     if (!exercises.some((e) => same(e, name))) exercises.push(name);
   }
+
+  // The rest countdown sits in the card of the exercise just logged, under its Log set button, so nothing
+  // above the finger moves. Only when that card isn't showing does it go above the stats.
+  const restIn = showSets ? exercises.find((e) => same(e, today.sets.at(-1)?.exercise ?? '')) : undefined;
+  const rest = <RestTimer endsAt={state.restEndsAt} onAdd={() => actions.addRest(30)} onSkip={actions.skipRest} />;
 
   const addExercise = () => {
     const n = newEx.trim();
@@ -54,7 +60,7 @@ export default function Gym() {
 
       <ActivityCard />
 
-      <RestTimer endsAt={state.restEndsAt} onAdd={() => actions.addRest(30)} onSkip={actions.skipRest} />
+      {restIn ? null : rest}
 
       <WatchCard />
       <WorkoutHeartCard />
@@ -81,7 +87,8 @@ export default function Gym() {
         )}
       </Card>
 
-      {showSets && exercises.map((name) => <ExerciseCard key={name.toLowerCase()} name={name} />)}
+      {showSets &&
+        exercises.map((name) => <ExerciseCard key={name.toLowerCase()} name={name} day={todayKey} rest={restIn && same(restIn, name) ? rest : null} />)}
 
       <ProgressPhotos />
 
@@ -143,26 +150,24 @@ function RestTimer({ endsAt, onAdd, onSkip }: { endsAt: number | null; onAdd: ()
   const now = useNow(250, !!endsAt, endsAt ?? undefined);
   if (!endsAt || endsAt <= now) return null;
   return (
-    <Card accent={C.cyan}>
-      <Row style={{ justifyContent: 'space-between' }}>
-        <View>
-          <H>Rest</H>
-          <Big color={C.cyan} size={44}>
-            {fmtClock(endsAt - now)}
-          </Big>
-        </View>
-        <View style={{ gap: 8 }}>
-          <Btn label="+30s" kind="ghost" small onPress={onAdd} />
-          <Btn label="Skip" kind="ghost" small onPress={onSkip} />
-        </View>
-      </Row>
-    </Card>
+    <View style={styles.rest}>
+      <Icon name="timer" size={18} color={C.cyan} />
+      <T small style={{ color: C.cyan }}>
+        Rest
+      </T>
+      <Big color={C.cyan} size={24}>
+        {fmtClock(endsAt - now)}
+      </Big>
+      <View style={{ flex: 1 }} />
+      <Btn label="+30s" kind="ghost" small onPress={onAdd} />
+      <Btn label="Skip" kind="ghost" small onPress={onSkip} />
+    </View>
   );
 }
 
-function ExerciseCard({ name }: { name: string }) {
+function ExerciseCard({ name, day, rest }: { name: string; day: string; rest: ReactNode }) {
   const { state, actions } = useStore();
-  const todaySets = dayOf(state).sets.filter((x) => same(x.exercise, name));
+  const todaySets = dayOf(state, day).sets.filter((x) => same(x.exercise, name));
   const last = lastSession(state, name);
   const pr = prFor(state, name);
   const seed = todaySets.at(-1) ?? last?.best;
@@ -206,13 +211,14 @@ function ExerciseCard({ name }: { name: string }) {
       ) : null}
 
       <Row style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <Stepper value={weight} onChange={setWeight} step={2.5} max={500} format={(v) => `${v} kg`} />
-        <Stepper value={reps} onChange={setReps} step={1} min={1} max={100} format={(v) => `${v} reps`} />
+        <Stepper value={weight} onChange={setWeight} step={2.5} max={500} format={(v) => `${v} kg`} label="weight" typeable />
+        <Stepper value={reps} onChange={setReps} step={1} min={1} max={100} format={(v) => `${v} reps`} label="reps" typeable />
       </Row>
       <Btn label="Log set" icon="add" onPress={() => actions.logSet(name, weight, reps)} />
+      {rest}
       {todaySets.length > 0 ? (
         <T dim small>
-          Tap a set to fix it, long-press to delete it.
+          Tap a set to fix it, long-press to delete it. Tap the weight to type it.
         </T>
       ) : null}
       {editing ? (
@@ -340,4 +346,5 @@ const styles = StyleSheet.create({
   dayRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
   dayName: { color: C.red, fontWeight: '900', width: 40, letterSpacing: 1 },
   editor: { gap: 10, backgroundColor: C.card2, borderRadius: 12, padding: 12 },
+  rest: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.card2, borderRadius: 12, borderWidth: 1, borderColor: C.cyan, paddingVertical: 6, paddingHorizontal: 10 },
 });

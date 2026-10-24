@@ -46,9 +46,9 @@ export function EntryEditor({ title, at, name, numbers = [], note, onSave, onDel
                 Time
               </T>
               <Row gap={4} style={{ justifyContent: 'center' }}>
-                <Stepper value={hour} min={0} max={23} onChange={setHour} format={(v) => pad(v)} />
+                <Stepper value={hour} min={0} max={23} onChange={setHour} format={(v) => pad(v)} label="hour" />
                 <Text style={styles.colon}>:</Text>
-                <Stepper value={minute} step={5} min={0} max={59} onChange={setMinute} format={(v) => pad(v)} />
+                <Stepper value={minute} step={5} min={0} max={59} onChange={setMinute} format={(v) => pad(v)} label="minute" typeable />
               </Row>
             </>
           ) : null}
@@ -63,6 +63,8 @@ export function EntryEditor({ title, at, name, numbers = [], note, onSave, onDel
                 max={n.max}
                 onChange={(v) => setValues({ ...values, [n.key]: v })}
                 format={(v) => `${v} ${n.suffix}`}
+                label={n.label.toLowerCase()}
+                typeable
               />
             </Row>
           ))}

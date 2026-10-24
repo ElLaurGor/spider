@@ -333,6 +333,8 @@ export type State = {
   toneEase?: { day: string; steps: number }; // tone.ts: "too far" turned that day's tone down this many steps
   jitSaid?: Record<string, string>; // just-in-time insights (jit.ts): kind -> the day it was last said (once a day each)
   rangeTop?: Record<string, string>; // range habit id -> the week (its Monday) whose top-of-range bonus was paid
+  // step 5
+  dismissed?: string[]; // HQ banners closed: 'wrapped:YYYY-MM', 'season:<id>:<year>' (the newest 20)
 };
 
 export type MedalTier = 'bronze' | 'silver' | 'gold';

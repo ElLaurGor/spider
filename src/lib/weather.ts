@@ -217,10 +217,15 @@ export function daylightGain(days: DayForecast[], today: string): number | null 
 
 export const forecastText = (d: DayForecast) => `${describe(d.code).emoji} ${d.max}°/${d.min}°, ${d.rainPct}% rain`;
 
-/** Which roast pool fits the forecast. */
-export function weatherKey(d: DayForecast): 'weatherRain' | 'weatherCold' | 'weatherHot' | 'weatherNice' {
+/**
+ * Which roast pool fits the forecast (WMO codes: 3 overcast, 45/48 fog, 51–67 drizzle and rain, 71–77 and
+ * 85–86 snow, 80–82 showers, 95+ thunder). Snow is cold at any temperature, and an overcast, foggy or
+ * sunless day is grey: "nice" is kept for days with some sun in them.
+ */
+export function weatherKey(d: DayForecast): 'weatherRain' | 'weatherCold' | 'weatherHot' | 'weatherGrey' | 'weatherNice' {
   if (d.rainPct >= 60 || (d.code >= 51 && d.code <= 67) || (d.code >= 80 && d.code <= 82) || d.code >= 95) return 'weatherRain';
-  if (d.max <= 3) return 'weatherCold';
+  if ((d.code >= 71 && d.code <= 77) || d.code === 85 || d.code === 86 || d.max <= 3) return 'weatherCold';
   if (d.max >= 26) return 'weatherHot';
+  if (d.code === 3 || d.code === 45 || d.code === 48 || (d.sunshineMin != null && d.sunshineMin < 30)) return 'weatherGrey';
   return 'weatherNice';
 }

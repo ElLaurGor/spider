@@ -206,14 +206,22 @@ export default function SettingsScreen() {
           return (
             <Row key={id} gap={6}>
               <T style={{ flex: 1, opacity: shown ? 1 : 0.45 }}>{hqLabel(id)}</T>
-              <Pressable onPress={() => set({ hq: moveSection(s.hq, id, -1) })} disabled={i === 0} hitSlop={6} style={{ opacity: i === 0 ? 0.25 : 1 }}>
+              <Pressable
+                onPress={() => set({ hq: moveSection(s.hq, id, -1) })}
+                disabled={i === 0}
+                hitSlop={6}
+                style={{ opacity: i === 0 ? 0.25 : 1 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Move ${hqLabel(id)} up`}>
                 <Icon name="expand_less" size={24} color={C.dim} />
               </Pressable>
               <Pressable
                 onPress={() => set({ hq: moveSection(s.hq, id, 1) })}
                 disabled={i === all.length - 1}
                 hitSlop={6}
-                style={{ opacity: i === all.length - 1 ? 0.25 : 1 }}>
+                style={{ opacity: i === all.length - 1 ? 0.25 : 1 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Move ${hqLabel(id)} down`}>
                 <Icon name="expand_more" size={24} color={C.dim} />
               </Pressable>
               <Switch value={shown} onValueChange={() => set({ hq: toggleSection(s.hq, id) })} trackColor={{ true: C.red, false: C.card2 }} thumbColor={C.text} />

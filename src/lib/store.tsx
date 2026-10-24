@@ -85,6 +85,7 @@ import type {
   DayLog,
   Experiment,
   ExperimentMetric,
+  FoodEntry,
   Habit,
   MoodLevel,
   PeriodLog,
@@ -119,7 +120,8 @@ import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, type CuePrompt
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /** A button on a toast (cluster G: "Catch it!" on a fly). */
 /** What a toast's Undo takes back: one entry just logged with one tap (it lasts as long as the toast). */
-export type UndoRef = { kind: 'water' | 'coffee' | 'food' | 'set' | 'task'; id: string; day: string };
+/** `restoreFood` undoes a delete: the meal comes back (photo included) while its toast is up. */
+export type UndoRef = { kind: 'water' | 'coffee' | 'food' | 'set' | 'task' | 'restoreFood'; id: string; day: string };
 export type ToastAction = 'catchFly' | { undo: UndoRef };
 export type Toast = { id: number; text: string; tone: Tone; action?: ToastAction };
 type Msg = { text: string; tone: Tone; action?: ToastAction };
@@ -146,6 +148,8 @@ const nowOn = (key: string) => {
 };
 
 const dayName = (key: string) => (key === dayKey(addDays(new Date(), -1)) ? 'yesterday' : WEEKDAYS_LONG[new Date(`${key}T12:00`).getDay()]);
+/** How long a deleted meal's photo is kept for its Undo: longer than any Undo toast stays up. */
+const FOOD_UNDO_MS = 20_000;
 const backdated = (key: string, what: string): Msg => ({ text: `${what} added to ${dayName(key)}. Back-dated, so no XP.`, tone: 'info' });
 
 const bump = (s: State, counter: keyof State['counters'], by = 1): State => ({
@@ -756,6 +760,8 @@ function useStoreValue() {
   const [notifReady, setNotifReady] = useState(false);
   const [tick, setTick] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Meals just deleted with ×, kept (with their photo file) until their Undo has had its chance. */
+  const foodTrash = useRef(new Map<string, { entry: FoodEntry; day: string }>());
 
   // ----- toasts -----
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1543,10 +1549,19 @@ function useStoreValue() {
         run((s) => patchDay(s, key, (d) => ({ ...d, food: d.food.map((f) => (f.id === id ? { ...f, ...patch } : f)) })));
       },
 
-      removeFood(id: string, key = dayKey()) {
-        deletePhoto(dayOf(stateRef.current, key).food.find((f) => f.id === id)?.photo);
-        run((s) => {
+      /** `undoable` (the × and the editor's Delete): a toast offers Undo, and the photo file waits until it's gone. */
+      removeFood(id: string, key = dayKey(), undoable = false) {
+        const entry = dayOf(stateRef.current, key).food.find((f) => f.id === id);
+        if (!entry) return;
+        if (undoable) {
+          foodTrash.current.set(id, { entry, day: key });
+          setTimeout(() => {
+            if (foodTrash.current.delete(id)) deletePhoto(entry.photo);
+          }, FOOD_UNDO_MS);
+        } else deletePhoto(entry.photo);
+        run((s, msgs) => {
           const next = patchDay(s, key, (d) => withoutCrit({ ...d, food: d.food.filter((f) => f.id !== id) }, id));
+          if (undoable) msgs.push({ text: `🍽️ ${entry.name} deleted.`, tone: 'info', action: { undo: { kind: 'restoreFood', id, day: key } } });
           return pastKey(key) ? next : unreward(next, key, `f:${id}`, XP.food);
         });
       },
@@ -1966,6 +1981,16 @@ function useStoreValue() {
        */
       undo(ref: UndoRef) {
         const s = stateRef.current;
+        if (ref.kind === 'restoreFood') {
+          // A deleted meal, on whichever day it was: back in place, paid again only if the delete took its XP.
+          const trashed = foodTrash.current.get(ref.id);
+          if (!trashed || !foodTrash.current.delete(ref.id)) return;
+          run((x, msgs) => {
+            const next = patchDay(x, trashed.day, (d) => ({ ...d, food: [...d.food, trashed.entry].sort((a, b) => a.at - b.at) }));
+            return pastKey(trashed.day) || trashed.entry.late ? next : reward(next, msgs, XP.food, 0, trashed.day, { ref: `f:${ref.id}` });
+          });
+          return;
+        }
         if (ref.day !== dayKey()) return;
         const d = dayOf(s, ref.day);
         if (ref.kind === 'water') {
@@ -2000,6 +2025,13 @@ function useStoreValue() {
       unretireLine(id: string) {
         unbanLine(id);
         commit({ ...stateRef.current, lineMemory: lineMemory() });
+      },
+
+      /** HQ's Wrapped and season banners: closed for that month or season. */
+      dismissBanner(key: string) {
+        const s = stateRef.current;
+        if ((s.dismissed ?? []).includes(key)) return;
+        commit({ ...s, dismissed: [...(s.dismissed ?? []), key].slice(-20) });
       },
 
       /** Tonight's picks for tomorrow's top 3 (the evening debrief). */

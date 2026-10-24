@@ -218,15 +218,24 @@ export function lastSession(s: State, exercise: string, beforeKey = dayKey()): {
 
 export const prFor = (s: State, exercise: string) => s.prs[norm(exercise)];
 
+/** A logged food's name without the portion the food search adds: "Havregryn (60 g)" is "Havregryn". */
+export const foodBase = (name: string) => name.replace(/\s*\(\d+(?:[.,]\d+)?\s*g\)\s*$/i, '').trim();
+
+/**
+ * The month's most-logged foods, for one-tap chips. One chip per food whatever the portion (a tap logs the
+ * latest portion), and photo-only meals ("Meal", nothing counted) are left out.
+ */
 export function recentFoods(s: State, limit = 8) {
-  const counts = new Map<string, { name: string; kcal: number; protein: number; n: number }>();
+  const counts = new Map<string, { name: string; kcal: number; protein: number; n: number; at: number }>();
   const since = dayKey(addDays(new Date(), -30));
   for (const [k, d] of Object.entries(s.days)) {
     if (k < since) continue;
     for (const f of d.food) {
-      const id = norm(f.name);
+      if (!f.kcal && !f.protein && norm(f.name) === 'meal') continue;
+      const id = norm(foodBase(f.name));
       const prev = counts.get(id);
-      counts.set(id, { name: f.name, kcal: f.kcal, protein: f.protein, n: (prev?.n ?? 0) + 1 });
+      const latest = !prev || f.at >= prev.at ? { name: f.name, kcal: f.kcal, protein: f.protein, at: f.at } : prev;
+      counts.set(id, { ...latest, n: (prev?.n ?? 0) + 1 });
     }
   }
   return [...counts.values()].sort((a, b) => b.n - a.n).slice(0, limit);

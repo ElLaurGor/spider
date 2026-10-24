@@ -1,17 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 
 import { Icon } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
+import { dayKey } from '@/lib/dates';
 import { useStore } from '@/lib/store';
 import { monthWrapped } from '@/lib/wrapped';
 
 export default function WrappedScreen() {
-  const { state } = useStore();
+  const { state, actions } = useStore();
   const { width } = useWindowDimensions();
   const now = new Date();
   // Early in the month, open on the month that just ended.
   const [offset, setOffset] = useState(now.getDate() <= 5 ? -1 : 0);
+  // Opened: HQ's "Wrapped is ready" banner has done its job.
+  const early = now.getDate() <= 5;
+  const lastMonthKey = dayKey(new Date(now.getFullYear(), now.getMonth() - 1, 1)).slice(0, 7);
+  useEffect(() => {
+    if (early) actions.dismissBanner(`wrapped:${lastMonthKey}`);
+  }, [early, lastMonthKey, actions]);
   const [page, setPage] = useState(0);
   const target = new Date(now.getFullYear(), now.getMonth() + offset, 1);
   const w = monthWrapped(state, target.getFullYear(), target.getMonth(), now);
@@ -25,14 +32,14 @@ export default function WrappedScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <View style={styles.top}>
-        <Pressable onPress={() => go(-1)} hitSlop={10} style={styles.nav}>
+        <Pressable onPress={() => go(-1)} hitSlop={10} style={styles.nav} accessibilityRole="button" accessibilityLabel="Previous month">
           <Icon name="chevron_left" color={C.text} />
         </Pressable>
         <Text style={styles.month}>
           {w.label}
           {w.partial ? ' (so far)' : ''}
         </Text>
-        <Pressable onPress={() => go(1)} hitSlop={10} style={[styles.nav, offset >= 0 && { opacity: 0.3 }]} disabled={offset >= 0}>
+        <Pressable onPress={() => go(1)} hitSlop={10} style={[styles.nav, offset >= 0 && { opacity: 0.3 }]} disabled={offset >= 0} accessibilityRole="button" accessibilityLabel="Next month">
           <Icon name="chevron_right" color={C.text} />
         </Pressable>
       </View>

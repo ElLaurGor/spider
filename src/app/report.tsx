@@ -30,7 +30,7 @@ export default function ReportScreen() {
   return (
     <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
       <Row style={{ justifyContent: 'space-between' }}>
-        <Pressable onPress={() => setOffset(offset - 1)} hitSlop={10} style={styles.nav}>
+        <Pressable onPress={() => setOffset(offset - 1)} hitSlop={10} style={styles.nav} accessibilityRole="button" accessibilityLabel="Previous week">
           <Icon name="chevron_left" color={C.text} />
         </Pressable>
         <View style={{ alignItems: 'center' }}>
@@ -41,7 +41,13 @@ export default function ReportScreen() {
             {offset === 0 ? 'This week so far' : offset === -1 ? 'Last week' : `${-offset} weeks ago`}
           </T>
         </View>
-        <Pressable onPress={() => setOffset(Math.min(0, offset + 1))} hitSlop={10} style={[styles.nav, offset === 0 && { opacity: 0.3 }]} disabled={offset === 0}>
+        <Pressable
+          onPress={() => setOffset(Math.min(0, offset + 1))}
+          hitSlop={10}
+          style={[styles.nav, offset === 0 && { opacity: 0.3 }]}
+          disabled={offset === 0}
+          accessibilityRole="button"
+          accessibilityLabel="Next week">
           <Icon name="chevron_right" color={C.text} />
         </Pressable>
       </Row>
