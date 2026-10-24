@@ -103,6 +103,7 @@ import type {
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, needsPlaceInfo, samePlace, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
 import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, triageAlerts, warningsOf, type Air, type Alert, type SourceStatus } from './outside';
+import { nextStorm } from './storm';
 import { ACHIEVEMENTS, activityXp, BADGE_NOTE, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, SET_XP_DAILY, titleFor, XP } from './xp';
 // cluster B: economy & progression
 import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWorn, type Slot } from './cosmetics';
@@ -1294,6 +1295,7 @@ function useStoreValue() {
         setSmhiAlerts([]);
         setVmaAlerts([]);
         setAlertStatus({ smhi: null, vma: null });
+        if (stateRef.current.storm) run((s) => ({ ...s, storm: undefined })); // no place, no warnings to hold the protocol
         return;
       }
       if (!force && Date.now() < outsideDue.current) return;
@@ -1348,6 +1350,14 @@ function useStoreValue() {
             say(`${head}: ${x.title}`, 'bad');
           }
           if (changed) run((s) => ({ ...s, seenAlerts: triageAlerts(shown, s.seenAlerts, now).seen }));
+          // The Storm protocol (storm.ts): orange and red warnings and VMAs hold the jokes back while they last.
+          if (nextStorm(stateRef.current.storm, smhi, vma, now) !== stateRef.current.storm) {
+            run((s, msgs) => {
+              const storm = nextStorm(s.storm, smhi, vma, now);
+              if (s.storm?.length && !storm) msgs.push({ text: `🛡️ ${L(s, 'stormLifted')}`, tone: 'info' });
+              return { ...s, storm };
+            });
+          }
         }
       } catch (e) {
         failed = true;
@@ -1532,7 +1542,9 @@ function useStoreValue() {
               next = reward(reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` }), msgs, XP.waterGoal, BONUS_MIN.waterGoal, key);
               return hasPerk(next, 'hydro_glands') ? perkCoins(next, msgs, 25, '💧 Hydro Glands') : next;
             }
-            msgs.push(tapped ? lateTap(key, `💧 ${ml} ml`) : { text: L(next, 'waterLogged', { ml, left: Math.max(0, goal - total) }), tone: 'good', action: undo });
+            // Past the goal there's nothing left to count down.
+            const said = () => (total >= goal ? L(next, 'waterExtra', { ml }) : L(next, 'waterLogged', { ml, left: goal - total }));
+            msgs.push(tapped ? lateTap(key, `💧 ${ml} ml`) : { text: said(), tone: 'good', action: undo });
             return reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` });
           },
           { early: !!tapped },

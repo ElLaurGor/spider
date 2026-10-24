@@ -1,16 +1,18 @@
 // How S.P.I.D.E.R. may sound on a given day. Every line picks its pool through here (effectiveSavage in
 // selectors.ts is toneOn(today).level), so the house rules hold everywhere: a low mood and sick mode pause
-// the roasts, a period day is kind (with "go easy on period days" on), low-battery mode turns it down.
+// the roasts, a period day is kind (with "go easy on period days" on), so is a day under the Storm protocol
+// (storm.ts), and low-battery mode turns it down.
 // Imports nothing that imports selectors.ts, since selectors.ts imports this.
 import { addDays, dayKey } from './dates';
 import { pauseOn } from './pause';
+import { stormOn } from './storm';
 import type { DayLog, State } from './types';
 
 /** How far one "too far" turns the day's savage level down. */
 export const EASE_STEP = 2;
 
-/** `kind`: no roasts at all that day (level 1, mild lines only). */
-export type DayTone = { level: number; kind: boolean };
+/** `kind`: no roasts at all that day (level 1, mild lines only). `storm`: kind because of the Storm protocol. */
+export type DayTone = { level: number; kind: boolean; storm?: true };
 
 /** The predicted next period, as cycleInfo() in body.ts gives it (only these two fields are needed). */
 export type PeriodForecast = { nextStart: Date; avgPeriodDays: number };
@@ -70,7 +72,8 @@ const predicted = (f: PeriodForecast | null | undefined, key: string) => {
 /**
  * The tone for a day. A low mood (that day's latest; with none logged yet, the day before's carries over)
  * or a sick pause make it kind. So does a period day when "go easy on period days" is on: logged, still
- * running, or (for a future day, given a forecast) predicted. Low-battery mode caps it at 5. Away mode
+ * running, or (for a future day, given a forecast) predicted. So does an orange or red warning or a VMA
+ * covering that day (the Storm protocol, storm.ts). Low-battery mode caps it at 5. Away mode
  * keeps the usual tone (it only stops the nagging). Each line called "too far" that day turns it down
  * another step (State.toneEase).
  */
@@ -80,6 +83,7 @@ export function toneOn(s: State, key: string, now = new Date(), forecast?: Perio
   const d = s.days[key];
   const latest = d?.moods?.at(-1) ?? s.days[before(key)]?.moods?.at(-1);
   if ((latest && latest.level <= 2) || pauseOn(s, key)?.kind === 'sick') return { level: 1, kind: true };
+  if (stormOn(s, key, now.getTime())) return { level: 1, kind: true, storm: true };
   if (s.settings.easyOnPeriod && (periodDay(s, key) || (key > dayKey(now) && predicted(forecast, key)))) return { level: 1, kind: true };
   if (d?.energy != null && d.energy <= 2) return { level: Math.min(set, 5), kind: false };
   return { level: set, kind: false };

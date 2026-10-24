@@ -135,6 +135,8 @@ import { eventsOn } from '../src/lib/selectors';
 import { meteoTime, needsPlaceInfo, samePlace, staleNote } from '../src/lib/weather';
 // step 4 hq
 import { departureText, leaveInMin, nextDepartures, parseDepartures, parseDeviations, parseStops, plannedText, relevantDeviations, routesOf, siteIdOf, slRetryMs } from '../src/lib/sl';
+import { cancelledNote, type SlDeparture } from '../src/lib/sl';
+import { adviceOf, nextStorm, stormAlertsOf, stormOn } from '../src/lib/storm';
 import { readinessFor } from '../src/lib/readiness';
 import { heartIn, workoutWindows } from '../src/lib/workout-heart';
 import { movementMap, stillestHour } from '../src/lib/movement';
@@ -176,6 +178,7 @@ for (const k of ['rival', 'medals']) known.add(k); // step 2b progress: the neme
 for (const k of ['hp', 'plan']) known.add(k); // step 2b boss: the weekend finisher and the recap
 known.add('finding'); // step 4 lines: just-in-time insights
 for (const k of ['when', 'happened', 'then', 'dmg', 'min']) known.add(k); // step 4 plans: if-then prompts and the comeback bonus
+for (const k of ['sunrise', 'sunset']) known.add(k); // step 6: the dark-day weather lines
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -621,6 +624,25 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   banLine(lineId('waterRemind', pools.waterRemind.mild[0]));
   for (let i = 0; i < 12; i++) assert.notEqual(dayLine('waterRemind', 1, '2027-01-13', i), mild[0]); // retired lines skip notifications too
   setLineMemory(undefined);
+  // the water reminders are dealt across the week: each day carries on where the last one stopped, so over
+  // Monday to Sunday every line comes up as often as any other (give or take one), and a replan changes nothing
+  {
+    const week = ['2027-01-11', '2027-01-12', '2027-01-13', '2027-01-14', '2027-01-15', '2027-01-16', '2027-01-17'];
+    for (const level of [1, 7]) {
+      const said = week.flatMap((d) => Array.from({ length: 10 }, (_, i) => dayLine('waterRemind', level, d, i, {}, 10)));
+      for (const list of level === 1 ? [pools.waterRemind.mild] : [pools.waterRemind.mild, pools.waterRemind.savage]) {
+        const counts = list.map((x) => said.filter((y) => y === fillLine(x, {})).length);
+        assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, `level ${level}: ${counts}`);
+      }
+      assert.equal(dayLine('waterRemind', level, week[3], 4, {}, 10), said[34]);
+    }
+    // at level 1 a day's ten reminders use every mild line before any comes back
+    const thursday = Array.from({ length: 10 }, (_, i) => dayLine('waterRemind', 1, week[3], i, {}, 10));
+    assert.ok(new Set(thursday).size >= Math.min(10, pools.waterRemind.mild.length));
+    // no two reminders in a row say the same thing, not even across the end of a round
+    const all = week.flatMap((d) => Array.from({ length: 10 }, (_, i) => dayLine('waterRemind', 1, d, i, {}, 10)));
+    for (let i = 1; i < all.length; i++) assert.notEqual(all[i], all[i - 1], `slot ${i}`);
+  }
 
   // lint: lines seen every day have at least 4 savage variants (kind pools are the same in both and exempt)...
   const DAILY = ['greetMorning', 'greetAfternoon', 'greetEvening', 'greetNight', 'spiderTap', 'waterLogged', 'waterRemind', 'coffeeLogged', 'foodLogged', 'gymSet', 'gymToday', 'gymRemind', 'taskDone', 'habitDone', 'habitRemind', 'moodRemind', 'questDone', 'energyLow', 'energyOk', 'energyHigh', 'windDownRemind', 'windDownDone', 'breathDone', 'sleepRemind', 'rateSleepBad', 'rateSleepOk', 'rateSleepGreat', 'sleepShort', 'sleepGood', 'verdictTragic', 'verdictMid', 'verdictGood', 'verdictGreat', 'verdictMorning', 'weatherRain', 'weatherCold', 'weatherHot', 'weatherNice', 'weatherGrey', 'gameStart', 'stepsLow', 'stepsMid', 'stepsHigh', 'morningBrief', 'eveningReport', 'eveningReady'];
@@ -640,6 +662,17 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   for (const [k, x] of Object.entries(pools)) for (const t of new Set([...x.mild, ...x.savage])) where.set(t, [...(where.get(t) ?? []), k]);
   const twice = [...where].filter(([, ks]) => ks.length > 1);
   assert.deepEqual(twice, [], twice.map(([t, ks]) => `${ks.join('+')}: ${t}`).join('; '));
+  // ...kind days (only the mild list there) don't hear the same two lines on repeat: every daily pool and
+  // every kind pool has at least 6 mild lines
+  const KIND = ['gymRemindEasy', 'gymEasyLogged', 'gymEasy', 'restDay', 'moodLow', 'moodAwful', 'periodLogged', 'periodSoon', 'verdictKind', 'pauseSick', 'callbackGentle', 'stormGreet', 'weatherDark'];
+  for (const k of [...DAILY, ...KIND]) assert.ok(pools[k].mild.length >= 6, `${k}: only ${pools[k].mild.length} mild lines`);
+  // ...a 20-set workout rarely hears a set line twice
+  assert.ok(pools.gymSet.savage.length >= 16 && pools.gymSet.mild.length >= 8);
+  // ...and the house jokes stay jokes: each in at most 3 pools (the Couch King's own lines, with {boss}, don't count)
+  for (const phrase of [/\bcouch\b(?!\s+(king|potato))/i, /\bfil(ed|ing) a\b/i, /look at you/i, /missing person/i, /painfully mid/i, /\bdraft/i, /who replaced you|who are you and what/i]) {
+    const hits = Object.entries(pools).filter(([, x]) => [...x.mild, ...x.savage].some((t) => phrase.test(t) && !t.includes('{boss}')));
+    assert.ok(hits.length <= 3, `${phrase} in ${hits.length} pools: ${hits.map(([k]) => k).join(', ')}`);
+  }
 }
 
 // "too far" turns the day's tone down a step (golden lines off), and only that day
@@ -652,6 +685,60 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   assert.ok(!goldenAllowed(t, at));
   t.toneEase = { day: '2027-01-13', steps: 9 };
   assert.equal(toneOn(t, '2027-01-13', at).level, 1);
+}
+
+// the Storm protocol (storm.ts): an orange or red warning or a VMA makes its days kind, then lifts by itself
+{
+  const at = new Date(2027, 0, 13, 9).getTime();
+  const alert = (o: Partial<Alert> & Pick<Alert, 'id' | 'level'>): Alert => ({ source: 'SMHI', title: 'Storm', text: '', url: 'https://www.smhi.se/varningar', ...o });
+  const iso = (d: number, h: number) => new Date(2027, 0, d, h).toISOString();
+  const smhi = [
+    alert({ id: 'smhi-1-1', level: 'YELLOW' }),
+    alert({ id: 'smhi-2-1', level: 'ORANGE', title: 'Strong wind', text: 'Gusts of 30 m/s. Stay indoors if you can. Trees may fall. Ferries are cancelled.', start: iso(13, 6), end: iso(14, 18) }),
+    alert({ id: 'smhi-3-1', level: 'RED', end: iso(12, 18) }), // already over
+  ];
+  const held = stormAlertsOf(smhi, at);
+  assert.deepEqual(held.map((a) => a.id), ['smhi-2-1']); // yellow doesn't hold it, an ended one neither
+  assert.equal(held[0].advice, 'Gusts of 30 m/s. Stay indoors if you can. Trees may fall. Ferries are cancelled.');
+  assert.equal(adviceOf({ text: '', url: 'https://www.krisinformation.se' }), 'Details: www.krisinformation.se');
+  assert.ok(adviceOf({ text: 'Stay safe. '.repeat(40), url: '' }).length <= 180);
+
+  const t = defaultState();
+  t.storm = nextStorm(undefined, smhi, [], at);
+  assert.deepEqual(toneOn(t, '2027-01-13', new Date(at)), { level: 1, kind: true, storm: true });
+  assert.equal(toneOn(t, '2027-01-14', new Date(at)).kind, true); // it runs into tomorrow: those reminders are kind too
+  assert.deepEqual(toneOn(t, '2027-01-15', new Date(at)), { level: 10, kind: false });
+  assert.equal(toneOn(t, '2027-01-14', new Date(2027, 0, 14, 19)).kind, false); // over at 18:00, so the evening is normal again
+  assert.ok(!goldenAllowed(t, new Date(at)));
+  // a check that finds the same alerts changes nothing (no save); a failed source keeps what it had
+  assert.equal(nextStorm(t.storm, smhi, [], at + 60_000), t.storm);
+  assert.equal(nextStorm(t.storm, null, null, at + 60_000), t.storm);
+  assert.equal(nextStorm(t.storm, [], [], at), undefined); // SMHI says it's gone: lifted
+  // a VMA has no end: it holds through the day it was last seen, so a phone that stops checking lifts it
+  const vma = [alert({ id: 'vma-1', source: 'VMA', level: 'VMA', title: 'Fire in the harbour', text: 'Go indoors and close windows and doors.', start: iso(13, 8) })];
+  const v = { storm: nextStorm(undefined, [], vma, at) };
+  assert.equal(stormOn(v, '2027-01-13', at)?.id, 'vma-1');
+  assert.equal(stormOn(v, '2027-01-14', at), null);
+  assert.equal(nextStorm(v.storm, [], vma, at + 3_600_000), v.storm); // seen again the same day: no save
+  assert.notEqual(nextStorm(v.storm, [], vma, at + 86_400_000), v.storm); // next day: moved on once
+  // the worst one is the one shown
+  const both = { storm: nextStorm(undefined, smhi, vma, at) };
+  assert.equal(stormOn(both, '2027-01-13', at)?.level, 'VMA');
+}
+
+// SL: a cancelled next departure gets one calm line naming it and the next one that runs
+{
+  const now = new Date(2026, 9, 26, 8, 0).getTime();
+  const dep = (h: number, m: number, state = 'EXPECTED', line = '17'): SlDeparture => {
+    const at = new Date(2026, 9, 26, h, m).getTime();
+    return { line, lineId: 17, mode: 'METRO', direction: 1, destination: 'Akeshov', scheduled: at, expected: at, state };
+  };
+  const cfg = { routes: ['17:1'], walkMin: 5 };
+  assert.equal(cancelledNote([dep(8, 12), dep(8, 27)], cfg, now), null);
+  assert.equal(cancelledNote([dep(8, 12, 'CANCELLED'), dep(8, 27)], cfg, now), 'Your 08:12 is cancelled; next is the 08:27 (line 17). Leave in 22 min.');
+  assert.equal(cancelledNote([dep(8, 6, 'CANCELLED'), dep(8, 7)], { ...cfg, walkMin: 6 }, now), "Your 08:06 is cancelled; next is the 08:07 (line 17). I'd leave now.");
+  assert.equal(cancelledNote([dep(8, 12, 'CANCELLED')], cfg, now), 'Your 08:12 is cancelled, and nothing else runs on your lines in the next hour. Time for plan B.');
+  assert.equal(cancelledNote([dep(8, 12, 'CANCELLED', '4')], cfg, now), null); // not one of her lines
 }
 
 // a silence after a low check-in stays kind: the last mood counts however many days back it was
@@ -824,6 +911,11 @@ assert.equal(weatherKey(fc({ max: 8, min: 4, rainPct: 0, code: 2, sunshineMin: 1
 assert.equal(weatherKey(fc({ max: 8, min: 4, rainPct: 0, code: 1, sunshineMin: 240 })), 'weatherNice');
 assert.equal(weatherKey(fc({ max: 5, min: 0, rainPct: 40, code: 73, sunshineMin: 0 })), 'weatherCold');
 assert.equal(weatherKey(fc({ max: 4, min: 0, rainPct: 30, code: 85, sunshineMin: 0 })), 'weatherCold');
+// a grey day in the dark months (under 8 h of daylight) is "dark": its lines say when the light is
+assert.equal(weatherKey(fc({ max: 4, min: 1, rainPct: 10, code: 3, daylightMin: 400 })), 'weatherDark');
+assert.equal(weatherKey(fc({ max: 4, min: 1, rainPct: 10, code: 3, daylightMin: 480 })), 'weatherGrey');
+assert.equal(weatherKey(fc({ max: 5, min: 1, rainPct: 0, code: 1, sunshineMin: 200, daylightMin: 400 })), 'weatherNice'); // a sunny winter day stays nice
+assert.equal(weatherKey(fc({ max: 1, min: -4, rainPct: 0, code: 3, daylightMin: 400 })), 'weatherCold'); // cold says "dress warm" first
 // daylight: only gains are mentioned; rain: "until" while raining, "from" when it starts within 3 hours
 const dl = (date: string, daylightMin: number) => fc({ date, max: 0, min: 0, rainPct: 0, code: 0, daylightMin });
 assert.equal(daylightGain([dl('2026-12-22', 370), dl('2026-12-23', 372)], '2026-12-22'), 2);

@@ -188,14 +188,15 @@ let planned: Map<string, number> | null = null;
  * Given its `day`, it's that day's n-th line from the pool in a fixed per-day shuffle (dayLine): ten water
  * reminders don't repeat a line while the pool has enough, and every replan gives a slot the same line.
  * `n` is the slot's own index where slots can be skipped (water, mood); otherwise they're counted in order.
+ * `perDay` (slots a day) deals the pool across the week instead of per day (dayLine), for the water reminders.
  */
-function sayOn(s: State, tone: DayTone, key: LineKey, vars: Record<string, string | number> = {}, day?: string, n?: number) {
+function sayOn(s: State, tone: DayTone, key: LineKey, vars: Record<string, string | number> = {}, day?: string, n?: number, perDay?: number) {
   const all = { name: s.settings.userName || 'boss', ...vars };
   if (!day) return line(key, tone.level, all);
   const slot = `${day}|${key}`;
   const i = n ?? planned?.get(slot) ?? 0;
   if (n == null) planned?.set(slot, i + 1);
-  return dayLine(key, tone.level, day, i, all);
+  return dayLine(key, tone.level, day, i, all, perDay);
 }
 
 function daySummary(s: State, now: Date) {
@@ -270,11 +271,13 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
 
     const waterGoal = waterGoalFor(s, key);
     if (st.notify.water && !paused && !(d === 0 && waterMl(log) >= waterGoal)) {
-      waterSlots(s).forEach((t, i) => {
+      const slots = waterSlots(s);
+      slots.forEach((t, i) => {
         const when = atTime(now, d, Math.floor(t / 60), t % 60);
         if (st.respectMeetings && inMeeting(events, when.getTime())) return;
         const progress = d === 0 ? ` (${waterMl(log)}/${waterGoal} ml)` : '';
-        jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', sayOn(s, tone, 'waterRemind', {}, key, i) + progress, CH.remind, { category: CATEGORY.water }));
+        // Dealt across the week: ten a day would otherwise run through the same few lines every day.
+        jobs.push(scheduleAt(`water-${key}-${t}`, when, '💧 Hydration check', sayOn(s, tone, 'waterRemind', {}, key, i, slots.length) + progress, CH.remind, { category: CATEGORY.water }));
       });
     }
 

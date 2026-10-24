@@ -20,7 +20,9 @@ export function WeatherRow() {
   const today = w?.days.find((d) => d.date === dayKey()) ?? w?.days[0];
   const key = today ? weatherKey(today) : null;
   const forecast = today ? forecastText(today) : '';
-  const comment = useMemo(() => (key ? quip(key, { forecast: '' }).replace(/^[.\s]+/, '') : ''), [quip, key]);
+  const sunrise = today ? fmtTime(today.sunrise) : '';
+  const sunset = today ? fmtTime(today.sunset) : '';
+  const comment = useMemo(() => (key ? quip(key, { forecast: '', sunrise, sunset }).replace(/^[.\s]+/, '') : ''), [quip, key, sunrise, sunset]);
   const gain = w ? daylightGain(w.days, dayKey()) : null;
   const rain = w ? rainNote(w.soon) : null;
 
