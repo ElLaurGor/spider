@@ -37,7 +37,7 @@ export default function TrekScreen() {
             <Text style={styles.big}>
               {fmtKm(st.km)} <Text style={styles.of}>/ {Math.round(lengthOf(st.route))} km</Text>
             </Text>
-            <Bar pct={(st.km / lengthOf(st.route)) * 100} color={C.green} />
+            <Bar pct={st.km / lengthOf(st.route)} color={C.green} />
             <T dim small>
               {st.done ? 'Walked end to end. Pick the next route below.' : `Next: ${st.next?.name} in ${fmtKm(st.toNext)} km.`} Every step since you started counts. A day off
               just leaves the spider standing.

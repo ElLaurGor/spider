@@ -5,7 +5,7 @@ import { partnerName } from './coop';
 import { dayKey } from './dates';
 import { nemesisOf, standings } from './league';
 import { fillLine } from './lines';
-import { gentleDay } from './tone';
+import { quietDay } from './tone';
 import type { State } from './types';
 
 export type RivalTalkState = { week: string; rank: number; day: string; n: number };
@@ -120,7 +120,7 @@ export function rivalTalk(s: State, now = new Date(), roll = Math.random): { tal
   if (prev.rank === rank) return null;
   const n = prev.day === day ? prev.n : 0;
   const talk = { week: l.week, rank, day, n };
-  const quiet = gentleDay(s, day);
+  const quiet = quietDay(s, day, now);
   if (quiet || n >= RIVAL_TALK_PER_DAY) return { talk, line: null };
   const climbed = rank < prev.rank;
   const other = table[climbed ? rank : rank - 2]; // just below you (you passed them) or just above you (they passed you)

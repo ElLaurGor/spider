@@ -2,11 +2,12 @@
 // only: a day without steps just leaves the spider standing, nothing asks for a daily amount, and nothing
 // runs in a row. The league's bots walk the same route at their own pace. Waypoints pay coins and the odd
 // cosmetic, never XP. Places and distances are approximate.
-import { withOwned } from './cosmetics';
+import { owns, withOwned } from './cosmetics';
 import { addDays, dayKey } from './dates';
 import type { Rival, State, Trek, TrekRoute } from './types';
 
-export type Waypoint = { name: string; km: number; card: string };
+/** `gentle`: the card on a quiet day (quietDay in tone.ts) when `card` has a jab in it. */
+export type Waypoint = { name: string; km: number; card: string; gentle?: string };
 export type Route = {
   id: TrekRoute;
   name: string;
@@ -30,20 +31,35 @@ export const ROUTES: Record<TrekRoute, Route> = {
     waypoints: [
       { name: 'Hässelby strand', km: 0, card: "The green line's western end, by Mälaren. The spider buys no ticket. The spider walks." },
       { name: 'Vällingby', km: 3, card: 'Vällingby, built in the 1950s around one idea: work, home and centre within walking distance. Finally, someone who thinks like me.' },
-      { name: 'Alvik', km: 9.5, card: 'Alvik. Trains, trams and a bridge, all of them faster than you. None of them are getting the postcard.' },
+      {
+        name: 'Alvik',
+        km: 9.5,
+        card: 'Alvik. Trains, trams and a bridge, all of them faster than you. None of them are getting the postcard.',
+        gentle: 'Alvik. Trains, trams and a bridge, all rushing past. You are the only one getting a postcard.',
+      },
       { name: 'T-Centralen', km: 14, card: 'T-Centralen, where the blue-line platforms are painted with blue vines on white. Underground, someone decided on a garden.' },
       { name: 'Slussen', km: 15.5, card: 'Slussen, rebuilt for most of a decade. Detours everywhere. The spider took all of them.' },
       { name: 'Globen', km: 18.5, card: 'Globen: a giant white ball you can see from half of Söderort. You are closer to it than any of them.' },
       { name: 'Högdalen', km: 23.5, card: 'Högdalen. Quiet, green, unremarkable. I have filed it under "rest stop".' },
       { name: 'Hagsätra', km: 27.5, card: 'End of the green line. Change to the red one. On foot, naturally.' },
-      { name: 'Norsborg', km: 28, card: "The red line's southern end. Nobody walks here from Hagsätra. You just did. Sort of." },
+      {
+        name: 'Norsborg',
+        km: 28,
+        card: "The red line's southern end. Nobody walks here from Hagsätra. You just did. Sort of.",
+        gentle: "The red line's southern end. Nobody walks here from Hagsätra. You did, a step at a time.",
+      },
       { name: 'Fittja', km: 31.5, card: 'Fittja. A long way from the centre, and every metre of it walked. I am noting that down.' },
       { name: 'Liljeholmen', km: 42.5, card: 'Liljeholmen, where the red line meets the tram. A crossroads. Choose the path with more steps.' },
       { name: 'Gamla stan', km: 45, card: 'Gamla stan: the platform looks out over water, right through the window. Most stations show you a wall.' },
       { name: 'Östermalmstorg', km: 47.5, card: 'Östermalmstorg, with its walls of art cut into concrete. Read them on your way past. Slowly.' },
       { name: 'Ropsten', km: 52, card: "Ropsten, the red line's end, by the bridge to Lidingö. The blue line next. Yes, all of it." },
       { name: 'Akalla', km: 53, card: "The blue line's northern end. Two lines down, one to go." },
-      { name: 'Kista', km: 55, card: "Kista, Stockholm's tech district. Somewhere in there a server is judging you less than I do." },
+      {
+        name: 'Kista',
+        km: 55,
+        card: "Kista, Stockholm's tech district. Somewhere in there a server is judging you less than I do.",
+        gentle: "Kista, Stockholm's tech district. A thousand servers humming, and not one of them walked here.",
+      },
       { name: 'Solna centrum', km: 60, card: 'Solna centrum: a red sky and a green forest painted on the cave walls. Thousands ride past it daily. You walked to it.' },
       { name: 'Rådhuset', km: 66.5, card: 'Rådhuset: the station looks like a cave carved out of red rock. Very on-brand for a spider.' },
       { name: 'Kungsträdgården', km: 68, card: 'Kungsträdgården, the end of the blue line, with old Stockholm on display below ground. Every line, end to end. On foot.' },
@@ -144,7 +160,10 @@ export function trekStatus(s: State, now = new Date()): TrekStatus | null {
   return { route, km, at, next, toNext: next ? next.km - km : 0, done: !next, rank: table.findIndex((r) => r.me) + 1, of: table.length };
 }
 
-/** Waypoints passed since the last check, with what they pay. Coins and cosmetics only. */
+/** What a waypoint's cosmetic pays instead when it's already in the wardrobe (a route walked again). */
+export const OWNED_ITEM_COINS = 30;
+
+/** Waypoints passed since the last check, with what they pay. Coins and cosmetics only; a cosmetic already owned pays coins. */
 export function checkTrek(s: State, now = new Date()): { state: State; passed: Waypoint[]; coins: number; items: string[]; finished: boolean } {
   const t = s.trek;
   const none = { state: s, passed: [], coins: 0, items: [], finished: false };
@@ -154,8 +173,9 @@ export function checkTrek(s: State, now = new Date()): { state: State; passed: W
   if (at <= t.reached) return none;
   const passed = route.waypoints.slice(t.reached + 1, at + 1);
   const finished = at === route.waypoints.length - 1;
-  const coins = passed.length * route.coins + (finished ? route.finishCoins : 0);
-  const items = route.items.filter((x) => x.at > t.reached && x.at <= at).map((x) => x.id);
+  const earned = route.items.filter((x) => x.at > t.reached && x.at <= at).map((x) => x.id);
+  const items = earned.filter((id) => !owns(s, id));
+  const coins = passed.length * route.coins + (finished ? route.finishCoins : 0) + (earned.length - items.length) * OWNED_ITEM_COINS;
   let state: State = { ...s, trek: { ...t, reached: at }, coins: s.coins + coins, coinsEarned: s.coinsEarned + coins };
   for (const id of items) state = withOwned(state, id);
   if (finished) state = { ...state, treksDone: [...(state.treksDone ?? []), t.route] };

@@ -5,12 +5,12 @@
 // counts only: nothing here runs in a row.
 import { withOwned } from './cosmetics';
 import { addDays, dayKey } from './dates';
-import { usedOn } from './day-filters';
+import { roughDay, usedOn } from './day-filters';
 import { nemesisOf, weekKeyOf } from './league';
 import { fillLine } from './lines';
 import { openDays } from './medals';
 import { doneTasksOn, stepGoalOn, trainedOn, waterGoalMet } from './selectors';
-import { gentleDay } from './tone';
+import { quietDay } from './tone';
 import type { CoopGoal, CoopWeek, State } from './types';
 
 /** The first co-op week; from here every other week is one. */
@@ -31,13 +31,16 @@ export function isCoopWeek(week: string) {
   return Math.round((noonOf(week).getTime() - noonOf(COOP_FROM).getTime()) / WEEK_MS) % 2 === 0;
 }
 
-/** `label`: what's counted ("4/5 water-goal days"). `start`: the bar with no last week to go by. `cap`: the most it asks. */
-export const GOALS: Record<CoopGoal, { label: string; unit: (n: number) => string; start: number; cap: number }> = {
-  water: { label: 'water-goal days', unit: (n) => `${n} water-goal day${n === 1 ? '' : 's'}`, start: 4, cap: 7 },
-  train: { label: 'training days', unit: (n) => `${n} training day${n === 1 ? '' : 's'}`, start: 2, cap: 6 },
-  steps: { label: 'step-goal days', unit: (n) => `${n} step-goal day${n === 1 ? '' : 's'}`, start: 3, cap: 7 },
-  tasks: { label: 'tasks done', unit: (n) => `${n} task${n === 1 ? '' : 's'}`, start: 5, cap: 30 },
-  quests: { label: 'days with every quest done', unit: (n) => `${n} day${n === 1 ? '' : 's'} with every quest done`, start: 2, cap: 7 },
+/**
+ * `label`: what's counted ("4/5 water-goal days"). `start`: the bar with no last week to go by. `cap`: the most it
+ * asks. `days`: counted in days, so the bar always leaves a day free (it never means "every day this week").
+ */
+export const GOALS: Record<CoopGoal, { label: string; unit: (n: number) => string; start: number; cap: number; days: boolean }> = {
+  water: { label: 'water-goal days', unit: (n) => `${n} water-goal day${n === 1 ? '' : 's'}`, start: 4, cap: 6, days: true },
+  train: { label: 'training days', unit: (n) => `${n} training day${n === 1 ? '' : 's'}`, start: 2, cap: 6, days: true },
+  steps: { label: 'step-goal days', unit: (n) => `${n} step-goal day${n === 1 ? '' : 's'}`, start: 3, cap: 6, days: true },
+  tasks: { label: 'tasks done', unit: (n) => `${n} task${n === 1 ? '' : 's'}`, start: 5, cap: 30, days: false },
+  quests: { label: 'days with every quest done', unit: (n) => `${n} day${n === 1 ? '' : 's'} with every quest done`, start: 2, cap: 6, days: true },
 };
 
 /** Each bot's idea of a good week. */
@@ -88,9 +91,9 @@ function weekKeys(week: string, now: Date) {
   return out;
 }
 
-/** Your count towards a goal in a week (up to `now`). Work done on a rough day counts too. */
-export function countFor(s: State, goal: CoopGoal, week: string, now: Date) {
-  const keys = weekKeys(week, now);
+/** Your count towards a goal in a week (up to `now`). Work done on a rough day counts too, unless `openOnly`. */
+export function countFor(s: State, goal: CoopGoal, week: string, now: Date, openOnly = false) {
+  const keys = weekKeys(week, now).filter((k) => !openOnly || roughDay(s, k) == null);
   if (goal === 'tasks') return keys.reduce((a, k) => a + doneTasksOn(s, k).length, 0);
   return keys.filter((k) => {
     const d = s.days[k];
@@ -108,21 +111,30 @@ const endOfWeek = (week: string) => {
   return end;
 };
 
+/** Fewer open days than this last week and its pace says too little to set a bar by: the default bar instead. */
+const MIN_OPEN = 3;
+
 /**
- * The bar for a full week: a little above last week's pace (10–20 %, at least one more), last week's own rough
- * days taken out so a rough week doesn't lower it. A goal with no week to go by starts at a fair default.
+ * The bar for a full week: a little above last week's pace (10–20 %, at least one more), counted on last week's
+ * open days only, so a rough week neither lowers it nor (with work done on sick days over one open day) blows it
+ * up. A goal with no week to go by, or only a day or two of one, starts at a fair default.
  */
 export function baseFor(s: State, goal: CoopGoal, week: string) {
   const last = dayKey(addDays(noonOf(week), -7));
-  const done = countFor(s, goal, last, endOfWeek(last));
+  const open = openDays(s, last);
+  const done = countFor(s, goal, last, endOfWeek(last), true);
   const g = GOALS[goal];
-  if (!done && !weekKeys(last, endOfWeek(last)).some((k) => usedOn(s.days[k]))) return g.start;
-  const per = (done * 7) / Math.max(1, openDays(s, last));
+  if (open < MIN_OPEN || (!done && !weekKeys(last, endOfWeek(last)).some((k) => usedOn(s.days[k])))) return g.start;
+  const per = (done * 7) / open;
   return Math.max(1, Math.min(g.cap, Math.max(Math.ceil(per * 1.15), Math.floor(per) + 1)));
 }
 
-/** The bar in a week with `open` non-rough days: the full bar scaled down, never below 1. Null when the whole week was rough. */
-export const coopTarget = (base: number, open: number) => (open <= 0 ? null : Math.max(1, Math.min(base, Math.ceil((base * open) / 7))));
+/**
+ * The bar in a week with `open` non-rough days: the full bar scaled down, never below 1. A goal counted in days
+ * (`days`) also leaves one open day free, so it never asks for every one of them. Null when the whole week was rough.
+ */
+export const coopTarget = (base: number, open: number, days = false) =>
+  open <= 0 ? null : Math.max(1, Math.min(base, Math.ceil((base * open) / 7), days ? open - 1 : Infinity));
 
 /**
  * This week's co-op, when it's a co-op week: a partner from your league (never this week's nemesis, never a
@@ -159,7 +171,7 @@ export type CoopStatus = {
 export function coopStatus(s: State, now = new Date()): CoopStatus | null {
   const c = s.coop;
   if (!c || c.week !== weekKeyOf(now) || c.result) return null;
-  const target = coopTarget(c.base, openDays(s, c.week));
+  const target = coopTarget(c.base, openDays(s, c.week), GOALS[c.goal].days);
   const mine = countFor(s, c.goal, c.week, now);
   const theirs = target == null ? 0 : partnerCount(target, c.week, now);
   return { coop: c, target, mine, theirs, team: Math.min(mine, theirs), done: target != null && mine >= target };
@@ -177,7 +189,7 @@ export function settleCoop(s: State, now = new Date()): { state: State; result: 
   // Only once the week is over (its Sunday is behind us).
   if (!c || c.result || dayKey(now) <= dayKey(addDays(noonOf(c.week), 6))) return { state: s, result: null, items: [] };
   const end = endOfWeek(c.week);
-  const target = coopTarget(c.base, openDays(s, c.week));
+  const target = coopTarget(c.base, openDays(s, c.week), GOALS[c.goal].days);
   const count = countFor(s, c.goal, c.week, end);
   const won = target != null && count >= target;
   const result = { count, target: target ?? 0, won, coins: won ? COOP_COINS : 0 };
@@ -218,7 +230,7 @@ const who = (c: CoopWeek) => `${c.partner.emoji} ${c.partner.name}`;
 
 /** The toast when a co-op week starts. */
 export function coopIntro(s: State, c: CoopWeek) {
-  const target = coopTarget(c.base, openDays(s, c.week)) ?? c.base;
+  const target = coopTarget(c.base, openDays(s, c.week), GOALS[c.goal].days) ?? c.base;
   const quote = fillLine(pick(INTRO[c.goal], `${c.week}:intro`), { name: s.settings.userName || 'boss', target });
   return `🤝 Co-op week with ${who(c)}: "${quote}" ${GOALS[c.goal].unit(target)} each by Sunday, +${COOP_COINS} 🪙 if you both get there.`;
 }
@@ -226,7 +238,7 @@ export function coopIntro(s: State, c: CoopWeek) {
 /** Today's word from the partner: kind on a rough day, about the race otherwise. */
 export function coopCheer(s: State, st: CoopStatus, now = new Date()) {
   const day = dayKey(now);
-  const pool = gentleDay(s, day) ? CHEER.rest : st.done ? CHEER.done : st.mine < st.theirs ? CHEER.behind : CHEER.even;
+  const pool = quietDay(s, day, now) ? CHEER.rest : st.done ? CHEER.done : st.mine < st.theirs ? CHEER.behind : CHEER.even;
   return `${st.coop.partner.emoji} ${st.coop.partner.name}: "${fillLine(pick(pool, `${day}:cheer`), { theirs: st.theirs })}"`;
 }
 

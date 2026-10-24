@@ -83,8 +83,9 @@ export function toneOn(s: State, key: string, now = new Date(), forecast?: Perio
   const set = Math.max(1, s.settings.savageLevel - EASE_STEP * ease);
   const d = s.days[key];
   const latest = d?.moods?.at(-1) ?? s.days[before(key)]?.moods?.at(-1);
-  if ((latest && latest.level <= 2) || pauseOn(s, key)?.kind === 'sick' || isJulfridKey(key)) return { level: 1, kind: true };
+  // The Storm protocol first, so its flag is set whatever else makes the day kind (Settings says why).
   if (stormOn(s, key, now.getTime())) return { level: 1, kind: true, storm: true };
+  if ((latest && latest.level <= 2) || pauseOn(s, key)?.kind === 'sick' || isJulfridKey(key)) return { level: 1, kind: true };
   if (s.settings.easyOnPeriod && (periodDay(s, key) || (key > dayKey(now) && predicted(forecast, key)))) return { level: 1, kind: true };
   if (d?.energy != null && d.energy <= 2) return { level: Math.min(set, 5), kind: false };
   return { level: set, kind: false };
@@ -109,6 +110,13 @@ export function lastMoodLow(s: State, key: string) {
 export function gentleDay(s: State, key: string) {
   return (s.days[key]?.moods?.at(-1)?.level ?? 5) <= 2 || periodDay(s, key) || pauseOn(s, key) != null;
 }
+
+/**
+ * A day recaps and remarks stay kind about: gentleDay's rough days plus everything that makes toneOn kind (a
+ * low mood carried from the day before, Julfrid, the Storm protocol). The diary, callbacks, rival talk and the
+ * co-op partner use it.
+ */
+export const quietDay = (s: State, key: string, now = new Date()) => gentleDay(s, key) || toneOn(s, key, now).kind;
 
 /** Golden lines are roasts too: never on a kind day, never below level 4, never while the tone is turned down. */
 export function goldenAllowed(s: State, now = new Date()) {

@@ -3,7 +3,7 @@
 // up the weekly boss and nyår turns it into the Old Year (quests.ts). Advent's calendar is in advent.ts.
 import { addDays } from './dates';
 import type { LineKey } from './lines';
-import { allSaintsDay, easterSunday, firstAdventSunday, midsummerEve } from './swedish-days';
+import { adventWebStart, allSaintsDay, easterSunday, midsummerEve } from './swedish-days';
 
 export type SeasonId = 'halloween' | 'advent' | 'lucia' | 'solstice' | 'jul' | 'easter' | 'valborg' | 'midsommar' | 'nyar';
 
@@ -31,7 +31,7 @@ const SEASONS: SeasonDef[] = [
     id: 'advent',
     name: 'Advent',
     emoji: '🕯️',
-    span: (y) => [mdOf(firstAdventSunday(y)), [12, 23]],
+    span: (y) => [mdOf(adventWebStart(y)), [12, 23]],
     about: 'The Advent Web is up on HQ: a door a day from 1 December. Missed doors wait for you.',
     line: 'seasonAdvent',
   },

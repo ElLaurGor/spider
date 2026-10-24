@@ -85,7 +85,7 @@ import { bestiary, lastKillDay, LORE } from '../src/lib/bestiary';
 import { WEEKDAYS_LONG } from '../src/lib/dates';
 import { endPause, pausedInWeek, pausedOn, startPause } from '../src/lib/pause';
 import { cycleHeadsUpAt, wrappedReminder } from '../src/lib/reminder-times';
-import { EASE_STEP, gentleDay, goldenAllowed, lastMoodLow, periodDay, toneOn } from '../src/lib/tone';
+import { EASE_STEP, gentleDay, goldenAllowed, lastMoodLow, periodDay, quietDay, toneOn } from '../src/lib/tone';
 import { gameLineKey, nightVerdictKey, stepsLineKey, verdictLineKey } from '../src/lib/line-context';
 import type { DayLog, Weekday } from '../src/lib/types';
 import { FINAL_BOSS, finalBossDue, pickQuestsWithFocus, rageWeaknessOf, rerollFor, xpPace as paceOf } from '../src/lib/quests';
@@ -149,7 +149,7 @@ import { MEDALS, medalList, medalsFor, medalTotals, needFor, openDays, settleMed
 import { ghostOf, ghostText, withoutOldXpHours, withXpHour, xpByHour } from '../src/lib/xp-timeline';
 import { NEMESIS_PRIZE, nemesisOf } from '../src/lib/league';
 import { allCoopLines, baseFor, COOP_COINS, coopFor, coopResultText, coopStatus, coopSummary, GOALS, goalOf, isCoopWeek, partnerCount, settleCoop, coopTarget } from '../src/lib/coop';
-import { BOT_KM_A_DAY, botKm, checkTrek, lengthOf, newTrek, ROUTES, trekKm, trekStatus, trekSummary, trekTable } from '../src/lib/trek';
+import { BOT_KM_A_DAY, botKm, checkTrek, lengthOf, newTrek, OWNED_ITEM_COINS, ROUTES, trekKm, trekStatus, trekSummary, trekTable } from '../src/lib/trek';
 // step 5 game fixes
 import { recheckDay, recheckTask, uncheckTask } from '../src/lib/tasks';
 import { activityMinutes, bestBeforeDay, isRecord, setSessions, trainMinutes } from '../src/lib/selectors';
@@ -158,7 +158,7 @@ import { lastTrainedBefore } from '../src/lib/comeback';
 import { canUnmove, copingPlan, copingWeekday, moveDayName, moveTargets, pendingWhy, slipAt, slipping, withMove, withoutMove, withWhy } from '../src/lib/workout-move';
 import { poolFor } from '../src/lib/lines';
 // step 6 seasons
-import { adventCandles, adventYear, doorOpenable, doorPrize, doorsWaiting, julfridOffer, julfridPause, kalleAnka, openDoor } from '../src/lib/advent';
+import { adventCandles, adventYear, doorOpenable, doorPrize, doorsWaiting, julfridOffer, julfridPause, julfridPlan, kalleAnka, openDoor } from '../src/lib/advent';
 import { acceptPrizes, isPrizeDay, prizeCardUp, prizesFor } from '../src/lib/prizes';
 import { nemesisOfYear, withNemesis, yearWrapped, yearWrappedDue } from '../src/lib/year-wrapped';
 import { firstAdventSunday, isJulfridKey } from '../src/lib/swedish-days';
@@ -758,6 +758,18 @@ assert.deepEqual(LINES.moodLow.savage, LINES.moodLow.mild);
   // the worst one is the one shown
   const both = { storm: nextStorm(undefined, smhi, vma, at) };
   assert.equal(stormOn(both, '2027-01-13', at)?.level, 'VMA');
+  // the Storm flag is set whatever else makes the day kind: a low mood, sick, Julfrid
+  const julStorm = { ...defaultState(), storm: [{ ...held[0], start: new Date(2027, 11, 24, 6).toISOString(), end: new Date(2027, 11, 24, 22).toISOString() }] };
+  assert.deepEqual(toneOn(julStorm, '2027-12-24', new Date(2027, 11, 24, 9)), { level: 1, kind: true, storm: true });
+  t.days['2027-01-13'] = { ...emptyDay(), moods: [{ id: 'm', level: 1, emotions: [], at: 0 }] };
+  assert.equal(toneOn(t, '2027-01-13', new Date(at)).storm, true);
+  // quietDay: what recaps, rival talk and the co-op partner go by covers Julfrid, a Storm day and a carried low mood
+  assert.ok(quietDay(defaultState(), '2027-12-25'));
+  assert.ok(quietDay(t, '2027-01-14', new Date(at)));
+  const carried = defaultState();
+  carried.days['2027-02-01'] = { ...emptyDay(), moods: [{ id: 'm', level: 2, emotions: [], at: 0 }] };
+  assert.ok(quietDay(carried, '2027-02-02') && !gentleDay(carried, '2027-02-02'));
+  assert.ok(!quietDay(defaultState(), '2027-02-02'));
 }
 
 // SL: a cancelled next departure gets one calm line naming it and the next one that runs
@@ -1480,6 +1492,11 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   assert.equal(coopTarget(5, 3), 3, 'rough days lower the bar');
   assert.equal(coopTarget(1, 1), 1);
   assert.equal(coopTarget(5, 0), null, 'a week of rough days calls it off');
+  assert.equal(coopTarget(6, 7, true), 6, 'a day goal leaves a day free');
+  assert.equal(coopTarget(6, 6, true), 5, '...of the open days, too');
+  assert.equal(coopTarget(5, 3, true), 2);
+  assert.equal(coopTarget(5, 1, true), 1);
+  assert.equal(coopTarget(30, 6), 26, 'tasks are no day goal');
   const cw = '2026-10-26';
   const ck = (week: string, i: number) => dayKey(addDays(new Date(`${week}T12:00`), i));
   const co = defaultState();
@@ -1488,11 +1505,21 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   for (let i = 0; i < 7; i++) co.days[ck('2026-10-19', i)] = { ...emptyDay(), waterGoalHit: i < 3 };
   assert.equal(baseFor(co, 'water', cw), 4, 'a little above last week (3 days)');
   for (let i = 0; i < 7; i++) co.days[ck('2026-10-19', i)].waterGoalHit = i < 6;
-  assert.equal(baseFor(co, 'water', cw), 7, 'capped at the whole week');
+  assert.equal(baseFor(co, 'water', cw), 6, 'capped below the whole week');
   for (let i = 0; i < 7; i++) co.days[ck('2026-10-19', i)].waterGoalHit = i < 2;
   co.pauses = [{ from: ck('2026-10-19', 4), to: ck('2026-10-19', 6), kind: 'sick' }];
   assert.equal(baseFor(co, 'water', cw), 5, "last week's rough days don't lower this week's bar (2 in 4 open days)");
+  // a sick week: work done on sick days doesn't count towards the pace, and a day or two of open days sets no bar
+  for (let i = 0; i < 7; i++) co.days[ck('2026-10-19', i)].waterGoalHit = i < 4;
+  co.pauses = [{ from: ck('2026-10-19', 1), to: ck('2026-10-19', 6), kind: 'sick' }];
+  assert.equal(baseFor(co, 'water', cw), GOALS.water.start, 'one open day: the default bar, not every day');
+  co.days[ck('2026-10-19', 2)] = { ...co.days[ck('2026-10-19', 2)], doneTasks: Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, at: 0 })) };
+  assert.equal(baseFor(co, 'tasks', cw), GOALS.tasks.start, 'tasks done while sick set no bar');
+  co.pauses = [{ from: ck('2026-10-19', 3), to: ck('2026-10-19', 6), kind: 'sick' }];
+  assert.equal(baseFor(co, 'water', cw), 6, '3 of 3 open days: high, but never all 7');
+  for (const goal of Object.keys(GOALS) as (keyof typeof GOALS)[]) assert.ok(!GOALS[goal].days || GOALS[goal].cap < 7, goal);
   co.pauses = [];
+  for (let i = 0; i < 7; i++) co.days[ck('2026-10-19', i)] = { ...emptyDay(), waterGoalHit: i < 2 };
   // the partner: from your league, never the nemesis, the same all week; no step goal without a watch
   co.league = newLeague(1, cw);
   const mon = new Date(2026, 9, 26, 9);
@@ -1583,6 +1610,15 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   assert.equal(trekKm(fin.state, fin.state.trek!, new Date(2026, 9, 29, 20)), 68, 'never past the end');
   assert.equal(checkTrek(fin.state, new Date(2026, 9, 30, 20)).finished, false);
   assert.ok(trekStatus(fin.state, new Date(2026, 9, 29, 20))!.done);
+  // walked again: the cosmetic already in the wardrobe pays coins instead of being handed out twice
+  const again = { ...fin.state, trek: newTrek('tunnelbana', '2026-10-30') };
+  again.days = { ...again.days, '2026-10-30': { ...emptyDay(), steps: 200_000 } };
+  const fin2 = checkTrek(again, new Date(2026, 9, 30, 20));
+  assert.deepEqual(fin2.items, []);
+  assert.equal(fin2.coins, (ROUTES.tunnelbana.waypoints.length - 1) * ROUTES.tunnelbana.coins + ROUTES.tunnelbana.finishCoins + OWNED_ITEM_COINS);
+  // postcards with a jab have a gentle side for quiet days
+  for (const r of Object.values(ROUTES)) for (const w of r.waypoints) assert.ok(!/faster than you|judging you/.test(w.gentle ?? ''), w.name);
+  assert.ok(ROUTES.tunnelbana.waypoints.find((w) => w.name === 'Alvik')?.gentle);
   // the bots walk the same route at their own pace, the same numbers every time
   const bot = tk.league.rivals[0];
   const b1 = botKm(bot, tk.trek, at);
@@ -2104,6 +2140,11 @@ void (async () => {
   assert.equal(adventYear(new Date(2027, 0, 6, 12)), 2026);
   assert.equal(adventYear(new Date(2027, 0, 7, 12)), null);
   assert.equal(adventYear(new Date(2026, 10, 1, 12)), null);
+  // first Advent on 3 Dec (2028): the Web is still up from 1 December, door 1 with it
+  assert.equal(adventYear(new Date(2028, 11, 1, 12)), 2028);
+  assert.equal(seasonOn(new Date(2028, 11, 1, 12))?.id, 'advent');
+  assert.equal(adventYear(new Date(2028, 10, 30, 12)), null);
+  assert.ok(doorOpenable(defaultState(), 1, new Date(2028, 11, 1, 12)));
   assert.equal(doorsWaiting(av, new Date(2026, 10, 30, 12)), 0);
   assert.ok(doorOpenable(av, 1, new Date(2026, 11, 1, 12)) && !doorOpenable(av, 2, new Date(2026, 11, 1, 12)));
   assert.equal(doorsWaiting(av, new Date(2026, 11, 3, 12)), 3, 'missed doors stay openable');
@@ -2140,8 +2181,31 @@ void (async () => {
   assert.equal(julfridOffer(planned, new Date(2026, 11, 24, 9)), null, 'nothing left to offer');
   const onDay = julfridPause(jf, new Date(2026, 11, 25, 9));
   assert.ok(!pausedOn(onDay, '2026-12-24') && pausedOn(onDay, '2026-12-25') && pausedOn(onDay, '2026-12-26') && !pausedOn(onDay, '2026-12-27'));
-  const sickEve = { ...jf, pauses: [{ from: '2026-12-22', to: '2026-12-24', kind: 'sick' as const }] };
-  assert.equal(julfridPause(sickEve, new Date(2026, 11, 23, 19)), sickEve, 'a pause already there is left alone; the 24th can take it over');
+  // a sick pause running into Julfrid stays sick; the days off follow it (the eve, or the 24th itself)
+  const sickEve = { ...jf, pauses: [{ from: '2026-12-21', to: '2026-12-24', kind: 'sick' as const }] };
+  for (const at of [new Date(2026, 11, 23, 19), new Date(2026, 11, 24, 9)]) {
+    const r = julfridPlan(sickEve, at);
+    assert.equal(r.result, 'ok');
+    assert.equal(pauseOn(r.state, '2026-12-22')?.kind, 'sick');
+    assert.equal(pauseOn(r.state, '2026-12-24')?.kind, 'sick');
+    assert.equal(pauseOn(r.state, '2026-12-25')?.kind, 'away');
+    assert.ok(pausedOn(r.state, '2026-12-26') && !pausedOn(r.state, '2026-12-27'));
+  }
+  assert.equal(julfridPlan(planned, new Date(2026, 11, 24, 9)).result, 'gone', 'nothing left: its own toast, not the cap one');
+  const capped = { ...jf, pauses: [{ from: '2026-12-01', to: '2026-12-07', kind: 'away' as const }] };
+  assert.equal(julfridPlan(capped, new Date(2026, 11, 24, 9)).result, 'cap');
+  // "I'm sick" on the 23rd after the eve tap: the planned days off keep what the sick days don't cover
+  const sickAfter = startPause(julfridPause(jf, new Date(2026, 11, 23, 19)), 'sick', 2, '2026-12-23');
+  assert.equal(pauseOn(sickAfter, '2026-12-24')?.kind, 'sick');
+  assert.equal(pauseOn(sickAfter, '2026-12-25')?.kind, 'away');
+  assert.equal(pauseOn(sickAfter, '2026-12-26')?.kind, 'away');
+  // a running pause changed to away keeps its sick days sick; changed to sick, they're all sick
+  const sw = startPause(startPause(jf, 'sick', 5, '2026-11-02'), 'away', 3, '2026-11-04');
+  assert.equal(pauseOn(sw, '2026-11-03')?.kind, 'sick');
+  assert.equal(pauseOn(sw, '2026-11-04')?.kind, 'away');
+  const ws = startPause(startPause(jf, 'away', 5, '2026-11-02'), 'sick', 3, '2026-11-04');
+  assert.equal(pauseOn(ws, '2026-11-02')?.kind, 'sick');
+  assert.equal(ws.pauses?.length, 1);
   const walker = { ...planned, days: { '2026-12-20': { water: [], food: [], sets: [], games: [], bonusGameMin: 0, steps: 5000 } } };
   assert.equal(gentleQuestFor(walker, new Date(2026, 11, 25, 12)), 'jul_walk');
   assert.ok(kalleAnka(new Date(2026, 11, 24, 15, 30)) && !kalleAnka(new Date(2026, 11, 24, 16, 0)) && !kalleAnka(new Date(2026, 11, 25, 15, 30)));
@@ -3790,6 +3854,8 @@ void (async () => {
   // a rest day with very little water
   const thu = new Date(2027, 0, 14, 8);
   yc.days['2027-01-13'] = { ...blank(), water: [{ id: 'w', ml: 500, at: 0 }] };
+  assert.equal(yesterdayHighlight(yc, thu)?.key, 'callbackGentle', "Tuesday's low mood carries into Wednesday, which had no check-in");
+  yc.days['2027-01-13'].moods = [{ id: 'm2', level: 4, emotions: [], at: 0 }];
   assert.deepEqual(yesterdayHighlight(yc, thu), { key: 'callbackDry', vars: { water: '0.5' } });
   for (const k of ['callbackGentle', 'callbackPR', 'callbackQuests', 'callbackLateGame', 'callbackSkip', 'callbackWin', 'callbackDry', 'callbackSlow'] as const) {
     assert.ok(LINES[k].mild.length > 0 && LINES[k].savage.length > 0, k);

@@ -8,7 +8,7 @@ import { COOP_COINS, coopCheer, coopStatus, GOALS, isCoopWeek } from '@/lib/coop
 import { addDays, dayKey } from '@/lib/dates';
 import { DEMOTE, NEMESIS_PRIZE, PROMOTE, standings, TIERS } from '@/lib/league';
 import { useStore } from '@/lib/store';
-import { gentleDay, toneOn } from '@/lib/tone';
+import { quietDay } from '@/lib/tone';
 import { ghostOf, ghostText } from '@/lib/xp-timeline';
 
 export default function LeagueScreen() {
@@ -18,7 +18,7 @@ export default function LeagueScreen() {
   const ghost = ghostOf(state, new Date(now));
   const ghostAhead = !!ghost && ghost.now >= ghost.then;
   const today = dayKey(now);
-  const quiet = toneOn(state, today).kind || gentleDay(state, today);
+  const quiet = quietDay(state, today, new Date(now));
   const hasGhost = !!ghost;
   const ghostLine = useMemo(() => (hasGhost && !quiet ? quip(ghostAhead ? 'ghostAhead' : 'ghostBehind') : null), [quip, hasGhost, ghostAhead, quiet]);
   const league = state.league;
@@ -100,7 +100,7 @@ export default function LeagueScreen() {
                   {partner} {coop.theirs}/{coop.target}
                 </T>
               </Row>
-              <Bar pct={(coop.team / coop.target) * 100} color={C.green} />
+              <Bar pct={coop.team / coop.target} color={C.green} />
               <T dim small>
                 {coopCheer(state, coop, new Date(now))}
               </T>

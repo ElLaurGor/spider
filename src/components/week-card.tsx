@@ -49,8 +49,9 @@ export function WeekCard() {
   const medals = medalsFor(state, week);
   const c = state.contract?.week === week ? state.contract : null;
   const left = weekDaysLeft(date);
-  const coop = coopSummary(state, date);
-  const trek = trekSummary(state, date);
+  // The real time, not noon: the partner's count and the trek bots move through the day.
+  const coop = coopSummary(state, new Date(at));
+  const trek = trekSummary(state, new Date(at));
 
   const contractText = c
     ? c.status === 'won'

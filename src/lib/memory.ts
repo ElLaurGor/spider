@@ -3,7 +3,7 @@ import { addDays, dayKey, fmtTime } from './dates';
 import type { LineKey } from './lines';
 import { dayScoreFor } from './report';
 import { bestBeforeDay, trainedOn, waterGoalFor, waterMl, workoutFor } from './selectors';
-import { gentleDay } from './tone';
+import { quietDay } from './tone';
 import type { DayLog, State, Task } from './types';
 
 /** A task open this many days becomes "immortal": a running joke until it's done. */
@@ -69,7 +69,7 @@ function lateGameEnd(s: State, d: DayLog, date: Date): number | null {
 
 /**
  * The most notable thing about yesterday, for a morning callback; null when there's nothing to go on.
- * After a low-mood, period or paused day (or on one), only something kind. Never food, never the body.
+ * After a quiet day (low mood, period, paused, Julfrid, a Storm day) or on one, only something kind. Never food, never the body.
  */
 export function yesterdayHighlight(s: State, now = new Date()): Callback | null {
   const date = addDays(now, -1);
@@ -78,7 +78,7 @@ export function yesterdayHighlight(s: State, now = new Date()): Callback | null 
   if (!d) return null;
   const today = dayKey(now);
   const low = (k: string) => (s.days[k]?.moods ?? []).some((m) => m.level <= 2);
-  if (low(key) || low(today) || gentleDay(s, key) || gentleDay(s, today)) return { key: 'callbackGentle', vars: {} };
+  if (low(key) || low(today) || quietDay(s, key, now) || quietDay(s, today, now)) return { key: 'callbackGentle', vars: {} };
 
   const pr = prOn(s, d, key);
   if (pr) return { key: 'callbackPR', vars: pr };
