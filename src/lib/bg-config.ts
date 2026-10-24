@@ -9,10 +9,17 @@ export type BgConfig = {
   municipality?: string; // the kommun (geocoder admin2), also for municipal VMAs
   notifySmhi: boolean;
   notifyVma: boolean;
-  savage: number; // today's effective tone, for lines written in the background
+  /** The tone per day (toneOn) for today and the next two, for lines written in the background; other days get 1. */
+  tones: Record<string, number>;
+  /** Retired lines (lineMemory.banned): the background never picks them either. */
+  banned: string[];
+  glassMl: number; // what "+1 glass" adds, for the status line redrawn in the background
   name: string;
   color: string; // notification accent (the theme's red)
 };
+
+/** The tone a line written in the background uses on `day`: kind (1) when the app didn't say. */
+export const bgTone = (cfg: Pick<BgConfig, 'tones'> | null, day: string) => cfg?.tones?.[day] ?? 1;
 
 const KEY = 'spider:bg:config';
 let lastWritten = '';

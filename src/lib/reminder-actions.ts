@@ -35,3 +35,11 @@ export const SILENT_BUTTONS = new Set(['water_glass', 'water_snooze', 'habit_don
 
 /** One tap, the same key whichever path sees it (the background task or the app's listener). */
 export const tapKey = (notificationId: string, actionId: string, date: number) => `${notificationId}|${actionId}|${date}`;
+
+/**
+ * The status line's text with one more glass in its water figure ("💧 1.2/2.5 L"), for redrawing it in the
+ * background while the app isn't running. Anything else is left as it is.
+ */
+export function statusWithGlass(body: string, ml: number) {
+  return body.replace(/💧 (\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?) L/, (_, had: string, goal: string) => `💧 ${(Number(had) + ml / 1000).toFixed(1)}/${goal} L`);
+}

@@ -12,16 +12,13 @@ export const monthKey = (month: string) => `spider:state:v2:days:${month}`;
 /** Android's CursorWindow: a single row bigger than this can be written but never read back. */
 export const ROW_LIMIT = 2 * 1024 * 1024;
 
-/**
- * While the whole state is smaller than this, v1 is written too, in the same transaction. Code from before
- * v2 (an APK's built-in bundle, which expo-updates falls back to when an update crashes) only reads and
- * writes v1, so it must find current data there, and what it writes must not be ignored (see readSaved).
- */
-export const DUAL_WRITE_LIMIT = 1024 * 1024;
-
 type Days = State['days'];
-/** `v1` is the fingerprint of the v1 row written alongside, absent once v1 stopped being written. */
-export type Index = { months: string[]; migratedAt?: number; v1?: string };
+/**
+ * `v1`: the fingerprint of the v1 row written alongside (APK 1.4.0's updates did that, for its pre-v2 bundle).
+ * `v1Until`: when v1 stopped being written, so how old the "older copy" is. Every runtime from 1.5.0 has v2
+ * in its own bundle, so nothing writes v1 any more; the old row stays as a fallback.
+ */
+export type Index = { months: string[]; migratedAt?: number; v1?: string; v1Until?: number };
 
 /** A cheap fingerprint of a string (length plus 32-bit FNV-1a): tells whether a row changed. */
 export function fingerprint(text: string) {
@@ -67,20 +64,16 @@ export function changedMonths(prev: Days | null, next: Days) {
   return out;
 }
 
-/**
- * The rows to write for `s`, given the days as last written, plus the month rows that are no longer needed.
- * With `v1Raw` (the whole state as JSON) the v1 row is written too and its fingerprint goes in the index.
- */
-export function rowsFor(s: State, prev: Days | null, prevMonths: string[], migratedAt?: number, v1Raw?: string) {
+/** The rows to write for `s`, given the days as last written, plus the month rows that are no longer needed. v1 is never written. */
+export function rowsFor(s: State, prev: Days | null, prevMonths: string[], meta: { migratedAt?: number; v1Until?: number } = {}) {
   const { days, ...base } = s;
   const byMonth = daysByMonth(days);
   const months = Object.keys(byMonth).sort();
-  const index: Index = { months, ...(migratedAt ? { migratedAt } : {}), ...(v1Raw != null ? { v1: fingerprint(v1Raw) } : {}) };
+  const index: Index = { months, ...(meta.migratedAt ? { migratedAt: meta.migratedAt } : {}), ...(meta.v1Until ? { v1Until: meta.v1Until } : {}) };
   const pairs: [string, string][] = [
     [BASE_KEY, JSON.stringify(base)],
     [INDEX_KEY, JSON.stringify(index)],
   ];
-  if (v1Raw != null) pairs.push([V1_KEY, v1Raw]);
   for (const m of changedMonths(prev, days)) if (byMonth[m]) pairs.push([monthKey(m), JSON.stringify(byMonth[m])]);
   const gone = prevMonths.filter((m) => !byMonth[m]).map(monthKey);
   return { pairs, gone, months };
@@ -126,8 +119,9 @@ export async function readSaved(st: Storage): Promise<Saved> {
     throw new ReadError('v2', e);
   }
   if (v2?.source === 'v2') {
-    // v1 was written along with v2. If it no longer matches, older code ran since (a rolled-back update)
-    // and v1 has the newest data. A v1 that's missing or unreadable leaves v2 as it is.
+    // v1 was written along with v2 (by 1.4.0's updates, or by 1.5.0's own bundle after a rolled-back update). If it
+    // no longer matches, older code ran since and v1 has the newest data. A v1 that's missing or unreadable leaves
+    // v2 as it is. Saves from here on write no fingerprint, so this only checks indexes those versions wrote.
     if (v2.index.v1) {
       try {
         const raw = await st.getItem(V1_KEY);
@@ -147,14 +141,18 @@ export async function readSaved(st: Storage): Promise<Saved> {
   }
 }
 
-/** The v1 row, for the recovery screen's "older copy", with when it was moved to v2 (if the index can tell). */
+/**
+ * The v1 row, for the recovery screen's "older copy", with when it was last written: when v1 stopped being
+ * written alongside, or when the data moved to v2 (null if the index can't tell, or v1 is still current).
+ */
 export async function olderCopy(st: Storage): Promise<{ at: number | null } | null> {
   try {
     const [[, v1], [, rawIndex]] = await st.multiGet([V1_KEY, INDEX_KEY]);
     if (v1 == null) return null;
     let at: number | null = null;
     try {
-      at = rawIndex ? ((JSON.parse(rawIndex) as Index).migratedAt ?? null) : null;
+      const index = rawIndex ? (JSON.parse(rawIndex) as Index) : null;
+      at = index && !index.v1 ? (index.v1Until ?? index.migratedAt ?? null) : null;
     } catch {
       // the index is part of what's broken
     }

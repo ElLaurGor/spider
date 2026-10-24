@@ -142,6 +142,7 @@ class SpiderUsageModule : Module() {
     var current: String? = null
     var currentClass: String? = null // the activity on screen, so a late event of the app's previous one is ignored
     var since = 0L
+    var lastAt = 0L // the previous event's time, for a power loss that logged no shutdown
 
     fun close(at: Long) {
       val pkg = current ?: return
@@ -155,8 +156,12 @@ class SpiderUsageModule : Module() {
     // An app moving between its own activities logs PAUSED(old), RESUMED(new), then STOPPED(old).
     // Only a PAUSED of the activity on screen ends the span: STOPPED always follows a PAUSED, and a
     // late one used to end the span the new activity had just started.
+    // A shutdown ends the span too. A startup with a span still open means the power went (a dead battery
+    // logs no shutdown): the span ends at the last event before it, not hours later after the reboot.
     while (events.hasNextEvent()) {
       events.getNextEvent(event)
+      val before = lastAt
+      lastAt = event.timeStamp
       when (event.eventType) {
         UsageEvents.Event.ACTIVITY_RESUMED -> {
           if (event.packageName == current) {
@@ -171,7 +176,8 @@ class SpiderUsageModule : Module() {
         UsageEvents.Event.ACTIVITY_PAUSED -> {
           if (event.packageName == current && event.className == currentClass) close(event.timeStamp)
         }
-        UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> close(event.timeStamp)
+        UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN, DEVICE_SHUTDOWN -> close(event.timeStamp)
+        DEVICE_STARTUP -> close(before)
       }
     }
     close(minOf(end, System.currentTimeMillis()))
@@ -191,5 +197,12 @@ class SpiderUsageModule : Module() {
   private fun isGame(pkg: String): Boolean {
     val info = appInfo(pkg) ?: return false
     return info.category == ApplicationInfo.CATEGORY_GAME || (info.flags and ApplicationInfo.FLAG_IS_GAME) != 0
+  }
+
+  private companion object {
+    // UsageEvents.Event.DEVICE_SHUTDOWN / DEVICE_STARTUP (public from API 29), as plain values so older
+    // Android versions just never see them.
+    const val DEVICE_SHUTDOWN = 26
+    const val DEVICE_STARTUP = 27
   }
 }
