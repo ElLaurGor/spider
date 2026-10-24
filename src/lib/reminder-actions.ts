@@ -10,7 +10,8 @@ export type QueuedAction =
   | { kind: 'habit'; habitId: string; day: string; at: number }
   | { kind: 'mood'; level: MoodLevel; day: string; at: number };
 
-export type ReminderAction = QueuedAction | { kind: 'snooze' } | { kind: 'focus' };
+/** `gymMove` (step 6): "Move it" on a slipping workout's reminder, which opens the app (workout-move.ts). */
+export type ReminderAction = QueuedAction | { kind: 'snooze' } | { kind: 'focus' } | { kind: 'gymMove'; day: string; to?: string };
 
 export const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -20,6 +21,12 @@ export function actionFromButton(actionId: string, data: Record<string, unknown>
   if (actionId === 'water_glass') return { kind: 'glass', day, at: now };
   if (actionId === 'water_snooze') return { kind: 'snooze' };
   if (actionId === 'focus_start') return { kind: 'focus' };
+  if (actionId === 'gym_move') {
+    // The reminder's own day (a tap after midnight must not move tomorrow's workout), and the day it offered.
+    const from = typeof data?.day === 'string' && DAY_KEY_RE.test(data.day) ? data.day : day;
+    const to = typeof data?.to === 'string' && DAY_KEY_RE.test(data.to) ? data.to : undefined;
+    return { kind: 'gymMove', day: from, to };
+  }
   if (actionId === 'habit_done' && typeof data?.habitId === 'string') {
     // The reminder's own day, so "Done" tapped after midnight ticks the day it was about.
     const remindDay = typeof data.day === 'string' && DAY_KEY_RE.test(data.day) ? data.day : day;

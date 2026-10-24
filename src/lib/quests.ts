@@ -72,7 +72,11 @@ const QUESTS: QuestDef[] = [
     id: 'workout',
     xp: 15,
     available: (s, date) => !!workoutFor(s, date),
-    build: (s, d, date) => ({ title: `Do today's ${workoutFor(s, date)?.name ?? ''} workout`, progress: trainedOn(d) ? 1 : 0, target: 1 }),
+    // A workout moved off today (workout-move.ts) leaves the quest picked: any training still finishes it.
+    build: (s, d, date) => {
+      const name = workoutFor(s, date)?.name;
+      return { title: name ? `Do today's ${name} workout` : 'Do a workout', progress: trainedOn(d) ? 1 : 0, target: 1 };
+    },
   },
   { id: 'train_minutes', xp: 15, available: (s, date) => !!workoutFor(s, date), build: (_s, d) => ({ title: 'Train for 45 minutes', progress: trainMinutes(d), target: 45 }) },
   {

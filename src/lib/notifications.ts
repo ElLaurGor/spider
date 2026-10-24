@@ -41,6 +41,7 @@ import { insightById } from './jit';
 import { cycleHeadsUpAt, wrappedReminder } from './reminder-times';
 import { lastMoodLow, periodDay, realFlow, toneOn, type DayTone } from './tone';
 import { upcomingDays } from './swedish-days';
+import { moveDayName, moveTargets, slipAt } from './workout-move';
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -55,7 +56,7 @@ const SNOOZE_ID = 'snooze-water'; // not a planned prefix, so a replan leaves it
 
 // Buttons on reminders. From APK 1.5.0 most work without opening the app (silent-buttons.ts); before that,
 // or in Expo Go, a tap opens the app, which does the thing (onNotificationTap).
-const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood', status: 'spider_status' } as const;
+const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood', status: 'spider_status', gymMove: 'spider_gym_move' } as const;
 const STATUS_ID = 'status-line'; // the ongoing summary in the shade (cluster F); not a planned prefix
 const MOOD_BUTTONS: MoodLevel[] = [4, 3, 2];
 
@@ -140,6 +141,8 @@ export async function initNotifications(askIfNeeded: boolean) {
       { identifier: 'water_snooze', buttonTitle: 'Snooze 30 min', options },
     ]);
     await Notifications.setNotificationCategoryAsync(CATEGORY.habit, [{ identifier: 'habit_done', buttonTitle: 'Done ✓', options }]);
+    // Opens the app: the move happens there, with its "what got in the way?" (workout-move.ts).
+    await Notifications.setNotificationCategoryAsync(CATEGORY.gymMove, [{ identifier: 'gym_move', buttonTitle: 'Move it ↪' }]);
     await Notifications.setNotificationCategoryAsync(CATEGORY.status, [
       { identifier: 'water_glass', buttonTitle: '+1 glass', options },
       { identifier: 'focus_start', buttonTitle: '🕸️ Focus 25 min' },
@@ -286,6 +289,12 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       // No shaming on a kind day (low mood, sick, period) or in low-battery mode.
       if (shameAt > gymAt && !tone.kind && !(d === 0 && lowBattery(log))) {
         jobs.push(scheduleAt(`gym-${key}-shame`, shameAt, '🕷️ S.P.I.D.E.R. noticed something', sayOn(s, tone, 'gymShame', { workout: plan.name }, key), CH.gym));
+      }
+      // Slipping: an hour before that, one tap moves it to the first free day this week (kind days too: moving is kind).
+      const to = moveTargets(s, key, key)[0];
+      if (to) {
+        const offer = sayOn(s, tone, 'gymMoveOffer', { workout: plan.name, day: moveDayName(to, key) }, key);
+        jobs.push(scheduleAt(`gym-${key}-move`, slipAt(s, key), `🏋️ ${plan.name} still waiting`, offer, CH.gym, { category: CATEGORY.gymMove, data: { day: key, to } }));
       }
     }
 

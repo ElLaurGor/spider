@@ -7,7 +7,7 @@ import { ActivityCard } from '@/components/activity-card';
 import { EntryEditor } from '@/components/entry-editor';
 import { IfThenEditor } from '@/components/if-then-editor';
 import { ProgressPhotos } from '@/components/progress-photos';
-import { Big, Btn, Card, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
+import { Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { WatchCard } from '@/components/watch-card';
 import { HiddenEgg } from '@/components/swedish-year';
 import { noonOf, useToday } from '@/components/use-today';
@@ -19,7 +19,8 @@ import { planText } from '@/lib/if-then';
 import { dayOf, lastSession, prFor, trainMinutes, workoutFor, workoutsThisWeek } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { gentleDay, toneOn } from '@/lib/tone';
-import type { IfThen, SetEntry, Weekday } from '@/lib/types';
+import type { IfThen, MoveWhy, SetEntry, Weekday, WorkoutMove } from '@/lib/types';
+import { canUnmove, copingPlan, copingWeekday, movedFrom, moveDayName, moveTargets, MOVE_WHYS, pendingWhy, slipAt } from '@/lib/workout-move';
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -57,6 +58,8 @@ export default function Gym() {
       <GymSpider workout={plan?.name ?? null} minutes={trainMinutes(today)} sets={today.sets.length} />
 
       <PlanBCard />
+
+      <MoveCard />
 
       <ActivityCard />
 
@@ -250,6 +253,102 @@ function PlanBCard() {
         Rain at {b.time}. Your plan B: {b.then}.
       </T>
       <Btn label={`Done: log ${b.minutes} min`} icon="check" onPress={planB.done} />
+    </Card>
+  );
+}
+
+const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+
+/**
+ * Today's workout, moved instead of missed (workout-move.ts): a quiet "move it" link until it's slipping, then
+ * the free days this week. After a move, an optional "what got in the way?" and the move's Undo.
+ */
+function MoveCard() {
+  const { state, actions } = useStore();
+  const today = useToday();
+  const now = useNow(60_000);
+  const [open, setOpen] = useState(false);
+  const pending = pendingWhy(state, today);
+  if (pending) return <WhyCard move={pending} />;
+  const away = movedFrom(state, today);
+  if (away) {
+    return (
+      <Card accent={C.blue}>
+        <T small>
+          ↪ {away.name} moved to {moveDayName(away.to, today)}. Today is a rest day.
+        </T>
+        {canUnmove(state, today, today) ? <Btn label="Undo the move" kind="ghost" small onPress={() => actions.unmoveWorkout(today)} /> : null}
+      </Card>
+    );
+  }
+  const targets = moveTargets(state, today, today);
+  const plan = workoutFor(state, noonOf(today));
+  if (!targets.length || !plan) return null;
+  const slip = now >= slipAt(state, today);
+  if (!slip && !open) {
+    return (
+      <Pressable onPress={() => setOpen(true)} accessibilityRole="button" style={{ alignSelf: 'flex-start' }}>
+        <T dim small>
+          Can&apos;t make {plan.name} today? Move it →
+        </T>
+      </Pressable>
+    );
+  }
+  return (
+    <Card accent={C.blue}>
+      <H>↪ Move {plan.name}</H>
+      <T dim small>
+        {slip ? 'Today got away from you? ' : ''}Pick a free day this week. Today becomes a rest day, not a miss.
+      </T>
+      <Row gap={8} style={{ flexWrap: 'wrap' }}>
+        {targets.map((k) => (
+          <Btn key={k} small label={cap(moveDayName(k, today))} onPress={() => actions.moveWorkout(today, k)} />
+        ))}
+      </Row>
+    </Card>
+  );
+}
+
+/** "What got in the way?" after a move: skippable, and for some answers a coping plan for that weekday. */
+function WhyCard({ move }: { move: WorkoutMove }) {
+  const { state, actions } = useStore();
+  const [why, setWhy] = useState<MoveWhy | null>(null);
+  const day = copingWeekday(state, move.from);
+  const plan = why ? copingPlan(state, why) : null;
+  if (why && plan && day != null) {
+    return (
+      <Card accent={C.blue}>
+        <H>🔗 A plan for next time</H>
+        <T small>
+          For {WEEKDAYS_LONG[day]}s: {planText(plan)}.
+        </T>
+        <Row>
+          <Btn label="Save it" icon="check" small onPress={() => actions.noteMoveWhy(move.from, why, true)} style={{ flex: 1 }} />
+          <Btn label="No thanks" kind="ghost" small onPress={() => actions.noteMoveWhy(move.from, why)} style={{ flex: 1 }} />
+        </Row>
+      </Card>
+    );
+  }
+  return (
+    <Card accent={C.blue}>
+      <H right={<Btn label="Skip" kind="ghost" small onPress={() => actions.noteMoveWhy(move.from, 'skip')} />}>What got in the way?</H>
+      <T dim small>
+        {move.name} is on for {moveDayName(move.to)} now. Optional, private, never graded.
+      </T>
+      <Row gap={6} style={{ flexWrap: 'wrap' }}>
+        {MOVE_WHYS.map((w) => (
+          <Chip
+            key={w.why}
+            label={w.label}
+            onPress={() => {
+              // Answers with no plan to offer (feeling sick, something else) are simply noted.
+              if (copingPlan(state, w.why) && day != null) setWhy(w.why);
+              else actions.noteMoveWhy(move.from, w.why);
+            }}
+          />
+        ))}
+      </Row>
+      {canUnmove(state, move.from) ? <Btn label="Undo the move" kind="ghost" small onPress={() => actions.unmoveWorkout(move.from)} /> : null}
     </Card>
   );
 }

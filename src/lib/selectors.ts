@@ -2,7 +2,7 @@ import { addDays, atTime, dayKey, startOfDay, startOfWeek } from './dates';
 import { emptyDay } from './defaults';
 import { toneOn } from './tone';
 import { holidayOn } from './swedish-days';
-import type { CalEvent, DayLog, SetEntry, State, Weekday, WorkoutDay } from './types';
+import type { CalEvent, DayLog, SetEntry, State, Weekday, WorkoutDay, WorkoutMove } from './types';
 
 export const dayOf = (s: State, key = dayKey()): DayLog => s.days[key] ?? emptyDay();
 
@@ -129,12 +129,26 @@ export function emotionCounts(s: State, days = 7, now = new Date()) {
 export const moodDays = (s: State) => Object.values(s.days).filter((d) => moodsOf(d).length > 0).length;
 export const totalCoffees = (s: State) => Object.values(s.days).reduce((a, d) => a + coffeeOf(d).length, 0);
 
-/** The day's planned workout: a finished day's snapshot (lib/goals.ts), else the weekly plan. */
+/**
+ * The day's planned workout: a finished day's snapshot (lib/goals.ts), else the weekly plan, with this week's
+ * moves (workout-move.ts): a day a workout was moved away from is a rest day, the day it went to has it.
+ */
 export function workoutFor(s: State, date: Date | number = new Date()): WorkoutDay | null {
-  const plan = s.plan[new Date(date).getDay() as Weekday];
-  const frozen = s.days[dayKey(date)]?.goals;
+  const key = dayKey(date);
+  const moves = s.workoutMoves ?? [];
+  const into = moves.find((m) => m.to === key);
+  const plan = into ? movedPlan(s, into) : s.plan[new Date(date).getDay() as Weekday];
+  const frozen = s.days[key]?.goals;
   if (frozen) return frozen.workout == null ? null : plan?.name === frozen.workout ? plan : { name: frozen.workout, exercises: [] };
+  if (into) return plan;
+  if (moves.some((m) => m.from === key)) return null;
   return s.settings.redDaysOff && redDay(date) ? null : plan;
+}
+
+/** A moved workout is the plan of the weekday it came from (just its name if that plan changed since). */
+function movedPlan(s: State, m: WorkoutMove): WorkoutDay {
+  const p = s.plan[new Date(`${m.from}T12:00`).getDay() as Weekday];
+  return p?.name === m.name ? p : { name: m.name, exercises: [] };
 }
 
 /** A day's step goal and protein goal: the snapshot once the day is over, else today's settings. */

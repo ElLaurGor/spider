@@ -71,7 +71,7 @@ import { loadFoods } from '../src/lib/food-db';
 import { fetchWeatherHistory, weatherMissing } from '../src/lib/weather';
 // cluster D
 import { phaseOn } from '../src/lib/body';
-import { bedtimeCaffeine, bedtimeOn, caffeineCurve, caffeineLeft } from '../src/lib/caffeine';
+import { BED_MG, bedtimeCaffeine, bedtimeOn, caffeineCurve, caffeineLeft, cupsAround, lastCallClock, lastCallOn, lastCallText } from '../src/lib/caffeine';
 import { cycleNotes, cycleStats } from '../src/lib/cycle-stats';
 import { detective } from '../src/lib/detective';
 import { experimentDays, experimentResult, verdictText } from '../src/lib/experiments';
@@ -147,6 +147,7 @@ import { recheckDay, recheckTask, uncheckTask } from '../src/lib/tasks';
 import { activityMinutes, bestBeforeDay, isRecord, setSessions, trainMinutes } from '../src/lib/selectors';
 import { bossSeasonOf, reopenQuests } from '../src/lib/quests';
 import { lastTrainedBefore } from '../src/lib/comeback';
+import { canUnmove, copingPlan, copingWeekday, moveDayName, moveTargets, pendingWhy, slipAt, slipping, withMove, withoutMove, withWhy } from '../src/lib/workout-move';
 import { poolFor } from '../src/lib/lines';
 
 // levels
@@ -1944,6 +1945,26 @@ void (async () => {
   assert.ok(bedtimeCaffeine(cs, '2026-06-10') > bed && bedtimeCaffeine(cs, '2026-06-10') < bed + 5);
   assert.equal(caffeineCurve(cs, '2026-06-10', 6, 24).length, 18 * 4 + 1);
 
+  // step 6 last call: the latest cup that still leaves at most BED_MG at bedtime (Gardiner 2023: ~32 mg), cups so far included
+  assert.equal(BED_MG, 30);
+  assert.equal(lastCallClock(23, 90), '15:00', '90 mg cups, bed at 23: about 7.9 h before');
+  assert.equal(lastCallClock(1, 90), '17:00', 'bed after midnight');
+  const lc = defaultState();
+  lc.settings.sleepHour = 23;
+  assert.equal(lastCallOn(lc, '2026-06-12'), at('2026-06-12', 15), 'no coffee yet: the plain last call');
+  lc.days['2026-06-12'] = { ...blank(), coffee: [{ id: 'm', mg: 90, at: at('2026-06-12', 8) }] };
+  const call = lastCallOn(lc, '2026-06-12') as number;
+  const bedLc = bedtimeOn('2026-06-12', 23);
+  const withCup = (t: number) => caffeineLeft([...cupsAround(lc, '2026-06-12'), { mg: 90, at: t }], bedLc);
+  assert.ok(call < at('2026-06-12', 15), 'the morning cup moves last call earlier');
+  assert.ok(withCup(call) <= BED_MG && withCup(call + 5 * 60_000) > BED_MG, 'the latest 5-minute mark under the line');
+  assert.equal(lastCallText(lc, '2026-06-12', at('2026-06-12', 9)), `Next cup fine until ${fmtTime(call)}.`);
+  assert.equal(lastCallText(lc, '2026-06-12', at('2026-06-12', 16)), `Last call was ${fmtTime(call)}. Decaf from here.`);
+  assert.equal(lastCallText(lc, '2026-06-12', at('2026-06-12', 23, 30)), null, 'bedtime: nothing to say');
+  lc.days['2026-06-12'].coffee = [1, 2, 3].map((n) => ({ id: `e${n}`, mg: 90, at: at('2026-06-12', 20) }));
+  assert.equal(lastCallOn(lc, '2026-06-12'), null);
+  assert.equal(lastCallText(lc, '2026-06-12', at('2026-06-12', 21)), 'Last call has passed. Decaf from here.');
+
   // air pressure: the biggest 24 h fall ending inside each day; rising pressure = 0; no earlier reading = null
   const times: string[] = [];
   const hPa: number[] = [];
@@ -2780,6 +2801,57 @@ void (async () => {
   assert.equal(lastTrainedBefore(defaultState(), thu), null);
   assert.ok(!LINES.comebackWorkout.savage.concat(LINES.comebackWorkout.mild).some((x) => /is history/.test(x)));
   assert.ok(COMEBACK.xp > 0 && COMEBACK.min > 0);
+
+  // step 6: a slipping workout moves to a free day this week instead of being missed (workout-move.ts)
+  {
+    const tue = '2027-01-12';
+    const tueAt = noon(tue).getTime();
+    assert.deepEqual(moveTargets(cb, tue, tue), ['2027-01-13', '2027-01-16', '2027-01-17'], 'free days after it, nearest first, three at most');
+    const toSat = withMove(cb, tue, '2027-01-16', tueAt);
+    assert.equal(workoutFor(toSat, noon(tue)), null, 'the day it left is a rest day');
+    assert.equal(workoutFor(toSat, noon('2027-01-16'))?.name, 'Pull');
+    assert.equal(workoutFor(toSat, noon('2027-01-16'))?.exercises.length, 4, 'with its exercises');
+    assert.equal(workoutsThisWeek(toSat, noon('2027-01-16')).planned, workoutsThisWeek(cb, noon('2027-01-16')).planned, 'the week plans as many');
+    assert.equal(missedGymBefore(toSat, thu), null, 'moved, not missed: no comeback for it');
+    assert.equal(questInfo(toSat, 'workout', noon(tue))?.title, 'Do a workout', 'a picked workout quest still makes sense');
+    const frozen = withGoals(toSat, '2027-01-14');
+    assert.equal(goalsOn(frozen, tue).workout, null, 'the freeze keeps the moved-away day a rest day');
+    assert.equal(liveGoals(toSat, '2027-01-16').workout, 'Pull');
+    const satFrozen = { ...frozen, days: { ...frozen.days, '2027-01-16': { ...blankDay(), goals: liveGoals(toSat, '2027-01-16') } } };
+    assert.equal(workoutFor(satFrozen, noon('2027-01-16'))?.exercises.length, 4, 'a frozen moved-to day keeps the plan');
+    // once per workout, this week only, from today on, never a trained or paused day
+    assert.equal(withMove(toSat, '2027-01-16', '2027-01-17', tueAt), toSat, 'a moved workout stays put');
+    assert.equal(withMove(cb, tue, '2027-01-14', tueAt), cb, 'not onto another workout day');
+    assert.deepEqual(moveTargets(cb, '2027-01-11', tue), [], 'not a day that has passed');
+    assert.deepEqual(moveTargets(cb, '2027-01-15', '2027-01-15'), ['2027-01-16', '2027-01-17'], 'Friday: the weekend, never next week');
+    assert.deepEqual(moveTargets(cb, '2027-01-11', '2027-01-11'), [], 'Monday was trained');
+    assert.deepEqual(moveTargets(startPause(cb, 'sick', 1, tue), tue, tue), [], 'a paused day has nothing to move');
+    const xmas = defaultState();
+    xmas.settings.redDaysOff = true;
+    assert.deepEqual(moveTargets(xmas, '2026-12-24', '2026-12-24'), ['2026-12-27'], 'red days off are not free days');
+    // undo: until the day it left has passed or the new day was trained
+    assert.ok(canUnmove(toSat, tue, tue));
+    assert.equal(workoutFor(withoutMove(toSat, tue, tue), noon(tue))?.name, 'Pull');
+    const trainedSat = { ...toSat, days: { ...toSat.days, '2027-01-16': { ...blankDay(), sets: [{ id: 'x', exercise: 'Row', weight: 40, reps: 8, at: noon('2027-01-16').getTime() }] } } };
+    assert.ok(!canUnmove(trainedSat, tue, tue) && !canUnmove(toSat, tue, '2027-01-13'));
+    // slipping: two hours after gym time, or an hour before bed when that's sooner
+    assert.equal(slipAt(cb, tue), new Date(2027, 0, 12, 20).getTime());
+    assert.equal(slipAt({ ...cb, settings: { ...cb.settings, gymHour: 21 } }, tue), new Date(2027, 0, 12, 22).getTime());
+    assert.ok(!slipping(cb, new Date(2027, 0, 12, 19).getTime()) && slipping(cb, new Date(2027, 0, 12, 20, 30).getTime()));
+    assert.ok(!slipping(toSat, new Date(2027, 0, 12, 21).getTime()), 'moved: nothing slips');
+    assert.equal(moveDayName('2027-01-13', tue), 'tomorrow');
+    assert.equal(moveDayName('2027-01-16', tue), 'Saturday');
+    // what got in the way: asked once, a coping plan for some answers on that weekday
+    assert.equal(pendingWhy(toSat, tue)?.from, tue);
+    assert.equal(pendingWhy(withWhy(toSat, tue, 'skip'), tue), null);
+    assert.equal(copingPlan(cb, 'late')?.cue.kind, 'calendar');
+    assert.equal(copingPlan(cb, 'sick'), null, 'sick: rest is the plan');
+    assert.equal(copingWeekday(cb, tue), 2);
+    const ownPlan = { ...cb, plan: { ...cb.plan, 2: { name: 'Pull', exercises: [], plan: { cue: { kind: 'rain' as const }, then: 'Home circuit' } } } };
+    assert.equal(copingWeekday(ownPlan, tue), null, 'never over a plan of its own');
+    assert.deepEqual(actionFromButton('gym_move', { day: tue, to: '2027-01-16' }, tueAt), { kind: 'gymMove', day: tue, to: '2027-01-16' });
+    assert.ok(!SILENT_BUTTONS.has('gym_move'), 'Move it opens the app');
+  }
 
   // after a lost contract: a different goal, the one last week came closest to
   const lost = defaultState();

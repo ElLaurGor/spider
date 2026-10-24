@@ -3,6 +3,10 @@ export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 /** A gym day's optional "When ___, I will ___" (if-then.ts), e.g. a plan B for rain at gym time. */
 export type WorkoutDay = { name: string; exercises: string[]; plan?: IfThen | null };
+/** Why a workout was moved (workout-move.ts), or 'skip' when the question was waved off. */
+export type MoveWhy = 'late' | 'tired' | 'sick' | 'social' | 'other' | 'skip';
+/** A planned workout moved to another day of the same week (step 6): `from` is then a rest day, `to` a workout day. */
+export type WorkoutMove = { from: string; to: string; name: string; at: number; why?: MoveWhy };
 
 /** What sets off an if-then plan (if-then.ts). `training`: 15 minutes after the last set, or a logged activity. */
 export type CueEvent = 'coffee' | 'training' | 'focus' | 'gaming' | 'checkin';
@@ -259,6 +263,7 @@ export type State = {
   onboarded: boolean;
   settings: Settings;
   plan: Record<Weekday, WorkoutDay | null>;
+  workoutMoves?: WorkoutMove[]; // step 6: this and recent weeks' moved workouts (workout-move.ts), read by workoutFor
   days: Record<string, DayLog>;
   tasks: Task[];
   xp: number;
