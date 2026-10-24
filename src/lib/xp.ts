@@ -39,6 +39,9 @@ export const activityXp = (minutes: number) => Math.min(10, Math.round(minutes /
 /** A finished Web Focus session: 1 XP per 5 minutes. */
 export const focusXp = (minutes: number) => Math.round(minutes / 5);
 
+/** Sets that pay XP in a day: plenty for any real session, so logging junk sets can't farm boss and league damage. */
+export const SET_XP_DAILY = 30;
+
 export const BONUS_MIN = { workout: 30, waterGoal: 15, task: 10, stepGoal: 15, questsAll: 15, boss: 30 } as const;
 
 const TITLES = [

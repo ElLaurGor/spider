@@ -2,7 +2,7 @@
 import { addDays, dayKey, fmtTime } from './dates';
 import type { LineKey } from './lines';
 import { dayScoreFor } from './report';
-import { trainedOn, waterGoalFor, waterMl, workoutFor } from './selectors';
+import { bestBeforeDay, trainedOn, waterGoalFor, waterMl, workoutFor } from './selectors';
 import { gentleDay } from './tone';
 import type { DayLog, State, Task } from './types';
 
@@ -41,17 +41,11 @@ export function topToday(s: State, now = Date.now()): Task[] {
 
 export type Callback = { key: LineKey; vars: Record<string, string | number> };
 
-const norm = (name: string) => name.trim().toLowerCase();
-
-/** Yesterday's heaviest set that beat every earlier session of that exercise. */
+/** Yesterday's heaviest set that beat every earlier day of that exercise (the same test as a record in the store). */
 function prOn(s: State, d: DayLog, key: string): { exercise: string; weight: number } | null {
   let found: { exercise: string; weight: number } | null = null;
   for (const set of d.sets) {
-    let before: number | undefined;
-    for (const [k, day] of Object.entries(s.days)) {
-      if (k >= key) continue;
-      for (const x of day.sets) if (norm(x.exercise) === norm(set.exercise)) before = Math.max(before ?? 0, x.weight);
-    }
+    const before = bestBeforeDay(s, set.exercise, key);
     if (before !== undefined && set.weight > before && (!found || set.weight > found.weight)) found = { exercise: set.exercise.trim(), weight: set.weight };
   }
   return found;

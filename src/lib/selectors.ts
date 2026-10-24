@@ -35,7 +35,45 @@ export function withPastHealth(s: State, past: { key: string; steps: number; sle
 
 export const coffeeOf = (d: DayLog) => d.coffee ?? [];
 export const activitiesOf = (d: DayLog) => d.activities ?? [];
-export const trainMinutes = (d: DayLog) => activitiesOf(d).reduce((a, x) => a + x.minutes, 0);
+/** Minutes of timed activities (Maskiner / Kondition / Fria vikter), as logged. */
+export const activityMinutes = (d: DayLog) => activitiesOf(d).reduce((a, x) => a + x.minutes, 0);
+
+const SET_GAP = 30 * 60_000; // sets further apart than this are separate sessions
+const SET_MARGIN = 5 * 60_000;
+
+/** Logged sets grouped into sessions, with 5 minutes of margin around them (a lone set is 10 minutes). */
+export function setSessions(d: DayLog): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  for (const set of [...d.sets].sort((a, b) => a.at - b.at)) {
+    const last = out[out.length - 1];
+    if (last && set.at - (last.end - SET_MARGIN) <= SET_GAP) last.end = set.at + SET_MARGIN;
+    else out.push({ start: set.at - SET_MARGIN, end: set.at + SET_MARGIN });
+  }
+  return out;
+}
+
+/**
+ * Minutes trained: timed activities as logged, plus sessions of sets that no activity covers (an activity is
+ * logged when it ends, so it covers the minutes before it). Sets alone count too.
+ */
+export function trainMinutes(d: DayLog) {
+  const covered: { start: number; end: number }[] = [];
+  for (const a of activitiesOf(d)
+    .map((x) => ({ start: x.at - x.minutes * 60_000, end: x.at }))
+    .sort((x, y) => x.start - y.start)) {
+    const last = covered[covered.length - 1];
+    if (last && a.start <= last.end) last.end = Math.max(last.end, a.end);
+    else covered.push(a);
+  }
+  let setMs = 0;
+  for (const w of setSessions(d)) {
+    let free = w.end - w.start;
+    for (const c of covered) free -= Math.max(0, Math.min(w.end, c.end) - Math.max(w.start, c.start));
+    setMs += Math.max(0, free);
+  }
+  return activityMinutes(d) + Math.round(setMs / 60_000);
+}
+
 /** A workout counts if anything was logged: timed activities or weight/reps sets. */
 export const trainedOn = (d: DayLog) => d.sets.length > 0 || activitiesOf(d).length > 0;
 export const onPeriod = (d: DayLog) => d.period?.flow != null;
@@ -217,6 +255,28 @@ export function lastSession(s: State, exercise: string, beforeKey = dayKey()): {
 }
 
 export const prFor = (s: State, exercise: string) => s.prs[norm(exercise)];
+
+/** The heaviest set of an exercise on the days before `key`: what a set on `key` has to beat to be a record. */
+export function bestBeforeDay(s: State, exercise: string, key: string): number | undefined {
+  let best: number | undefined;
+  for (const [k, d] of Object.entries(s.days)) {
+    if (k >= key) continue;
+    for (const x of d.sets) if (norm(x.exercise) === norm(exercise)) best = Math.max(best ?? 0, x.weight);
+  }
+  return best;
+}
+
+/** Whether a set of `exercise` already paid a record on day `key` (one record per exercise a day). Today only: past days drop the records. */
+export const recordPaidOn = (s: State, key: string, exercise: string) => {
+  const d = dayOf(s, key);
+  return d.sets.some((x) => norm(x.exercise) === norm(exercise) && d.xpBy?.[`pr:${x.id}`] != null);
+};
+
+/** A set of `weight` on day `key` is a record when it beats every earlier day and no set of that exercise was one yet that day. */
+export function isRecord(s: State, key: string, exercise: string, weight: number) {
+  const before = bestBeforeDay(s, exercise, key);
+  return before !== undefined && weight > before && !recordPaidOn(s, key, exercise);
+}
 
 export function recentFoods(s: State, limit = 8) {
   const counts = new Map<string, { name: string; kcal: number; protein: number; n: number }>();

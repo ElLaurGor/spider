@@ -91,7 +91,7 @@ export function logEvents(prev: State, next: State, now = new Date()): LogEvent[
   if (a.sleepRating == null && b.sleepRating != null) out.push({ kind: 'sleepRating', key: 'sleep', at: t, xp: XP.sleepRating });
   if (a.energy == null && b.energy != null) out.push({ kind: 'energy', key: 'energy', at: t, xp: XP.energy });
   if (!a.stepGoalHit && b.stepGoalHit) out.push({ kind: 'stepGoal', key: 'steps', at: t, xp: XP.stepGoal });
-  if (!a.questsAllDone && b.questsAllDone) out.push({ kind: 'questsAll', key: 'quests', at: t, xp: XP.questsAll });
+  if (!a.questsAllDone && b.questsAllDone) out.push({ kind: 'questsAll', key: 'quests', at: t, xp: XP.questsAll, id: 'quests-all' }); // undone with the quests (reopenQuests)
   if (next.counters.prs > prev.counters.prs) out.push({ kind: 'pr', key: `pr:${next.counters.prs}`, at: t, xp: XP.pr, id: fresh(a.sets, b.sets).at(-1)?.x.id });
   if (next.counters.disciplinedStops > prev.counters.disciplinedStops) {
     out.push({ kind: 'stop', key: `stop:${next.counters.disciplinedStops}`, at: t, xp: 0 });
