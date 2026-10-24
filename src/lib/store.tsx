@@ -18,7 +18,7 @@ import { bankFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId 
 import { stageFor, themesUnlockedBetween } from './evolution';
 import { addDays, atTime, dayKey, fmtDuration, fmtTime, isDayKey, MIN, startOfDay, startOfWeek, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
-import { connectHealth, healthStatus, healthSupported, missingHealthAccess, readHealth, type HealthData, type HealthStatus } from './health';
+import { connectHealth, healthStatus, healthSupported, missingHealthAccess, readHealth, readTodaySteps, type HealthData, type HealthStatus } from './health';
 import { withGoals } from './goals';
 import { habitsDone, habitsFor, RANGE_TOP_XP, rangeText, rangeWeek } from './habits';
 import { newLeague, settle, TIERS, weekKeyOf } from './league';
@@ -630,6 +630,16 @@ function perkBomb(s: State, msgs: Msg[], damage: number, label: string): State {
   return { ...s, bossBombs: { ...s.bossBombs, [week]: (s.bossBombs[week] ?? 0) + damage } };
 }
 
+/** Today's steps from the watch, awarding the step goal the first time they reach it. */
+function withTodaySteps(s: State, msgs: Msg[], key: string, steps: number): State {
+  let next = patchDay(s, key, (d) => ({ ...d, steps }));
+  if (dayOf(s, key).stepGoalHit || steps < s.settings.stepGoal) return next;
+  next = patchDay(next, key, (d) => ({ ...d, stepGoalHit: true }));
+  msgs.push({ text: `${L(next, 'stepGoal', { steps: steps.toLocaleString('sv-SE') })} +${XP.stepGoal} XP · +${BONUS_MIN.stepGoal} min gaming`, tone: 'epic' });
+  next = reward(next, msgs, XP.stepGoal, BONUS_MIN.stepGoal);
+  return hasPerk(next, 'second_wind') ? perkBomb(next, msgs, 50, '👣 Second Wind') : next;
+}
+
 /** Anything that got a reaction has a small chance to turn up a golden line for the Roast Book. Not while going easy. */
 function checkGolden(s: State, msgs: Msg[]): State {
   // Golden lines are roasts too: none on a kind day, below level 4 or while the tone is turned down.
@@ -1146,17 +1156,8 @@ function useStoreValue() {
       run((s, msgs) => {
         let next = withNights(withPastHealth(s, past), data.nights, key);
         if (!current) return next;
-        next = patchDay(next, key, (d) => ({ ...d, ...(steps != null ? { steps } : {}), sleepMin: sleep }));
-        if (steps != null && !dayOf(s, key).stepGoalHit && steps >= s.settings.stepGoal) {
-          next = patchDay(next, key, (d) => ({ ...d, stepGoalHit: true }));
-          msgs.push({
-            text: `${L(next, 'stepGoal', { steps: steps.toLocaleString('sv-SE') })} +${XP.stepGoal} XP · +${BONUS_MIN.stepGoal} min gaming`,
-            tone: 'epic',
-          });
-          next = reward(next, msgs, XP.stepGoal, BONUS_MIN.stepGoal);
-          if (hasPerk(next, 'second_wind')) next = perkBomb(next, msgs, 50, '👣 Second Wind');
-        }
-        return next;
+        next = patchDay(next, key, (d) => ({ ...d, sleepMin: sleep }));
+        return steps != null ? withTodaySteps(next, msgs, key, steps) : next;
       });
     },
     [run],
@@ -1184,15 +1185,35 @@ function useStoreValue() {
     [applyHealth],
   );
 
+  /**
+   * Today's steps alone, every minute while the app is on screen, so they follow Zepp within a minute of it
+   * writing to Health Connect. The full read (sleep, heart rate, the past week) stays at every 5 minutes.
+   */
+  const refreshSteps = useCallback(async () => {
+    if (!watchSleep.current || AppState.currentState !== 'active') return;
+    try {
+      const r = await readTodaySteps();
+      if (!r || r.key !== dayKey()) return;
+      setHealth((prev) => (prev?.key === r.key && (prev.steps !== r.steps || !prev.stepsKnown) ? { ...prev, steps: r.steps, stepsKnown: true, updatedAt: Date.now() } : prev));
+      const today = dayOf(stateRef.current, r.key);
+      if (today.steps === r.steps && (today.stepGoalHit || r.steps < stateRef.current.settings.stepGoal)) return;
+      run((s, msgs) => withTodaySteps(s, msgs, r.key, r.steps));
+    } catch (e) {
+      console.warn('[spider] steps failed', e);
+    }
+  }, [run]);
+
   useEffect(() => {
     if (!ready || !state.onboarded) return;
     const first = setTimeout(() => void refreshHealth(false), 0);
     const every = setInterval(() => void refreshHealth(false), 5 * 60_000);
+    const steps = setInterval(() => void refreshSteps(), 60_000);
     return () => {
       clearTimeout(first);
       clearInterval(every);
+      clearInterval(steps);
     };
-  }, [ready, state.onboarded, refreshHealth]);
+  }, [ready, state.onboarded, refreshHealth, refreshSteps]);
 
   // ----- phone screen time (native module from APK 1.3.0) -----
   const [screenStatus, setScreenStatus] = useState<'unsupported' | 'needs-permission' | 'connected'>(

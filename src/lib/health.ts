@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 
 import { addDays, atTime, dayKey, startOfDay } from './dates';
 import { nightOf, nightWindow, ZEPP, type Night, type RawSession } from './sleep';
+import { stepsIn, stepSources, type StepRecord, type StepSource } from './steps';
 
 type HC = typeof import('react-native-health-connect');
 
@@ -128,6 +129,82 @@ async function readSessions(lib: HC, from: Date, to: Date): Promise<RawSession[]
   return out;
 }
 
+/** Step records overlapping [from, to), every page (only `origins`' when given). Null when a page failed. */
+async function readStepRecords(lib: HC, from: Date, to: Date, origins?: string[]): Promise<StepRecord[] | null> {
+  const out: StepRecord[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const token = pageToken;
+    const r = await safe(() =>
+      lib.readRecords('Steps', {
+        timeRangeFilter: range(from, to),
+        ...(origins ? { dataOriginFilter: origins } : {}),
+        ascendingOrder: true,
+        pageSize: 1000,
+        ...(token ? { pageToken: token } : {}),
+      }),
+    );
+    if (!r) return null;
+    for (const rec of r.records) {
+      const written = rec.metadata?.lastModifiedTime ? new Date(rec.metadata.lastModifiedTime).getTime() : undefined;
+      out.push({ start: new Date(rec.startTime).getTime(), end: new Date(rec.endTime).getTime(), count: rec.count, origin: rec.metadata?.dataOrigin, modified: written });
+    }
+    pageToken = r.pageToken || undefined;
+    if (!pageToken) return out;
+  }
+  return out;
+}
+
+/**
+ * A day's steps as Zepp counted them. Always up to midnight, even today: a still-open block (14:00–15:00 at
+ * 14:37) must count whole. Zepp's own records are added up directly (steps.ts), so the total doesn't depend
+ * on how Health Connect merges overlapping sources; its aggregate is the fallback, and every source when Zepp
+ * has nothing. A failed read (rate limit, Health Connect updating) is null, never 0: a 0 would overwrite the day's steps.
+ */
+async function stepsOn(lib: HC, dayStart: Date): Promise<number | null> {
+  const end = addDays(dayStart, 1);
+  const own = await readStepRecords(lib, dayStart, end, [ZEPP]);
+  const counted = own ? stepsIn(own, dayStart.getTime(), end.getTime()) : null;
+  if (counted != null && counted > 0) return counted;
+  const filter = range(dayStart, end);
+  const zepp = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter, dataOriginFilter: [ZEPP] }));
+  if (zepp && zepp.COUNT_TOTAL > 0) return zepp.COUNT_TOTAL;
+  const r = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter }));
+  return r ? (r.COUNT_TOTAL ?? 0) : null;
+}
+
+/** Today's steps only: cheap enough to read every minute while the app is open. Null when unknown. */
+export async function readTodaySteps(now = new Date()): Promise<{ key: string; steps: number } | null> {
+  const lib = hc;
+  if (!lib || !(await ready(lib))) return null;
+  const today = startOfDay(now);
+  const steps = await stepsOn(lib, today);
+  return steps == null ? null : { key: dayKey(today), steps };
+}
+
+export type StepsCheck = {
+  at: number;
+  /** What S.P.I.D.E.R. counts (Zepp's records, or the fallback). */
+  steps: number | null;
+  sources: StepSource[];
+  /** Health Connect's own merged total over every source. */
+  merged: number | null;
+};
+
+/** Settings' steps check: today's steps per app in Health Connect, and when Zepp's newest steps arrived. */
+export async function checkSteps(now = new Date()): Promise<StepsCheck | null> {
+  const lib = hc;
+  if (!lib || !(await ready(lib))) return null;
+  const today = startOfDay(now);
+  const end = addDays(today, 1);
+  const [all, steps, merged] = await Promise.all([
+    readStepRecords(lib, today, end),
+    stepsOn(lib, today),
+    safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: range(today, end) })),
+  ]);
+  return { at: now.getTime(), steps, sources: all ? stepSources(all, today.getTime(), end.getTime()) : [], merged: merged ? (merged.COUNT_TOTAL ?? 0) : null };
+}
+
 /** The night before `key` with every stage, for the sleep screen. Null without data or outside the installed app. */
 export async function readSleepNight(key: string): Promise<Night | null> {
   const lib = hc;
@@ -200,18 +277,6 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
   if (!lib || !(await ready(lib))) return null;
   const today = startOfDay(now);
 
-  // Always up to midnight, even today. Health Connect prorates a record that sticks out of the
-  // range, so ending at "now" cut Zepp's still-open block (e.g. 14:00–15:00 at 14:37) to 37/60.
-  // Zepp's own data first: with another step source ranked above it, the merged total came out lower than Zepp's.
-  // A failed read (rate limit, Health Connect updating) is null, never 0: a 0 would overwrite today's steps.
-  const stepsOn = async (dayStart: Date): Promise<number | null> => {
-    const filter = range(dayStart, addDays(dayStart, 1));
-    const zepp = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter, dataOriginFilter: [ZEPP] }));
-    if (zepp && zepp.COUNT_TOTAL > 0) return zepp.COUNT_TOTAL;
-    const r = await safe(() => lib.aggregateRecord({ recordType: 'Steps', timeRangeFilter: filter }));
-    return r ? (r.COUNT_TOTAL ?? 0) : null;
-  };
-
   // "The night before a day": sleep between 18:00 the day before and 14:00 that day (clock times: DST nights
   // are 23 or 25 hours). Zepp's own sessions first, like steps: another sleep writer would otherwise be added on.
   const sleepBefore = async (dayStart: Date) => {
@@ -231,7 +296,7 @@ export async function readHealth(now = new Date()): Promise<HealthData | null> {
   const fortnight = Array.from({ length: 14 }, (_, i) => addDays(today, i - 13));
 
   const [stepsWeek, sleepWeek, heart, resting, latest, sessions, restingDays] = await Promise.all([
-    Promise.all(week.map(async (d) => ({ key: dayKey(d), steps: await stepsOn(d) }))),
+    Promise.all(week.map(async (d) => ({ key: dayKey(d), steps: await stepsOn(lib, d) }))),
     Promise.all(week.map(async (d) => ({ key: dayKey(d), sleepMin: await sleepBefore(d) }))),
     safe(() => lib.aggregateRecord({ recordType: 'HeartRate', timeRangeFilter: range(today, now) })),
     safe(() => lib.aggregateRecord({ recordType: 'RestingHeartRate', timeRangeFilter: range(addDays(now, -1), now) })),

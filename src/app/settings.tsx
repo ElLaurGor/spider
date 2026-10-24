@@ -22,6 +22,7 @@ import { sendTestRoast } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 import { toneOn } from '@/lib/tone';
 import { PauseCard } from '@/components/pause-card';
+import { StepsCheckPanel } from '@/components/steps-check';
 import type { NotifyPrefs, Settings } from '@/lib/types';
 
 const SAVAGE_LABEL = (v: number) => (v <= 2 ? 'polite butler' : v <= 5 ? 'sassy' : v <= 8 ? 'savage' : 'no mercy');
@@ -473,7 +474,7 @@ export default function SettingsScreen() {
             {health.status === 'connected'
               ? health.missing.length
                 ? `Connected, but without access to ${health.missing.join(' and ')}.`
-                : 'Connected. Steps, heart rate and sleep are read from Health Connect.'
+                : 'Connected. Steps, heart rate and sleep are read from Health Connect; steps every minute while the app is open.'
               : health.status === 'unavailable'
                 ? 'Health Connect is not available. Install it from the Play Store.'
                 : 'Not connected yet. In Zepp: Profile → Add accounts → Health Connect, then connect here.'}
@@ -485,6 +486,7 @@ export default function SettingsScreen() {
             ) : null}
             <Btn label="Health Connect settings" kind="ghost" onPress={openHealthSettings} style={{ flex: 1 }} />
           </Row>
+          {health.status === 'connected' ? <StepsCheckPanel shown={health.data?.stepsKnown ? health.data.steps : null} /> : null}
         </Card>
       ) : null}
 

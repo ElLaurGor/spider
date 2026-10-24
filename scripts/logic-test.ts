@@ -129,6 +129,7 @@ import { autoBackupDue, backupNudge } from '../src/lib/backup-due';
 import { workoutFor } from '../src/lib/selectors';
 import { asleepMin, clockLabel, nightClock, nightOf, rhythmOf, stagedMin, withNights } from '../src/lib/sleep';
 import { nightWindow as sleepWindow, ZEPP } from '../src/lib/sleep';
+import { sourceName, stepSources, stepsIn } from '../src/lib/steps';
 import { allDayLocal } from '../src/lib/calendar-days';
 import { orphanPhotos, pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
 import { isDoomscroll } from '../src/lib/doomscroll';
@@ -3873,6 +3874,33 @@ void (async () => {
 }
 
 // sleep nights: the main session plus a split-off piece, stages summed; typed-in nights stay the watch's own business
+// Steps from Health Connect records: Zepp's own records added up, a block over midnight prorated,
+// a record written again for the same span counted once, other overlaps refused
+{
+  const day = new Date(2026, 9, 24).getTime();
+  const H = 3_600_000;
+  const end = day + 24 * H;
+  const rec = (h0: number, h1: number, count: number, modified?: number) => ({ start: day + h0 * H, end: day + h1 * H, count, origin: ZEPP, modified });
+  assert.equal(stepsIn([rec(8, 9, 1000), rec(9, 10, 2185)], day, end), 3185);
+  assert.equal(stepsIn([rec(-1, 1, 400), rec(9, 10, 100)], day, end), 300); // half of the block from before midnight
+  assert.equal(stepsIn([rec(14, 15, 300, 1), rec(14, 15, 900, 2)], day, end), 900); // written again: the newest counts
+  assert.equal(stepsIn([rec(8, 10, 500), rec(9, 11, 500)], day, end), null);
+  assert.equal(stepsIn([rec(8, 10, 500), rec(8, 9, 200), rec(9, 10, 300)], day, end), null); // a block and its parts
+  assert.equal(stepsIn([], day, end), 0);
+  assert.equal(stepsIn([{ start: day + 5 * H, end: day + 5 * H, count: 7 }], day, end), 7); // an instant
+  const sources = stepSources([{ start: day + 8 * H, end: day + 9 * H, count: 2500, origin: 'com.google.android.apps.fitness', modified: 5 }, rec(8, 9, 2000)], day, end);
+  assert.deepEqual(
+    sources.map((x) => [x.name, x.steps]),
+    [
+      ['Zepp', 2000],
+      ['Google Fit', 2500],
+    ],
+  );
+  assert.equal(sources[0].lastEnd, day + 9 * H);
+  assert.equal(sources[0].lastWritten, null);
+  assert.equal(sources[1].lastWritten, 5);
+  assert.equal(sourceName('com.example'), 'com.example');
+}
 {
   const key = '2027-01-12';
   const at = (h: number, m = 0) => new Date(`${key}T00:00`).getTime() + (h * 60 + m) * 60_000; // hours from that midnight
