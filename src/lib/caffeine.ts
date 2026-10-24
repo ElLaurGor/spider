@@ -1,17 +1,17 @@
 // Caffeine still in the body over the day. Each cup's caffeine halves roughly every 5 hours
 // (it varies a lot from person to person, so everything shown is "about").
-import { addDays, dayKey, fmtTime, HOUR, MIN, pad } from './dates';
+import { addDays, dayKey, fmtTime, HOUR, MIN, pad, startOfDay } from './dates';
 import { coffeeOf, dayOf } from './selectors';
 import type { State } from './types';
 
 export const HALF_LIFE_H = 5;
 /**
- * Caffeine at bedtime above this counts as "still in you" (about a third of a cup). Gardiner et al. 2023
- * (Sleep Medicine Reviews, 24 studies): a 107 mg coffee should be had at least 8.8 hours before bed to spare
- * sleep, which with the 5-hour half-life used here leaves about 32 mg at bedtime. Last call, the curve, the
- * detective and the insights all use this one threshold.
+ * Caffeine at bedtime above this counts as "still in you" (about half a cup). It's the lenient end: Gardiner et
+ * al. 2023 (Sleep Medicine Reviews, 24 studies) put a 107 mg coffee at least 8.8 hours before bed, which with the
+ * 5-hour half-life used here leaves about 32 mg. At 30 mg, two morning cups already meant "decaf from here",
+ * which the app's 4-cup default doesn't. Last call, the curve, the detective and the insights all use this one threshold.
  */
-export const BED_MG = 30;
+export const BED_MG = 50;
 
 type Cup = { mg: number; at: number };
 
@@ -52,12 +52,16 @@ export function lastCallOn(s: State, key: string, mg = s.settings.caffeinePerCup
   return Math.floor((bed - hours * HOUR) / FIVE_MIN) * FIVE_MIN;
 }
 
-/** Fuel's line for today: until when the next cup is fine, or that last call has passed. Null once it's bedtime. */
+/**
+ * Fuel's line for today: until when the next cup is fine, or that last call has passed. Null once it's bedtime.
+ * A last call from before today, or from before the cup that used up the room, is no time to show: just "passed".
+ */
 export function lastCallText(s: State, key: string, now = Date.now()): string | null {
   const bed = bedtimeOn(key, s.settings.sleepHour);
   if (now >= bed) return null;
   const t = lastCallOn(s, key);
-  if (t == null) return 'Last call has passed. Decaf from here.';
+  const latestCup = Math.max(startOfDay(new Date(`${key}T12:00`)).getTime(), ...coffeeOf(dayOf(s, key)).map((c) => c.at));
+  if (t == null || (t <= now && t < latestCup)) return 'Last call has passed. Decaf from here.';
   if (t <= now) return `Last call was ${fmtTime(t)}. Decaf from here.`;
   if (t >= bed - FIVE_MIN) return "A cup is fine: it's gone by bedtime.";
   return `Next cup fine until ${fmtTime(t)}.`;

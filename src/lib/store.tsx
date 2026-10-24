@@ -757,7 +757,19 @@ const freshDisk = (): Disk => ({
 });
 
 /** A restored backup: nothing left running from the day it was made. */
-const restored = (s: State): State => ({ ...s, onboarded: true, activeGame: null, restEndsAt: null, activeFocus: null, pendingFly: null });
+/**
+ * A backup taken over as the state. With `here` (the state it replaces), this phone's automatic-backup folder
+ * stays as it is: the backup's may be another phone's, or from before daily backups were switched on or off.
+ */
+const restored = (s: State, here?: State): State => ({
+  ...s,
+  onboarded: true,
+  activeGame: null,
+  restEndsAt: null,
+  activeFocus: null,
+  pendingFly: null,
+  ...(here ? { backupFolderUri: here.backupFolderUri ?? null } : {}),
+});
 
 // ---------- context ----------
 
@@ -776,8 +788,8 @@ export type RecoveryProps = {
   /** The pre-v2 copy (still in storage), with the time it was moved to v2 if known. */
   older: { at: number | null } | null;
   retry: () => Promise<void>;
-  /** Picks a backup folder; false if cancelled. */
-  restore: () => Promise<boolean>;
+  /** Picks a backup folder, or with 'file' one backup file (Send backup); false if cancelled. */
+  restore: (from?: 'folder' | 'file') => Promise<boolean>;
   loadOlder: () => Promise<void>;
   startFresh: () => Promise<void>;
 };
@@ -829,7 +841,7 @@ function useStoreValue() {
   const [tick, setTick] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Meals just deleted with ×, kept (with their photo file) until their Undo has had its chance. */
-  const foodTrash = useRef(new Map<string, { entry: FoodEntry; day: string; xp: number }>());
+  const foodTrash = useRef(new Map<string, { entry: FoodEntry; day: string; xp: number; crits: Record<string, { id: string; dmg: number }> }>());
 
   // ----- toasts -----
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1023,8 +1035,8 @@ function useStoreValue() {
   const recovery: RecoveryProps | null = failure && {
     ...failure,
     retry: load,
-    async restore() {
-      const result = await readBackup();
+    async restore(from: 'folder' | 'file' = 'folder') {
+      const result = from === 'file' ? await readBackupFromFile() : await readBackup();
       if (!result) return false;
       await cancelEverything();
       adopt(restored(result.state));
@@ -1704,7 +1716,9 @@ function useStoreValue() {
         if (undoable) {
           // What the delete takes back is what an undo pays again, so Double XP can't turn it into a farm.
           const xp = pastKey(key) ? 0 : (dayOf(stateRef.current, key).xpBy?.[`f:${id}`] ?? XP.food);
-          foodTrash.current.set(id, { entry, day: key, xp });
+          // Its boss crits too: the delete takes their damage off (withoutCrit), the undo puts it back.
+          const crits = Object.fromEntries(Object.entries(dayOf(stateRef.current, key).critBy ?? {}).filter(([, c]) => c.id === id));
+          foodTrash.current.set(id, { entry, day: key, xp, crits });
           setTimeout(() => {
             if (foodTrash.current.delete(id)) deletePhoto(entry.photo);
           }, FOOD_UNDO_MS);
@@ -2159,11 +2173,16 @@ function useStoreValue() {
           return;
         }
         if (ref.kind === 'restoreFood') {
-          // A deleted meal, on whichever day it was: back in place, with exactly the XP the delete took.
+          // A deleted meal, on whichever day it was: back in place, with exactly the XP and boss crits the delete took.
           const trashed = foodTrash.current.get(ref.id);
           if (!trashed || !foodTrash.current.delete(ref.id)) return;
+          const critDmg = Object.values(trashed.crits).reduce((a, c) => a + c.dmg, 0);
           run((x) => {
-            const next = patchDay(x, trashed.day, (d) => ({ ...d, food: [...d.food, trashed.entry].sort((a, b) => a.at - b.at) }));
+            const next = patchDay(x, trashed.day, (d) => ({
+              ...d,
+              food: [...d.food, trashed.entry].sort((a, b) => a.at - b.at),
+              ...(critDmg ? { critBy: { ...d.critBy, ...trashed.crits }, critDamage: (d.critDamage ?? 0) + critDmg } : {}),
+            }));
             if (!trashed.xp) return next;
             // Not an undo any more, so the XP log stops listing it as one.
             return patchDay(credit(next, trashed.day, trashed.xp, 0, `f:${ref.id}`), trashed.day, (d) => ({ ...d, xpUndone: Math.max(0, (d.xpUndone ?? 0) - trashed.xp) }));
@@ -2210,6 +2229,15 @@ function useStoreValue() {
       /** The rough-patch card closed, or one of its offers taken: it stays away for a week (rough-patch.ts). */
       closeRoughPatch() {
         commit({ ...stateRef.current, roughPatchAt: Date.now() });
+      },
+
+      /**
+       * The rough-patch card's low-battery mode for today: energy 2, which is what turns it on. Committed as is,
+       * not through run(): the card stays private, so no rating XP, no crit and no toast.
+       */
+      lowBatteryToday() {
+        const s = stateRef.current;
+        commit({ ...patchDay(s, dayKey(), (d) => ({ ...d, energy: 2 })), roughPatchAt: Date.now() });
       },
 
       dismissBanner(key: string) {
@@ -2675,9 +2703,21 @@ function useStoreValue() {
       },
 
       /** The data as one file through the share sheet (Drive, mail…): a copy off the phone. Photos stay out. */
+      /**
+       * Android's share sheet reports nothing back (a cancelled one returns just the same), so this only says
+       * whether the sheet opened. The caller asks whether the file really went somewhere, then calls markShared.
+       */
       async shareBackup() {
-        if (!(await Sharing.isAvailableAsync())) return say('Sharing is not available on this phone.', 'info');
+        if (!(await Sharing.isAvailableAsync())) {
+          say('Sharing is not available on this phone.', 'info');
+          return false;
+        }
         await Sharing.shareAsync(shareableBackup(stateRef.current), { mimeType: 'application/json', dialogTitle: 'Send your S.P.I.D.E.R. backup' });
+        return true;
+      },
+
+      /** The sent backup reached Drive, mail or the like: the backup nudges rest for a week. */
+      markShared() {
         commit({ ...stateRef.current, lastSharedAt: Date.now() });
       },
 
@@ -2766,7 +2806,7 @@ function useStoreValue() {
         if (!result) return false;
         await cancelEverything();
         disk.current.allowShrink = true; // a backup may hold fewer days than the phone
-        const back = restored(result.state);
+        const back = restored(result.state, stateRef.current);
         setLineMemory(back.lineMemory);
         commit(back);
         say(`Restored backup from ${new Date(result.createdAt).toLocaleString('sv-SE').slice(0, 16)} (${result.photos} photos). Welcome back.`, 'epic');

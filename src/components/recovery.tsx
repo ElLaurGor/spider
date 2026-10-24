@@ -53,6 +53,14 @@ export function Recovery({ message, older, retry, restore, loadOlder, startFresh
           })}
           disabled={busy}
         />
+        <Btn
+          label="Restore from a backup file"
+          kind="ghost"
+          onPress={act(async () => {
+            if (!(await restore('file'))) setNote('No file picked. Pick a "SPIDER-backup-….json" file (from Send backup).');
+          })}
+          disabled={busy}
+        />
         {older ? (
           <>
             <T dim small>

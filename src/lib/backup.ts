@@ -2,15 +2,14 @@
 // "SPIDER-backup-<date>/data.json" plus a "photos" folder. Restoring = picking
 // that folder again.
 // Automatic daily backups go into one "SPIDER-auto-backup" folder in a folder picked once:
-// "data-<date>.json" files (the last week's kept) and a shared "photos" folder that only gets new
+// "data-<date>.json" files (the last 7, plus the newest of each of the 5 weeks before) and a shared "photos" folder that only gets new
 // photos (and, on Sundays, loses the ones no kept file needs). Restoring = picking that
 // "SPIDER-auto-backup" folder; the newest readable file wins.
 // "Send backup" shares one "SPIDER-backup-<date>.json" (the data, no photos) through the share sheet,
 // for Drive or mail; restoring from such a file picks the file itself.
 import { Directory, File, Paths } from 'expo-file-system';
 
-import { AUTO_BACKUPS_KEPT } from './backup-due';
-import { orphanPhotos, pickBackup, skipAutoBackup } from './backup-pick';
+import { autoBackupsToPrune, orphanPhotos, pickBackup, skipAutoBackup } from './backup-pick';
 import { hydrate } from './defaults';
 import type { State } from './types';
 
@@ -96,16 +95,16 @@ const childDir = (parent: Directory, name: string) =>
 
 /**
  * Writes today's automatic backup into the saved folder. Throws if the folder or its permission is gone.
- * `skipped`: nothing was written or pruned, because this phone holds far fewer days than the last backup (a
- * wiped phone must not push the good backups out of the folder).
+ * `skipped`: nothing was written or pruned, because this phone holds far fewer days than the fullest kept
+ * backup (a wiped phone must not push the good backups out of the folder).
  */
 export async function autoBackup(state: State, folderUri: string, now = new Date()): Promise<{ photos: number; skipped?: boolean }> {
   const parent = new Directory(folderUri);
   if (!parent.exists) throw new Error('Backup folder is gone');
   const dir = childDir(parent, AUTO_DIR);
-  const newest = autoFilesIn(dir).at(-1);
-  const last = newest ? await readBackupFile(newest) : null;
-  if (skipAutoBackup(last?.state ? Object.keys(last.state.days).length : null, Object.keys(state.days).length)) return { photos: 0, skipped: true };
+  const counts = await Promise.all(autoFilesIn(dir).map(async (f) => (await readBackupFile(f))?.state?.days));
+  const sizes = counts.flatMap((days) => (days ? [Object.keys(days).length] : []));
+  if (skipAutoBackup(sizes.length ? Math.max(...sizes) : null, Object.keys(state.days).length)) return { photos: 0, skipped: true };
   const photoDir = childDir(dir, 'photos');
   const have = new Set(photoDir.list().map((e) => e.name));
 
@@ -125,8 +124,8 @@ export async function autoBackup(state: State, folderUri: string, now = new Date
   const data: BackupFile = { app: 'spider', version: 1, createdAt: Date.now(), photos: names, state };
   dir.createFile(`data-${stampNow()}.json`, 'application/json').write(JSON.stringify(data));
 
-  const files = autoFilesIn(dir);
-  for (const old of files.slice(0, Math.max(0, files.length - AUTO_BACKUPS_KEPT))) old.delete();
+  const prune = autoBackupsToPrune(autoFilesIn(dir).map((f) => f.name));
+  for (const old of autoFilesIn(dir)) if (prune.includes(old.name)) old.delete();
   // Once a week the photos folder sheds what no kept backup points to, so deleted photos don't pile up forever.
   if (now.getDay() === 0) {
     const kept = await Promise.all(autoFilesIn(dir).map(async (f) => (await readBackupFile(f))?.photos ?? null));
@@ -196,9 +195,11 @@ export async function readBackup(): Promise<{ state: State; createdAt: number; p
   for (const [oldUri, name] of Object.entries(data.photos ?? {})) {
     const src = backed.get(name);
     if (!src) continue;
+    // Read first: if the backup's copy can't be read, the photo on the phone is still there.
+    const bytes = await src.bytes();
     const dest = new File(local, name);
     if (dest.exists) dest.delete();
-    dest.write(await src.bytes());
+    dest.write(bytes);
     remap.set(oldUri, dest.uri);
   }
 

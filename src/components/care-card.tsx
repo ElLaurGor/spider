@@ -70,6 +70,7 @@ function RoughPatchCard() {
   const patch = roughPatch(state, health.data?.restingDays ?? [], noonOf(today));
   if (!patch || !showRoughPatch(state)) return null;
   const close = actions.closeRoughPatch;
+  const energy = dayOf(state, today).energy;
   return (
     <Card accent={C.cyan}>
       <H
@@ -86,14 +87,12 @@ function RoughPatchCard() {
       </T>
       {!lowBattery(dayOf(state, today)) ? (
         <Btn
-          label="Low-battery mode today"
+          // An energy rating from earlier today is replaced, so the button says so rather than overwriting it quietly.
+          label={energy != null ? `Low-battery mode today (energy ${energy} → 2)` : 'Low-battery mode today'}
           icon="battery_low"
           kind="ghost"
           small
-          onPress={() => {
-            actions.rateEnergy(2); // energy 1–2 is what turns it on
-            close();
-          }}
+          onPress={actions.lowBatteryToday}
         />
       ) : null}
       <Btn label={pausing ? 'Not now' : 'Take a sick or away pause'} icon="healing" kind="ghost" small onPress={() => setPausing(!pausing)} />

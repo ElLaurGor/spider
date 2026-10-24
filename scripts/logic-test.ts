@@ -131,7 +131,7 @@ import { asleepMin, clockLabel, nightClock, nightOf, rhythmOf, stagedMin, withNi
 import { nightWindow as sleepWindow, ZEPP } from '../src/lib/sleep';
 import { sourceName, stepSources, stepsIn } from '../src/lib/steps';
 import { allDayLocal } from '../src/lib/calendar-days';
-import { orphanPhotos, pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
+import { autoBackupsToPrune, orphanPhotos, pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
 import { isDoomscroll } from '../src/lib/doomscroll';
 import { eventsOn } from '../src/lib/selectors';
 import { meteoTime, needsPlaceInfo, samePlace, staleNote } from '../src/lib/weather';
@@ -1413,6 +1413,8 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   // HQ's This week line: what's won, then the closest next tier
   assert.equal(medalLine(medalsFor(md, week, end)), '🏋️🥇 💧🥈 🎮🥈 · next 🥉 Web Focus: 1 session to go');
   assert.equal(medalLine(medalsFor(defaultState(), week, end)), 'none yet · closest 🥉 Web Focus: 1 session to go');
+  const allGold = medalsFor(md, week, end).map((m) => ({ ...m, tier: 'gold' as const, next: null }));
+  assert.equal(medalLine(allGold), `${allGold.map((m) => `${m.def.emoji}🥇`).join(' ')} · all at gold`);
   md.days[mk(0)].steps = 9000;
   assert.ok(medalsFor(md, week, end).some((m) => m.def.id === 'steps'));
   // two sick days lower the bar: the same 5 water days are gold
@@ -2314,21 +2316,32 @@ void (async () => {
   assert.ok(bedtimeCaffeine(cs, '2026-06-10') > bed && bedtimeCaffeine(cs, '2026-06-10') < bed + 5);
   assert.equal(caffeineCurve(cs, '2026-06-10', 6, 24).length, 18 * 4 + 1);
 
-  // step 6 last call: the latest cup that still leaves at most BED_MG at bedtime (Gardiner 2023: ~32 mg), cups so far included
-  assert.equal(BED_MG, 30);
-  assert.equal(lastCallClock(23, 90), '15:00', '90 mg cups, bed at 23: about 7.9 h before');
-  assert.equal(lastCallClock(1, 90), '17:00', 'bed after midnight');
+  // step 6 last call: the latest cup that still leaves at most BED_MG at bedtime, cups so far included
+  assert.equal(BED_MG, 50);
+  assert.equal(lastCallClock(23, 90), '18:45', '90 mg cups, bed at 23: about 4.2 h before');
+  assert.equal(lastCallClock(1, 90), '20:45', 'bed after midnight');
   const lc = defaultState();
   lc.settings.sleepHour = 23;
-  assert.equal(lastCallOn(lc, '2026-06-12'), at('2026-06-12', 15), 'no coffee yet: the plain last call');
+  assert.equal(lastCallOn(lc, '2026-06-12'), at('2026-06-12', 18, 45), 'no coffee yet: the plain last call');
   lc.days['2026-06-12'] = { ...blank(), coffee: [{ id: 'm', mg: 90, at: at('2026-06-12', 8) }] };
   const call = lastCallOn(lc, '2026-06-12') as number;
   const bedLc = bedtimeOn('2026-06-12', 23);
   const withCup = (t: number) => caffeineLeft([...cupsAround(lc, '2026-06-12'), { mg: 90, at: t }], bedLc);
-  assert.ok(call < at('2026-06-12', 15), 'the morning cup moves last call earlier');
+  assert.ok(call < at('2026-06-12', 18, 45), 'the morning cup moves last call earlier');
   assert.ok(withCup(call) <= BED_MG && withCup(call + 5 * 60_000) > BED_MG, 'the latest 5-minute mark under the line');
   assert.equal(lastCallText(lc, '2026-06-12', at('2026-06-12', 9)), `Next cup fine until ${fmtTime(call)}.`);
-  assert.equal(lastCallText(lc, '2026-06-12', at('2026-06-12', 16)), `Last call was ${fmtTime(call)}. Decaf from here.`);
+  assert.equal(lastCallText(lc, '2026-06-12', at('2026-06-12', 17, 30)), `Last call was ${fmtTime(call)}. Decaf from here.`);
+  // two big morning cups leave so little room that the sum lands before the second cup (04:00): no such time is shown
+  const big = defaultState();
+  big.settings.sleepHour = 23;
+  big.days['2026-06-12'] = { ...blank(), coffee: [8, 10].map((h) => ({ id: `b${h}`, mg: 150, at: at('2026-06-12', h) })) };
+  assert.ok((lastCallOn(big, '2026-06-12') as number) < at('2026-06-12', 10));
+  assert.equal(lastCallText(big, '2026-06-12', at('2026-06-12', 10, 30)), 'Last call has passed. Decaf from here.');
+  // two ordinary morning cups still leave room for an early-afternoon one
+  const two = defaultState();
+  two.settings.sleepHour = 23;
+  two.days['2026-06-12'] = { ...blank(), coffee: [8, 10].map((h) => ({ id: `t${h}`, mg: 90, at: at('2026-06-12', h) })) };
+  assert.ok(lastCallText(two, '2026-06-12', at('2026-06-12', 10, 30))!.startsWith('Next cup fine until 13:'));
   assert.equal(lastCallText(lc, '2026-06-12', at('2026-06-12', 23, 30)), null, 'bedtime: nothing to say');
   lc.days['2026-06-12'].coffee = [1, 2, 3].map((n) => ({ id: `e${n}`, mg: 90, at: at('2026-06-12', 20) }));
   assert.equal(lastCallOn(lc, '2026-06-12'), null);
@@ -3738,7 +3751,13 @@ void (async () => {
   // no weekly card was showing: it goes just above the quests; everything it replaces was hidden: it stays hidden
   const aboveQuests = withWeekCard({ order: ['weather', 'quests'], hidden: [...WEEK_PARTS] }).order;
   assert.equal(aboveQuests.indexOf('week'), aboveQuests.indexOf('quests') - 1);
-  assert.ok(withWeekCard({ order: ['weather'], hidden: [...WEEK_PARTS, 'quests'] }).hidden.includes('week'));
+  // a real layout saved before step 6 (no care, week or trek card yet), every weekly card and the quests hidden
+  const oldIds = ['weather', 'commute', 'countdowns', 'swedishDays', 'sleep', 'top3', 'winddown', 'debrief', 'level', 'progress', 'shortcuts', 'league', 'silk', 'medals', 'contract', 'experiment', 'insight', 'quests', 'wild', 'tiles', 'buttons', 'upnext', 'achievements'];
+  const allOff = withWeekCard({ order: oldIds, hidden: ['league', 'silk', 'medals', 'contract', 'quests'] });
+  assert.ok(allOff.hidden.includes('week') && allOff.hidden.includes('trek'), 'everything it replaces was hidden: it stays hidden');
+  const someOn = withWeekCard({ order: oldIds, hidden: ['league', 'silk', 'medals', 'contract'] });
+  assert.ok(!someOn.hidden.includes('week') && someOn.hidden.includes('trek') && hqVisible(someOn).includes('quests'));
+  assert.ok(!withWeekCard({ order: [], hidden: [] }).hidden.includes('week'), 'a layout that knew none of them keeps This week');
   // the one-time repair: only a saved layout changes, and only once
   const hqSave = defaultState();
   hqSave.settings.hq = mine;
@@ -4053,6 +4072,17 @@ void (async () => {
   assert.ok(skipAutoBackup(61, 1)); // a wiped phone doesn't push the good backups out
   assert.ok(!skipAutoBackup(61, 62));
   assert.ok(!skipAutoBackup(null, 1)); // the first backup ever
+  // pruning: the last 7 daily files stay, and before them the newest of each of 5 weeks; undated names are never touched
+  const daily = Array.from({ length: 60 }, (_, i) => `data-${dayKey(addDays(new Date(2026, 7, 26, 12), i))}-10-00.json`); // 26 Aug – 24 Oct
+  const gone = new Set(autoBackupsToPrune(daily));
+  const kept = daily.filter((n) => !gone.has(n));
+  assert.deepEqual(kept.slice(-7), daily.slice(-7));
+  assert.equal(kept.length, 12, kept.join(' '));
+  // the newest of each week before the daily ones: Saturday 17 Oct (its week is partly daily), then four Sundays
+  assert.deepEqual(kept.slice(0, 5), ['data-2026-09-20-10-00.json', 'data-2026-09-27-10-00.json', 'data-2026-10-04-10-00.json', 'data-2026-10-11-10-00.json', 'data-2026-10-17-10-00.json']);
+  assert.deepEqual(autoBackupsToPrune(daily.slice(-7)), []);
+  assert.deepEqual(autoBackupsToPrune(daily.slice(-8)), [], 'the 8th newest is the newest of its week: it stays');
+  assert.ok(!autoBackupsToPrune(['data-x.json', ...daily]).includes('data-x.json'));
 
   // old weather and air data says how old it is
   const fetched = new Date(2026, 9, 23, 14, 5).getTime();

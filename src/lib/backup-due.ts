@@ -2,7 +2,7 @@
 // nudges about backups. Kept apart from backup.ts so it's testable offline.
 import { startOfDay } from './dates';
 
-/** Daily files kept in the automatic folder: a week's worth. Manual backups are never pruned. */
+/** Daily files kept in the automatic folder: a week's worth (plus weekly ones, backup-pick.ts). Manual backups are never pruned. */
 export const AUTO_BACKUPS_KEPT = 7;
 
 export function autoBackupDue(lastBackupAt: number | null, now: Date = new Date()) {

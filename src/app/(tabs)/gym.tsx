@@ -312,6 +312,7 @@ function MoveCard() {
 /** "What got in the way?" after a move: skippable, and for some answers a coping plan for that weekday. */
 function WhyCard({ move }: { move: WorkoutMove }) {
   const { state, actions } = useStore();
+  const today = useToday();
   const [why, setWhy] = useState<MoveWhy | null>(null);
   const day = copingWeekday(state, move.from);
   const plan = why ? copingPlan(state, why) : null;
@@ -333,7 +334,7 @@ function WhyCard({ move }: { move: WorkoutMove }) {
     <Card accent={C.blue}>
       <H right={<Btn label="Skip" kind="ghost" small onPress={() => actions.noteMoveWhy(move.from, 'skip')} />}>What got in the way?</H>
       <T dim small>
-        {move.name} is on for {moveDayName(move.to)} now. Optional, private, never graded.
+        {move.name} is on for {moveDayName(move.to, today)} now. Optional, private, never graded.
       </T>
       <Row gap={6} style={{ flexWrap: 'wrap' }}>
         {MOVE_WHYS.map((w) => (
@@ -348,7 +349,7 @@ function WhyCard({ move }: { move: WorkoutMove }) {
           />
         ))}
       </Row>
-      {canUnmove(state, move.from) ? <Btn label="Undo the move" kind="ghost" small onPress={() => actions.unmoveWorkout(move.from)} /> : null}
+      {canUnmove(state, move.from, today) ? <Btn label="Undo the move" kind="ghost" small onPress={() => actions.unmoveWorkout(move.from)} /> : null}
     </Card>
   );
 }
