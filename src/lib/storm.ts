@@ -68,7 +68,8 @@ export function nextStorm(prev: StormAlert[] | undefined, smhi: Alert[] | null, 
 
 /**
  * Whether an alert covers day `key`: it starts before the day ends, and (with an end) hasn't ended by the
- * start of that day (by now, for today); without an end it holds from its start through the day it was last seen.
+ * start of that day (by now, for today); without an end it holds from its start through the day it was last seen,
+ * or through its start day when that's later (a warning for tomorrow, seen tonight).
  */
 function covers(a: StormAlert, key: string, now: number) {
   const dayStart = startOfDay(new Date(`${key}T12:00`)).getTime();
@@ -77,7 +78,7 @@ function covers(a: StormAlert, key: string, now: number) {
   if (start >= dayEnd) return false;
   const end = time(a.end);
   if (end != null) return end > (key === dayKey(now) ? Math.max(now, dayStart) : dayStart);
-  return key <= dayKey(a.seenAt);
+  return key <= dayKey(Math.max(a.seenAt, start));
 }
 
 /** The worst alert holding the Storm protocol on day `key`, or null. */
@@ -85,4 +86,11 @@ export function stormOn(s: Pick<State, 'storm'>, key: string, now = Date.now()):
   let worst: StormAlert | null = null;
   for (const a of s.storm ?? []) if (covers(a, key, now) && (!worst || RANK[a.level] > RANK[worst.level])) worst = a;
   return worst;
+}
+
+/** The days from `now` on (`days` of them) that a check's alerts hold the Storm protocol on: for the background check. */
+export function stormDays(list: Alert[], now = Date.now(), days = 3): string[] {
+  const storm = stormAlertsOf(list, now);
+  if (!storm.length) return [];
+  return Array.from({ length: days }, (_, i) => dayKey(addDays(now, i))).filter((k) => stormOn({ storm }, k, now));
 }

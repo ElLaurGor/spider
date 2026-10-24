@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { EntryEditor } from '@/components/entry-editor';
-import { Card, H, Icon, Row, T } from '@/components/ui';
+import { Card, H, Icon, Row, T, useNow } from '@/components/ui';
+import { useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
 import { SLEEP_RATINGS } from '@/lib/body';
 import { dayKey, fmtDuration, fmtTime, MIN, WEEKDAYS_LONG } from '@/lib/dates';
@@ -22,14 +23,17 @@ const ENERGY: { rating: Rating; emoji: string; label: string }[] = [
 export function SleepCheckIn() {
   const { state, actions, quip } = useStore();
   const [editing, setEditing] = useState(false);
-  const today = dayOf(state);
+  // On HQ for days: the clock ticks, so the card moves on to a new morning and goes at 14:00 by itself.
+  const now = useNow(60_000);
+  const todayKey = dayKey(now);
+  const today = dayOf(state, todayKey);
   // Phone in bed last night (cluster F, night.ts); picked once so it doesn't change on every render.
   const night = today.night;
   const nightText = useMemo(
     () => (night?.lastAt && night.top ? quip('phoneInBed', { time: fmtTime(night.lastAt), app: night.top, minutes: night.lateMin }) : null),
     [quip, night],
   );
-  if ((today.sleepRating != null && today.energy != null && today.sleepMin != null) || new Date().getHours() >= 14) return null;
+  if ((today.sleepRating != null && today.energy != null && today.sleepMin != null) || new Date(now).getHours() >= 14) return null;
   const slept = today.sleepMin;
 
   return (
@@ -75,23 +79,24 @@ export function SleepCheckIn() {
           </T>
         </>
       ) : null}
-      {editing ? <SleepEditor day={dayKey()} onClose={() => setEditing(false)} /> : null}
+      {editing ? <SleepEditor day={todayKey} onClose={() => setEditing(false)} /> : null}
     </Card>
   );
 }
 
 /** "Last night" for today's log, otherwise the night before that morning. */
-export function nightLabel(key: string) {
-  if (key === dayKey()) return 'Last night';
+export function nightLabel(key: string, today = dayKey()) {
+  if (key === today) return 'Last night';
   return `Night before ${WEEKDAYS_LONG[new Date(`${key}T12:00`).getDay()]}`;
 }
 
 /** Sheet for typing in hours slept. `day` is the morning after, where the watch puts its number too. */
 export function SleepEditor({ day, onClose }: { day: string; onClose: () => void }) {
   const { state, actions, health } = useStore();
+  const today = useToday();
   const log = dayOf(state, day);
   const min = log.sleepMin ?? 7.5 * 60;
-  const watchRefills = health.status === 'connected' && day === dayKey();
+  const watchRefills = health.status === 'connected' && day === today;
   const note =
     log.sleepMin != null && !log.sleepManual
       ? 'From your watch. Saving replaces it, and the watch leaves your number alone.'
@@ -101,7 +106,7 @@ export function SleepEditor({ day, onClose }: { day: string; onClose: () => void
 
   return (
     <EntryEditor
-      title={`Sleep · ${nightLabel(day)}`}
+      title={`Sleep · ${nightLabel(day, today)}`}
       numbers={[
         { key: 'h', label: 'Hours', value: Math.floor(min / 60), step: 1, min: 0, max: 16, suffix: 'h' },
         { key: 'm', label: 'Minutes', value: Math.round(min % 60), step: 5, min: 0, max: 59, suffix: 'min' },

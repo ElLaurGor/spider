@@ -324,7 +324,7 @@ export default function SettingsScreen() {
         <Toggle label="Weekly report card" hint="Sundays 19:00" value={s.notify.report} onChange={(v) => setNotify('report', v)} />
         <Toggle label="Sleep rating prompt" hint="an hour after you wake up" value={s.notify.sleep} onChange={(v) => setNotify('sleep', v)} />
         <Toggle label="Countdown reminders" hint="the day before and on the day" value={s.notify.countdowns} onChange={(v) => setNotify('countdowns', v)} />
-        <Toggle label="Monthly Wrapped" hint="1st of every month" value={s.notify.wrapped} onChange={(v) => setNotify('wrapped', v)} />
+        <Toggle label="Wrapped & Prizes" hint="monthly on the 1st, the year on 1 Jan, the Prizes on 10 Dec" value={s.notify.wrapped} onChange={(v) => setNotify('wrapped', v)} />
         <Toggle label="Wind-down reminder" hint="an hour before bedtime" value={s.notify.windDown} onChange={(v) => setNotify('windDown', v)} />
         <Toggle label="League reminder" hint="Sundays 17:00" value={s.notify.league} onChange={(v) => setNotify('league', v)} />
         <Toggle

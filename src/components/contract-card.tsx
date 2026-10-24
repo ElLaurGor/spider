@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { Bar, Btn, Card, Chip, H, Row, T } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
 import { canSign, CONTRACT_GOALS, contractProgress, DIFFICULTIES, difficultyOk, goalOf, newMission, payoutOf, STAKES, targetFor, type Difficulty } from '@/lib/contracts';
 import { weekKeyOf } from '@/lib/league';
@@ -17,13 +18,14 @@ function Shell({ bare, accent, children }: { bare?: boolean; accent: string; chi
 /** HQ card: this week's contract, or (Monday to Wednesday) the form to sign one. */
 export function ContractCard({ bare }: { bare?: boolean }) {
   const { state, actions } = useStore();
+  const today = useToday();
   // After a lost contract a different goal comes first (a new mission), and last week's goes last.
   const mission = newMission(state);
   const goals = CONTRACT_GOALS.filter((g) => g.available(state)).sort((a, b) => Number(a.id === mission?.lost) - Number(b.id === mission?.lost));
   const [goal, setGoal] = useState<ContractGoal>(mission?.goal ?? goals[0]?.id ?? 'train');
   const [stake, setStake] = useState(STAKES[0]);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
-  const c = state.contract?.week === weekKeyOf() ? state.contract : null;
+  const c = state.contract?.week === weekKeyOf(noonOf(today)) ? state.contract : null;
   const bonus = contractBonus(state);
 
   if (c) {

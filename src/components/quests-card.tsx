@@ -86,12 +86,12 @@ export function QuestsCard({ boss = true }: { boss?: boolean }) {
 /** This week's boss: HP, taunt, weakness and the weekend finisher, or the henchmen once it's down. */
 export function BossPanel({ at }: { at: number }) {
   const { state, quip } = useStore();
-  const boss = bossFor(state);
+  const boss = bossFor(state, at, at); // `at` ticks: a new week (or day) shows without waiting for a state change
   const hpPct = boss.hp / boss.maxHp;
   const rematchDay = boss.rank > 1 ? lastKillDay(state, boss.id, boss.key) : null;
   // Its second weakness counts from the day after it dropped below half HP.
   const rageFrom = boss.ragedOn
-    ? boss.ragedOn === dayKey()
+    ? boss.ragedOn === dayKey(at)
       ? 'tomorrow'
       : WEEKDAYS_LONG[addDays(new Date(`${boss.ragedOn}T12:00`), 1).getDay()]
     : null;

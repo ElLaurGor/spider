@@ -161,6 +161,7 @@ type Picked = { name: string; kcal100: number; protein100: number };
 
 function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
   const { state, actions, say } = useStore();
+  const todayKey = useToday();
   const s = state.settings;
   const shownDay = dayOf(state, day);
   const [name, setName] = useState('');
@@ -313,7 +314,7 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
 
       {shownDay.food.length === 0 ? (
         <T dim small>
-          Nothing logged {day === dayKey() ? 'today' : 'that day'}.
+          Nothing logged {day === todayKey ? 'today' : 'that day'}.
         </T>
       ) : (
         meals.map((f) => (

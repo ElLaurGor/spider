@@ -227,8 +227,10 @@ export const DARK_DAY_MIN = 8 * 60;
  * "dark": its lines give the sunrise and sunset (pass {sunrise} and {sunset} with every weather line).
  */
 export function weatherKey(d: DayForecast): 'weatherRain' | 'weatherCold' | 'weatherHot' | 'weatherGrey' | 'weatherDark' | 'weatherNice' {
+  // Snow first: a snowy day's precipitation chance is snow, not a reason for an umbrella.
+  if ((d.code >= 71 && d.code <= 77) || d.code === 85 || d.code === 86) return 'weatherCold';
   if (d.rainPct >= 60 || (d.code >= 51 && d.code <= 67) || (d.code >= 80 && d.code <= 82) || d.code >= 95) return 'weatherRain';
-  if ((d.code >= 71 && d.code <= 77) || d.code === 85 || d.code === 86 || d.max <= 3) return 'weatherCold';
+  if (d.max <= 3) return 'weatherCold';
   if (d.max >= 26) return 'weatherHot';
   if (d.code === 3 || d.code === 45 || d.code === 48 || (d.sunshineMin != null && d.sunshineMin < 30)) return d.daylightMin < DARK_DAY_MIN ? 'weatherDark' : 'weatherGrey';
   return 'weatherNice';

@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
+import { useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { coopSummary } from '@/lib/coop';
-import { dayKey, WEEKDAYS_LONG } from '@/lib/dates';
+import { WEEKDAYS_LONG } from '@/lib/dates';
 import { PITY_AFTER } from '@/lib/economy';
 import { nemesisOf, standings, TIERS } from '@/lib/league';
 import { chestShelf, GOLD_SCORE, SHELF_MAX } from '@/lib/loot';
@@ -20,7 +21,8 @@ export function ChestButton() {
   const { state, actions } = useStore();
   const [revealing, setRevealing] = useState<string | null>(null); // the day whose chest was just opened
   const [scale] = useState(() => new Animated.Value(0.3));
-  const today = dayOf(state);
+  const todayKey = useToday();
+  const today = dayOf(state, todayKey);
   const shown = revealing ? dayOf(state, revealing).chest : undefined;
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export function ChestButton() {
   const shelf = chestShelf(state);
   const next = shelf[0];
   if (!next && !today.chest && !shown) return null;
-  const todays = next?.key === dayKey();
+  const todays = next?.key === todayKey;
   const pityLeft = PITY_AFTER - (state.chestsSinceLegendary ?? 0);
   return (
     <>
@@ -84,7 +86,7 @@ export function useNemesis() {
   const me = table.find((r) => r.me);
   const row = nem ? table.find((r) => r.id === nem.id) : undefined;
   const ahead = !!row && !!me && row.xp > me.xp;
-  const today = dayKey();
+  const today = useToday();
   const quiet = toneOn(state, today).kind || gentleDay(state, today);
   const name = nem ? `${nem.emoji} ${nem.name}` : '';
   const taunt = useMemo(() => (name && !quiet ? quip(ahead ? 'nemesisAhead' : 'nemesisBehind', { rival: name }) : null), [quip, ahead, name, quiet]);

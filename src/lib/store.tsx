@@ -41,6 +41,7 @@ import {
   snoozeWater,
 } from './notifications';
 import { pushWidgetFor, useBackgroundSync } from './background-sync';
+import { clearStormWaiting, stormWaiting } from './bg-config';
 import { drainQueued, onQueued } from './pending-actions';
 import type { ReminderAction } from './reminder-actions';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
@@ -1366,7 +1367,8 @@ function useStoreValue() {
         if (stateRef.current.storm) run((s) => ({ ...s, storm: undefined })); // no place, no warnings to hold the protocol
         return;
       }
-      if (!force && Date.now() < outsideDue.current) return;
+      // A storm the background check found while the app was closed doesn't wait for the rhythm (bg-alerts.ts).
+      if (!force && Date.now() < outsideDue.current && !(await stormWaiting())) return;
       // Just under the 15-minute rhythm, so a tick that lands a few ms early isn't skipped. Set before the
       // fetches so a second call can't overlap this one.
       outsideDue.current = Date.now() + 14 * 60_000;
@@ -1419,6 +1421,7 @@ function useStoreValue() {
           }
           if (changed) run((s) => ({ ...s, seenAlerts: triageAlerts(shown, s.seenAlerts, now).seen }));
           // The Storm protocol (storm.ts): orange and red warnings and VMAs hold the jokes back while they last.
+          if (smhi && vma) void clearStormWaiting();
           if (nextStorm(stateRef.current.storm, smhi, vma, now) !== stateRef.current.storm) {
             run((s, msgs) => {
               const storm = nextStorm(s.storm, smhi, vma, now);
