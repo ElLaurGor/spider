@@ -18,3 +18,13 @@ export function pickBackup(files: BackupCandidate[]): string | null {
 
 /** This week's automatic backup would hold far fewer days than the last one: skip it, and prune nothing. */
 export const skipAutoBackup = (lastDays: number | null, nextDays: number) => lastDays != null && wouldWipe(lastDays, nextDays);
+
+/**
+ * Photos in the automatic folder that none of the kept backups points to any more (a deleted meal or progress
+ * photo, a backup pruned since): safe to delete. Null when a kept file couldn't be read, since then nobody knows.
+ */
+export function orphanPhotos(have: string[], kept: (Record<string, string> | null)[]): string[] | null {
+  if (kept.some((p) => p == null)) return null;
+  const used = new Set(kept.flatMap((p) => Object.values(p ?? {})));
+  return have.filter((name) => !used.has(name));
+}

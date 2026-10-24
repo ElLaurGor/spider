@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { router, type Href } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 
-import { autoBackup, createBackup, keepCopy, pickAutoBackupFolder, readBackup } from './backup';
+import { autoBackup, createBackup, keepCopy, pickAutoBackupFolder, readBackup, readBackupFromFile, shareableBackup } from './backup';
 import { olderCopy, readSaved, ReadError, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from './persist';
 import { autoBackupDue } from './backup-due';
 import { THEMES } from '@/constants/theme';
@@ -1431,7 +1432,7 @@ function useStoreValue() {
     return () => sub.remove();
   }, [refreshCalendar, refreshHealth, refreshWeather, refreshScreen, refreshOutside, save]);
 
-  // ----- automatic weekly backup (cluster F): off the startup path, at most one try a day -----
+  // ----- automatic daily backup: off the startup path, at most one try a day -----
   const autoBackupTried = useRef('');
   const runAutoBackup = useCallback(
     async (force = false) => {
@@ -1444,14 +1445,15 @@ function useStoreValue() {
         const r = await autoBackup(s, uri);
         if (r.skipped) {
           // The phone holds far fewer days than the last backup (a wipe?): the good backups stay as they are.
-          say("💾 Skipped this week's backup: it would hold far fewer days than the last one. Restore from it in Settings → Backup if your history is missing.", 'bad');
+          say("💾 Skipped today's backup: it would hold far fewer days than the last one. Restore from it in Settings → Backup if your history is missing.", 'bad');
           return;
         }
         commit({ ...stateRef.current, lastBackupAt: Date.now() });
-        say(`💾 Weekly backup saved${r.photos ? ` (+${r.photos} new photo${r.photos === 1 ? '' : 's'})` : ''}.`, 'info');
+        // Daily and quiet: Settings shows when it last ran. The first one (just after picking the folder) says so.
+        if (force) say(`💾 Backup saved${r.photos ? ` with ${r.photos} photo${r.photos === 1 ? '' : 's'}` : ''}. From now on it runs every day.`, 'info');
       } catch (e) {
         console.warn('[spider] auto backup failed', e);
-        say("💾 The weekly backup couldn't reach its folder. Pick it again in Settings → Backup.", 'bad');
+        say("💾 The daily backup couldn't reach its folder. Pick it again in Settings → Backup.", 'bad');
       }
     },
     [commit, say],
@@ -2537,7 +2539,14 @@ function useStoreValue() {
         say(`Backup saved: ${result.folder} (${result.photos} photos). Copy that folder to Google Drive for extra safety.`, 'good');
       },
 
-      /** Picks the folder for automatic weekly backups and writes the first one right away. */
+      /** The data as one file through the share sheet (Drive, mail…): a copy off the phone. Photos stay out. */
+      async shareBackup() {
+        if (!(await Sharing.isAvailableAsync())) return say('Sharing is not available on this phone.', 'info');
+        await Sharing.shareAsync(shareableBackup(stateRef.current), { mimeType: 'application/json', dialogTitle: 'Send your S.P.I.D.E.R. backup' });
+        commit({ ...stateRef.current, lastSharedAt: Date.now() });
+      },
+
+      /** Picks the folder for automatic daily backups and writes the first one right away. */
       async setAutoBackupFolder() {
         const folder = await pickAutoBackupFolder();
         if (!folder) return;
@@ -2582,16 +2591,17 @@ function useStoreValue() {
         });
       },
 
-      /** Picks a backup folder and replaces everything with it. Caller confirms first. */
-      async restore() {
-        const result = await readBackup();
-        if (!result) return;
+      /** Picks a backup folder (or one backup file) and replaces everything with it. Caller confirms first. True once restored. */
+      async restore(from: 'folder' | 'file' = 'folder') {
+        const result = from === 'file' ? await readBackupFromFile() : await readBackup();
+        if (!result) return false;
         await cancelEverything();
         disk.current.allowShrink = true; // a backup may hold fewer days than the phone
         const back = restored(result.state);
         setLineMemory(back.lineMemory);
         commit(back);
         say(`Restored backup from ${new Date(result.createdAt).toLocaleString('sv-SE').slice(0, 16)} (${result.photos} photos). Welcome back.`, 'epic');
+        return true;
       },
 
       async resetAll() {

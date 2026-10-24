@@ -125,12 +125,12 @@ import { xpForLevel } from '../src/lib/xp';
 import { allSaintsDay, easterSunday, holidayOn, holidaysOf, isDayOff, isKlamdag, isPayday, midsummerEve, paydayOf, upcomingDays } from '../src/lib/swedish-days';
 import { allEggsSomeYear, EGGS, eggsFoundOn, eggsLeft, oldTasksDoneOn, staleTasks } from '../src/lib/traditions';
 import { inBedFrom, nightPhone, nightWindow } from '../src/lib/night';
-import { autoBackupDue } from '../src/lib/backup-due';
+import { autoBackupDue, backupNudge } from '../src/lib/backup-due';
 import { workoutFor } from '../src/lib/selectors';
 import { asleepMin, clockLabel, nightClock, nightOf, rhythmOf, stagedMin, withNights } from '../src/lib/sleep';
 import { nightWindow as sleepWindow, ZEPP } from '../src/lib/sleep';
 import { allDayLocal } from '../src/lib/calendar-days';
-import { pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
+import { orphanPhotos, pickBackup, skipAutoBackup } from '../src/lib/backup-pick';
 import { isDoomscroll } from '../src/lib/doomscroll';
 import { eventsOn } from '../src/lib/selectors';
 import { meteoTime, needsPlaceInfo, samePlace, staleNote } from '../src/lib/weather';
@@ -3233,13 +3233,30 @@ void (async () => {
   assert.equal(fromWatch.lateMin, 17); // TikTok from 00:30 to 00:47 only
   assert.equal(fromWatch.from, watchBed);
 
-  // automatic backup: Sundays without one yet, or anything over a week old
+  // automatic backup: once a day, whatever the weekday
   const sunday = new Date(2026, 9, 18, 10);
   assert.ok(autoBackupDue(null, sunday));
   assert.ok(autoBackupDue(sunday.getTime() - 2 * 86_400_000, sunday));
   assert.ok(!autoBackupDue(sunday.getTime() - 3_600_000, sunday)); // already today
-  assert.ok(!autoBackupDue(sunday.getTime() - 3 * 86_400_000, new Date(2026, 9, 19, 10))); // Monday
-  assert.ok(autoBackupDue(sunday.getTime() - 8 * 86_400_000, new Date(2026, 9, 19, 10)));
+  assert.ok(autoBackupDue(sunday.getTime() - 3_600_000, new Date(2026, 9, 19, 10))); // Monday: yesterday's doesn't count
+  assert.ok(!autoBackupDue(new Date(2026, 9, 19, 0, 5).getTime(), new Date(2026, 9, 19, 23, 50)));
+
+  // the backup nudge: not on a brand-new install, not while backups keep landing, and 'stale' when a set folder went quiet
+  const nb = { backupFolderUri: null as string | null, lastBackupAt: null as number | null, lastSharedAt: null as number | null, firstDay: '2026-10-07' };
+  const nudgeAt = new Date(2026, 9, 24, 12);
+  const daysAgo = (n: number) => nudgeAt.getTime() - n * 86_400_000;
+  assert.equal(backupNudge(nb, nudgeAt), 'setup');
+  assert.equal(backupNudge({ ...nb, firstDay: '2026-10-23' }, nudgeAt), null); // one day in: too early to nag
+  assert.equal(backupNudge({ ...nb, firstDay: null }, nudgeAt), null);
+  assert.equal(backupNudge({ ...nb, lastSharedAt: daysAgo(2) }, nudgeAt), null); // sent off the phone this week
+  assert.equal(backupNudge({ ...nb, lastSharedAt: daysAgo(8) }, nudgeAt), 'setup');
+  assert.equal(backupNudge({ ...nb, backupFolderUri: 'content://x', lastBackupAt: daysAgo(0.5) }, nudgeAt), null);
+  assert.equal(backupNudge({ ...nb, backupFolderUri: 'content://x', lastBackupAt: daysAgo(9) }, nudgeAt), 'stale');
+  assert.equal(backupNudge({ ...nb, backupFolderUri: 'content://x', lastBackupAt: daysAgo(9), lastSharedAt: daysAgo(1) }, nudgeAt), 'stale'); // the folder still went quiet
+
+  // the weekly photo tidy-up: only what no kept backup needs, and nothing when a kept file can't be read
+  assert.deepEqual(orphanPhotos(['a.jpg', 'b.jpg', 'c.jpg'], [{ u1: 'a.jpg' }, { u1: 'a.jpg', u2: 'c.jpg' }]), ['b.jpg']);
+  assert.equal(orphanPhotos(['a.jpg'], [{ u1: 'b.jpg' }, null]), null);
 
   // red days as rest days (opt-in): Juldagen is a Friday with a plan; midsommarafton isn't red
   const rd = defaultState();

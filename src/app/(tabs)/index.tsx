@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { BackupHint } from '@/components/backup-hint';
 import { ContractCard } from '@/components/contract-card';
 import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
@@ -382,6 +383,7 @@ export default function HQ() {
       <OutsideAlerts />
       <PauseBanner />
       <LowBatteryCard />
+      <BackupHint />
 
       {date.getDate() <= 5 && !dismissed.includes(wrappedKey) ? (
         <Pressable
