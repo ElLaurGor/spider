@@ -56,7 +56,7 @@ export function Recovery({ message, older, retry, restore, loadOlder, startFresh
         {older ? (
           <>
             <T dim small>
-              There&apos;s also a second copy in the older format{older.at ? ` (kept since ${when(older.at)})` : ''}. It may be missing your latest entries.
+              There&apos;s also a second copy in the older format{older.at ? `, last updated ${when(older.at)}` : ''}. It may be missing your latest entries.
             </T>
             <Btn label="Open the older copy" kind="ghost" onPress={act(loadOlder)} disabled={busy} />
           </>

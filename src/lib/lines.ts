@@ -1572,10 +1572,11 @@ export function lineIdFor(toastText: string): string | null {
  * Mild lines all retired: the remaining savage ones, except at level 1 (a kind day never gets a roast),
  * and with nothing left at all, the mild lines anyway (a repeat beats silence).
  */
-function pickList(key: LineKey, savageLevel: number, rand: () => number = Math.random) {
+function pickList(key: LineKey, savageLevel: number, rand: () => number = Math.random, alsoBanned: ReadonlySet<string> = new Set()) {
   const pool: Pool = LINES[key];
   const savageChance = (clamp(savageLevel, 1, 10) - 1) / 9;
-  const kept = (xs: string[]) => (banned.size ? xs.filter((t) => !banned.has(lineId(key, t))) : xs);
+  const out = (t: string) => banned.has(lineId(key, t)) || alsoBanned.has(lineId(key, t));
+  const kept = (xs: string[]) => (banned.size || alsoBanned.size ? xs.filter((t) => !out(t)) : xs);
   const mild = kept(pool.mild);
   const savage = kept(pool.savage);
   const useSavage = savage.length > 0 && ((mild.length === 0 && savageChance > 0) || (mild.length > 0 && rand() < savageChance));
@@ -1606,9 +1607,12 @@ export function poolFor(key: LineKey, savageLevel: number, vars: Record<string, 
   return list.map((t) => fillLine(t, { ...kept, ...vars }));
 }
 
-/** A random line, for one-off texts outside the app's own screens (a background task, a snoozed reminder). */
-export function line(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}) {
-  const { list } = pickList(key, savageLevel);
+/**
+ * A random line, for one-off texts outside the app's own screens (a background task, a snoozed reminder).
+ * `retired`: banned line ids for a headless start, where the app never loaded its line memory.
+ */
+export function line(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}, retired: readonly string[] = []) {
+  const { list } = pickList(key, savageLevel, Math.random, new Set(retired));
   return fillLine(list[Math.floor(Math.random() * list.length)], vars);
 }
 

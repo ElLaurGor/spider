@@ -12,6 +12,7 @@ import { Platform } from 'react-native';
 
 import { readBgConfig } from './bg-config';
 import { ALERT_LABEL, fetchSmhi, fetchVma, mergeSeen, triageAlerts, type Alert } from './outside';
+import { locked } from './pending-actions';
 
 export const ALERT_TASK = 'spider-warnings-check';
 const SEEN_KEY = 'spider:bg:seen';
@@ -27,9 +28,14 @@ export async function readSeenLedger(): Promise<Record<string, number>> {
   }
 }
 
-/** Adds to the shared seen-list (mergeSeen: the later time wins, 30-day-old entries go). */
-export async function addToSeenLedger(seen: Record<string, number>) {
-  await AsyncStorage.setItem(SEEN_KEY, JSON.stringify(mergeSeen(await readSeenLedger(), seen)));
+/**
+ * Adds to the shared seen-list (mergeSeen: the later time wins, 30-day-old entries go). One writer at a time: the
+ * app and this task share a JS runtime, and an entry lost between them would announce a warning again.
+ */
+export function addToSeenLedger(seen: Record<string, number>) {
+  return locked(async () => {
+    await AsyncStorage.setItem(SEEN_KEY, JSON.stringify(mergeSeen(await readSeenLedger(), seen)));
+  });
 }
 
 /** One check. A source that fails is skipped this time: nothing is announced from a guess. */

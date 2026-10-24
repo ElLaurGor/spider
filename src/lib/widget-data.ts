@@ -1,7 +1,8 @@
 // What the home-screen widget shows (APK 1.5.0+). The app writes a snapshot whenever these numbers change; the
-// widget draws from it without loading the store, also after midnight (forToday) and right after a tap on its
-// own buttons (withTap), before the app has applied the tap from the queue. Pure.
+// widget draws from it without loading the store, also after midnight (forToday), plus the taps still waiting in
+// the queue (withQueued): its own buttons' and the reminder buttons', before the app has applied them. Pure.
 import { dayKey } from './dates';
+import type { QueuedAction } from './reminder-actions';
 import { coffeeOf, dayOf, gamingBudgetMin, gamingUsedMs, waterGoalFor, waterMl } from './selectors';
 import type { State } from './types';
 
@@ -53,10 +54,16 @@ export function forToday(snap: WidgetSnapshot, now = Date.now()): WidgetSnapshot
   return { ...snap, day: key, waterMl: 0, coffees: 0, gameLeftMin: snap.gaming ? snap.gameLeftMin : null };
 }
 
-/** The widget's own "+1 glass" / "+1 coffee", shown at once; the app logs the real entry from the queue. */
-export function withTap(snap: WidgetSnapshot, kind: 'glass' | 'coffee', now = Date.now()): WidgetSnapshot {
+/**
+ * The snapshot for today with the glasses and coffees still queued for today on top; the app logs the real
+ * entries from the queue and takes them out of it as its new snapshot comes in.
+ */
+export function withQueued(snap: WidgetSnapshot, queued: readonly QueuedAction[], now = Date.now()): WidgetSnapshot {
   const today = forToday(snap, now);
-  return kind === 'glass' ? { ...today, waterMl: today.waterMl + today.glassMl } : { ...today, coffees: today.coffees + 1 };
+  const mine = queued.filter((a) => a.day === today.day);
+  const glasses = mine.filter((a) => a.kind === 'glass').length;
+  const coffees = mine.filter((a) => a.kind === 'coffee').length;
+  return glasses || coffees ? { ...today, waterMl: today.waterMl + glasses * today.glassMl, coffees: today.coffees + coffees } : today;
 }
 
 const liters = (ml: number) => (ml / 1000).toFixed(1).replace(/\.0$/, '');

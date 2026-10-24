@@ -98,9 +98,11 @@ import { chestShelf, SHELF_MAX, withChestGold } from '../src/lib/loot';
 import { applyFixes, recheckCoffeeGremlin } from '../src/lib/fixes';
 import { credit, earnBonus, ledgerOn, penalize, refundPenalty, unreward, withoutUndoRecords } from '../src/lib/ledger';
 import { withoutCrit } from '../src/lib/critters';
-import { actionFromButton, SILENT_BUTTONS, tapKey } from '../src/lib/reminder-actions';
+import { createQueue } from '../src/lib/action-queue';
+import { bgTone } from '../src/lib/bg-config';
+import { actionFromButton, SILENT_BUTTONS, statusWithGlass, tapKey, type QueuedAction } from '../src/lib/reminder-actions';
 import { mergeSeen as mergeSeenLists } from '../src/lib/outside';
-import { DEFAULT_WIDGET_COLORS, forToday, snapshotOf, widgetLines, withTap } from '../src/lib/widget-data';
+import { DEFAULT_WIDGET_COLORS, forToday, snapshotOf, widgetLines, withQueued } from '../src/lib/widget-data';
 // cluster B
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
@@ -3316,7 +3318,7 @@ void (async () => {
   const octOnly = Object.fromEntries(Object.entries(s0.days).filter(([k]) => k.startsWith('2026-10')));
   assert.deepEqual([...changedMonths(s0.days, octOnly)], ['2026-09']);
   assert.equal(changedMonths(s0.days, { ...s0.days }).size, 0);
-  const first = rowsFor(s0, null, [], 111);
+  const first = rowsFor(s0, null, [], { migratedAt: 111 });
   assert.deepEqual(
     first.pairs.map(([k]) => k),
     [BASE_KEY, INDEX_KEY, monthKey('2026-09'), monthKey('2026-10')],
@@ -3376,7 +3378,7 @@ void (async () => {
     const disk = memStore({ [V1_KEY]: JSON.stringify(s0) });
     const v1 = await readSaved(disk);
     assert.equal(v1.source, 'v1');
-    const rows = rowsFor(hydrate(v1.saved), null, [], 222).pairs;
+    const rows = rowsFor(hydrate(v1.saved), null, [], { migratedAt: 222 }).pairs;
     assert.ok(await writeVerified(disk, rows));
     const v2 = await readSaved(disk);
     assert.equal(v2.source, 'v2');
@@ -3390,7 +3392,7 @@ void (async () => {
 
     // a later save rewrites only the month that changed, and the result still reads back whole
     const s1 = { ...s0, xp: 1300, days: { ...s0.days, '2026-10-23': day(1500) } };
-    const next = rowsFor(s1, s0.days, ['2026-09', '2026-10'], 222);
+    const next = rowsFor(s1, s0.days, ['2026-09', '2026-10'], { migratedAt: 222 });
     assert.deepEqual(
       next.pairs.map(([k]) => k),
       [BASE_KEY, INDEX_KEY, monthKey('2026-10')],
@@ -3412,17 +3414,18 @@ void (async () => {
     await assert.rejects(readSaved(tooBig), /CursorWindow/);
     assert.equal(await olderCopy(memStore({ [BASE_KEY]: '{}' })), null); // no v1 to fall back on
 
-    // v1 written along with v2: code that only knows v1 (a rolled-back update) finds current data, and what it writes wins
+    // v1 written along with v2 (1.4.0's updates): code that only knows v1 (a rolled-back update) finds current data,
+    // and what it writes wins. Saves from 1.5.0 never write v1 or its fingerprint, and keep the old row.
     assert.notEqual(fingerprint('{"xp":1}'), fingerprint('{"xp":2}'));
     assert.equal(fingerprint('abc'), fingerprint('abc'));
+    assert.ok(!first.pairs.some(([k]) => k === V1_KEY)); // never written
+    assert.ok(!('v1' in JSON.parse(first.pairs[1][1])));
     const v1Now = JSON.stringify(s0);
-    const dual = rowsFor(s0, null, [], 111, v1Now);
-    assert.deepEqual(dual.pairs.find(([k]) => k === V1_KEY), [V1_KEY, v1Now]); // in the same multiSet as the v2 rows
-    assert.equal(JSON.parse(dual.pairs[1][1]).v1, fingerprint(v1Now));
-    assert.ok(!rowsFor(s0, null, [], 111).pairs.some(([k]) => k === V1_KEY)); // without v1Raw, v1 is left alone
-    const both = memStore(Object.fromEntries(dual.pairs));
+    const dualIndex = JSON.stringify({ months: first.months, migratedAt: 111, v1: fingerprint(v1Now) });
+    const both = memStore({ ...Object.fromEntries(first.pairs), [INDEX_KEY]: dualIndex, [V1_KEY]: v1Now });
     const same = await readSaved(both);
     assert.equal(same.source, 'v2'); // v1 unchanged since: v2 is read
+    assert.deepEqual(await olderCopy(both), { at: null }); // still current then: no date to show
     both.m.set(V1_KEY, JSON.stringify({ ...s0, xp: 9999 })); // older code saved to v1 only
     const rolled = await readSaved(both);
     assert.ok(rolled.source === 'v1' && rolled.newer && rolled.saved.xp === 9999);
@@ -3430,9 +3433,13 @@ void (async () => {
     assert.equal((await readSaved(both)).source, 'v2');
     both.m.delete(V1_KEY);
     assert.equal((await readSaved(both)).source, 'v2');
-    const noDual = memStore(Object.fromEntries(first.pairs)); // v1 no longer written alongside: v2 wins whatever v1 holds
+    // the first save after such a load stops the fingerprint and dates the old row
+    const after = rowsFor(s0, s0.days, first.months, { migratedAt: 111, v1Until: 333 });
+    assert.deepEqual(JSON.parse(after.pairs[1][1]), { months: first.months, migratedAt: 111, v1Until: 333 });
+    const noDual = memStore({ ...Object.fromEntries(first.pairs), [INDEX_KEY]: after.pairs[1][1] }); // v2 wins whatever v1 holds
     noDual.m.set(V1_KEY, JSON.stringify({ ...s0, xp: 1 }));
     assert.equal((await readSaved(noDual)).source, 'v2');
+    assert.deepEqual(await olderCopy(noDual), { at: 333 });
     console.log('persistence tests passed');
   })().catch((e) => {
     console.error(e);
@@ -3484,6 +3491,94 @@ void (async () => {
   for (const b of ['water_glass', 'water_snooze', 'habit_done', 'mood_4', 'mood_3', 'mood_2']) assert.ok(SILENT_BUTTONS.has(b), b);
   assert.equal(tapKey('water-2027-01-13-600', 'water_glass', 123), 'water-2027-01-13-600|water_glass|123');
   assert.notEqual(tapKey('a', 'water_glass', 1), tapKey('a', 'water_glass', 2)); // the next day's reminder is a new tap
+  // the status line redrawn in the background (a new date, so the next tap on it is a new tap) shows the glass
+  assert.equal(statusWithGlass('💧 1.2/2.5 L · 🗡️ 1/3 quests · 👹 120 HP', 300), '💧 1.5/2.5 L · 🗡️ 1/3 quests · 👹 120 HP');
+  assert.equal(statusWithGlass('💧 0.0/2.0 L', 330), '💧 0.3/2.0 L');
+  assert.equal(statusWithGlass('no water here', 250), 'no water here');
+  // lines written in the background take that day's tone, and a day the app didn't plan for is a kind one
+  assert.equal(bgTone({ tones: { '2027-01-13': 7, '2027-01-14': 1 } }, '2027-01-13'), 7);
+  assert.equal(bgTone({ tones: { '2027-01-13': 7 } }, '2027-01-16'), 1);
+  assert.equal(bgTone(null, '2027-01-13'), 1);
+}
+
+// the queue for taps made while the app isn't on screen (APK 1.5.0): a tap leaves it only once the app saved it
+{
+  const kv = () => {
+    const m = new Map<string, string>();
+    return { m, getItem: async (k: string) => m.get(k) ?? null, setItem: async (k: string, v: string) => void m.set(k, v) };
+  };
+  const at = new Date(2027, 0, 12, 23, 50).getTime();
+  const glass: QueuedAction = { kind: 'glass', day: '2027-01-12', at };
+  const coffee: QueuedAction = { kind: 'coffee', day: '2027-01-12', at: at + 1 };
+  void (async () => {
+    // no app running (a headless start): queued for the next launch
+    const alone = createQueue(kv());
+    assert.equal(await alone.enqueue(glass), false);
+    assert.deepEqual(await alone.readQueued(), [glass]);
+
+    // an app running: the task waits until it applied and saved, and the tap is gone from the queue only then
+    const store = kv();
+    const q = createQueue(store);
+    const applied: QueuedAction[] = [];
+    let queuedWhileSaving: QueuedAction[] | null = null;
+    q.onQueued(() =>
+      q
+        .drainQueued(async (xs) => {
+          applied.push(...xs);
+          queuedWhileSaving = JSON.parse(store.m.get('spider:pending-actions') ?? '[]') as QueuedAction[]; // "saving": still queued
+        })
+        .then(() => undefined),
+    );
+    assert.equal(await q.enqueue(glass), true);
+    assert.deepEqual(applied, [glass]);
+    assert.deepEqual(queuedWhileSaving, [glass]); // a kill mid-save leaves it queued, so the next launch applies it
+    assert.deepEqual(await q.readQueued(), []);
+    assert.equal(await q.drainQueued(async () => assert.fail('nothing to apply')), 0);
+
+    // a tap queued while a drain is applying waits its turn, and is applied by the next drain, once
+    const slow = createQueue(kv());
+    await slow.enqueue(glass);
+    let release = () => {};
+    let started = () => {};
+    const applying = new Promise<void>((r) => (started = r));
+    const seen: QueuedAction[][] = [];
+    const first = slow.drainQueued(async (xs) => {
+      seen.push(xs);
+      await new Promise<void>((r) => {
+        release = r;
+        started();
+      });
+    });
+    await applying;
+    const second = slow.enqueue(coffee);
+    release();
+    await first;
+    await second;
+    assert.deepEqual(await slow.readQueued(), [coffee]);
+    await slow.drainQueued(async (xs) => void seen.push(xs));
+    assert.deepEqual(seen, [[glass], [coffee]]);
+
+    // applying that fails half-way still lets go: it's applied in memory, and twice would double it
+    const failing = createQueue(kv());
+    await failing.enqueue(glass);
+    await assert.rejects(failing.drainQueued(async () => Promise.reject(new Error('disk full'))));
+    assert.deepEqual(await failing.readQueued(), []);
+
+    // an app that never answers can't hold the task forever
+    const stuck = createQueue(kv(), 20);
+    stuck.onQueued(() => new Promise<void>(() => {}));
+    assert.equal(await stuck.enqueue(glass), true);
+
+    // each tap is claimed once, whichever path sees it first
+    const taps = createQueue(kv());
+    assert.equal(await taps.claimTap('t1', at), true);
+    assert.equal(await taps.claimTap('t1', at), false);
+    assert.equal(await taps.claimTap('t2', at), true);
+    console.log('queue tests passed');
+  })().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
 }
 
 // shared seen-list (APK 1.5.0): the app and the background check merge theirs; the later time wins, 30 days max
@@ -3495,7 +3590,7 @@ void (async () => {
   assert.deepEqual(mergeSeenLists({}, {}, now), {});
 }
 
-// home-screen widget (APK 1.5.0): today's numbers, zero on a new day, its own taps shown at once
+// home-screen widget (APK 1.5.0): today's numbers, zero on a new day, queued taps (its own and the reminders') shown at once
 {
   const at = new Date(2027, 0, 13, 15).getTime();
   const key = dayKey(at);
@@ -3511,15 +3606,19 @@ void (async () => {
   assert.equal(snap.coffees, 1);
   assert.equal(snap.gameLeftMin, 90);
   assert.deepEqual(widgetLines(snap), { water: `0.8 / ${(snap.goalMl / 1000).toFixed(1).replace(/\.0$/, '')} L`, coffee: '1 / 4', game: '1h 30m left' });
-  const tapped = withTap(snap, 'glass', at);
-  assert.equal(tapped.waterMl, 1000);
-  assert.equal(withTap(snap, 'coffee', at).coffees, 2);
+  const glass: QueuedAction = { kind: 'glass', day: key, at };
+  const coffee: QueuedAction = { kind: 'coffee', day: key, at };
+  const tapped = withQueued(snap, [glass, glass, coffee], at);
+  assert.deepEqual([tapped.waterMl, tapped.coffees], [1250, 2]);
+  assert.equal(withQueued(snap, [{ kind: 'mood', level: 4, day: key, at }], at), snap); // nothing the widget shows
+  assert.equal(withQueued(snap, [], at), snap);
   // the next morning: yesterday's numbers don't carry over; the gaming budget is unknown until the app runs
   const tomorrow = new Date(2027, 0, 14, 8).getTime();
   const next = forToday(snap, tomorrow);
   assert.deepEqual([next.day, next.waterMl, next.coffees, next.gameLeftMin], ['2027-01-14', 0, 0, null]);
   assert.equal(widgetLines(next).game, '–');
-  assert.equal(withTap(snap, 'glass', tomorrow).waterMl, 250); // a tap after midnight starts the new day
+  assert.equal(withQueued(snap, [{ kind: 'glass', day: '2027-01-14', at: tomorrow }], tomorrow).waterMl, 250); // a tap after midnight starts the new day
+  assert.equal(withQueued(snap, [glass], tomorrow).waterMl, 0); // last night's queued glass belongs to last night
   assert.equal(widgetLines({ ...snap, gameLeftMin: -75 }).game, '1h 15m over');
   assert.equal(widgetLines({ ...snap, gaming: true }).game, 'playing');
 }

@@ -7,7 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from 'react-native';
 
 import { autoBackup, createBackup, keepCopy, pickAutoBackupFolder, readBackup } from './backup';
-import { DUAL_WRITE_LIMIT, olderCopy, readSaved, ReadError, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from './persist';
+import { olderCopy, readSaved, ReadError, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from './persist';
 import { autoBackupDue } from './backup-due';
 import { THEMES } from '@/constants/theme';
 
@@ -39,8 +39,8 @@ import {
   scheduleRestDone,
   snoozeWater,
 } from './notifications';
-import { useBackgroundSync } from './background-sync';
-import { onQueued, takeQueued } from './pending-actions';
+import { pushWidgetFor, useBackgroundSync } from './background-sync';
+import { drainQueued, onQueued } from './pending-actions';
 import type { ReminderAction } from './reminder-actions';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questsFor, questXpOf, reducedDay, rerollFor, validDraft, weekKey } from './quests';
@@ -147,6 +147,13 @@ const nowOn = (key: string) => {
 
 const dayName = (key: string) => (key === dayKey(addDays(new Date(), -1)) ? 'yesterday' : WEEKDAYS_LONG[new Date(`${key}T12:00`).getDay()]);
 const backdated = (key: string, what: string): Msg => ({ text: `${what} added to ${dayName(key)}. Back-dated, so no XP.`, tone: 'info' });
+
+/**
+ * A past day a queued tap (reminder button, widget) was made on, so it counts there as on time even when the
+ * app applies it after midnight. Null for anything else: those are back-dated.
+ */
+const tappedOn = (past: string | null, at?: number) => (past && at != null && dayKey(at) === past ? past : null);
+const lateTap = (key: string, what: string): Msg => ({ text: `${what} from ${dayName(key)}, tapped before midnight: it counts there.`, tone: 'good' });
 
 const bump = (s: State, counter: keyof State['counters'], by = 1): State => ({
   ...s,
@@ -658,8 +665,8 @@ type Disk = {
   days: State['days'] | null;
   months: string[];
   migratedAt?: number;
-  /** v1 is still written alongside v2, for code that only knows v1 (until the state outgrows DUAL_WRITE_LIMIT). */
-  dual: boolean;
+  /** When v1 stopped being written alongside v2 (1.4.0's updates did), kept in the index for the "older copy". */
+  v1Until?: number;
   /** Days in the last load or save, for the shrink guard. */
   dayCount: number;
   /** Reset, restore and "start fresh" may shrink the history; the next save clears it. */
@@ -675,7 +682,7 @@ const freshDisk = (): Disk => ({
   days: null,
   months: [],
   migratedAt: undefined,
-  dual: true,
+  v1Until: undefined,
   dayCount: 0,
   allowShrink: false,
   warnedShrink: false,
@@ -777,6 +784,8 @@ function useStoreValue() {
   const disk = useRef<Disk>(freshDisk());
   const saving = useRef<Promise<void>>(Promise.resolve());
   const retrySave = useRef<() => void>(() => {});
+  /** Applies the reminder-button and widget taps waiting in the queue (set further down, with applyReminder). */
+  const drainRef = useRef<() => Promise<void>>(async () => {});
 
   /** Writes the current state once (v2: the base plus the months that changed). Throws on a storage error. */
   const writeOnce = useCallback(async () => {
@@ -794,16 +803,7 @@ function useStoreValue() {
       await AsyncStorage.setItem(V1_KEY, raw);
       d.sizes = { [V1_KEY]: utf8Bytes(raw) };
     } else {
-      let v1Raw: string | undefined;
-      if (d.dual) {
-        const raw = JSON.stringify(s);
-        if (utf8Bytes(raw) <= DUAL_WRITE_LIMIT) v1Raw = raw;
-        else {
-          d.dual = false; // too close to the row limit: v2 only from now on (v1 keeps its last copy)
-          delete d.sizes[V1_KEY];
-        }
-      }
-      const { pairs, gone, months } = rowsFor(s, d.days, d.months, d.migratedAt, v1Raw);
+      const { pairs, gone, months } = rowsFor(s, d.days, d.months, { migratedAt: d.migratedAt, v1Until: d.v1Until });
       await AsyncStorage.multiSet(pairs);
       if (gone.length) await AsyncStorage.multiRemove(gone);
       for (const [k, v] of pairs) d.sizes[k] = utf8Bytes(v);
@@ -859,8 +859,7 @@ function useStoreValue() {
   const moveToV2 = useCallback(async (raw: string, s: State) => {
     const d = disk.current;
     const migratedAt = Date.now();
-    const v1Raw = utf8Bytes(raw) <= DUAL_WRITE_LIMIT ? raw : undefined;
-    const { pairs, months } = rowsFor(s, null, [], migratedAt, v1Raw);
+    const { pairs, months } = rowsFor(s, null, [], { migratedAt });
     try {
       try {
         keepCopy('spider-state-v1.json', raw);
@@ -869,7 +868,7 @@ function useStoreValue() {
         console.warn('[spider] no file copy of the v1 state', e);
       }
       if (!(await writeVerified(AsyncStorage, pairs))) throw new Error('read-back mismatch');
-      Object.assign(d, { mode: 'v2', days: s.days, months, migratedAt, dual: v1Raw != null, sizes: Object.fromEntries(pairs.map(([k, v]) => [k, utf8Bytes(v)])) });
+      Object.assign(d, { mode: 'v2', days: s.days, months, migratedAt, sizes: Object.fromEntries(pairs.map(([k, v]) => [k, utf8Bytes(v)])) });
     } catch (e) {
       // Stay on v1 for this run (saves keep going there) and try again next launch. Rows half-written
       // here would be read first next time, so they go (never the v1 row itself).
@@ -892,8 +891,10 @@ function useStoreValue() {
       const d = disk.current;
       Object.assign(d, freshDisk(), { dayCount: Object.keys(next.days).length });
       if (got.source === 'v2') {
-        // The days as stored: anything hydrate() changed goes out with the next save.
-        Object.assign(d, { days: got.saved.days ?? {}, months: got.index.months, migratedAt: got.index.migratedAt, dual: !!got.index.v1, sizes: got.sizes });
+        // The days as stored: anything hydrate() changed goes out with the next save. v1 written alongside until
+        // now (1.4.0's updates) is as old as this load from here on.
+        const v1Until = got.index.v1Until ?? (got.index.v1 ? Date.now() : undefined);
+        Object.assign(d, { days: got.saved.days ?? {}, months: got.index.months, migratedAt: got.index.migratedAt, v1Until, sizes: got.sizes });
       } else if (got.source === 'v1') {
         if (got.newer) console.warn('[spider] v1 changed since the last v2 save (older code ran): moving it over again');
         await moveToV2(got.raw, next);
@@ -905,6 +906,8 @@ function useStoreValue() {
         stateRef.current = next;
         setState(next);
       }
+      // Taps queued while the app was closed come first: one from before midnight lands before the day rolls over.
+      await drainRef.current();
       setFailure(null);
       setReady(true);
     } catch (e) {
@@ -979,13 +982,17 @@ function useStoreValue() {
 
   /** Apply a change, award achievements, save, and show S.P.I.D.E.R.'s reactions. */
   const run = useCallback(
-    /** `quiet`: no golden line, rival remark, respect news or level-up toasts (body and photo logging stay neutral). */
-    (fn: (s: State, msgs: Msg[]) => State, opts: { quiet?: boolean } = {}) => {
+    /**
+     * `quiet`: no golden line, rival remark, respect news or level-up toasts (body and photo logging stay neutral).
+     * `early`: the change lands before the day rolls over, for a queued tap on a day that may not be closed yet:
+     * its goals, medals and banked minutes then count it.
+     */
+    (fn: (s: State, msgs: Msg[]) => State, opts: { quiet?: boolean; early?: boolean } = {}) => {
       const prev = stateRef.current;
       const msgs: Msg[] = [];
       const quiet = !!opts.quiet;
-      const rolled = checkDayRollover(prev, msgs);
-      const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(fn(rolled, msgs), msgs), msgs), msgs), msgs);
+      const changed = opts.early ? checkDayRollover(fn(prev, msgs), msgs) : fn(checkDayRollover(prev, msgs), msgs);
+      const checked = checkCritters(prev, checkContract(checkQuests(checkLeague(changed, msgs), msgs), msgs), msgs);
       // Crits and achievement XP land after the quests: the boss is checked again so they can finish it.
       const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
       // If-then cues that just happened in the app (if-then.ts): noted on the day, and the latest one prompts.
@@ -1386,7 +1393,8 @@ function useStoreValue() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') {
-        setTick((t) => t + 1);
+        // Queued taps first (see drainRef), then the tick that wakes up everything else, the day's rollover included.
+        void drainRef.current().finally(() => setTick((t) => t + 1));
         void refreshCalendar(false);
         void refreshHealth(false);
         void refreshWeather(false);
@@ -1445,6 +1453,13 @@ function useStoreValue() {
     const t = setTimeout(() => void replanNotifications(state, events, weather, air), 1500);
     return () => clearTimeout(t);
   }, [notifReady, state, events, weather, air, tick]);
+  // A replan right away, for the queue while the app is in the background (the timer above waits for the foreground).
+  const replanNow = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    replanNow.current = async () => {
+      if (notifReady && stateRef.current.onboarded) await replanNotifications(stateRef.current, events, weather, air);
+    };
+  }, [notifReady, events, weather, air]);
 
   // ----- actions -----
   const actions = useMemo(
@@ -1465,35 +1480,40 @@ function useStoreValue() {
       /** `at`: when it was tapped, for taps applied later from the queue (silent buttons, widget). */
       addWater(ml: number, key?: string, at?: number) {
         const past = pastKey(key);
-        if (past) {
+        const tapped = tappedOn(past, at);
+        if (past && !tapped) {
           run((s, msgs) => {
             msgs.push(backdated(past, `💧 ${ml} ml`));
             return patchDay(s, past, (d) => ({ ...d, water: [...d.water, { id: uid(), ml, at: at ?? nowOn(past), late: true }] }));
           });
           return;
         }
-        run((s, msgs) => {
-          const key = dayKey();
-          const id = uid();
-          let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id, ml, at: at ?? Date.now() }] }));
-          const d = dayOf(next, key);
-          const total = waterMl(d);
-          const goal = waterGoalFor(next, key);
-          const undo: ToastAction = { undo: { kind: 'water', id, day: key } };
-          if (!d.waterGoalHit && total >= goal) {
-            next = patchDay(next, key, (x) => ({ ...x, waterGoalHit: true }));
-            msgs.push({
-              text: `${L(next, 'waterGoal')} +${XP.waterGoal} XP · +${BONUS_MIN.waterGoal} min gaming`,
-              tone: 'epic',
-              action: undo,
-            });
-            // The glass is undoable; the goal it reached stays reached.
-            next = reward(reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` }), msgs, XP.waterGoal, BONUS_MIN.waterGoal, key);
-            return hasPerk(next, 'hydro_glands') ? perkCoins(next, msgs, 25, '💧 Hydro Glands') : next;
-          }
-          msgs.push({ text: L(next, 'waterLogged', { ml, left: Math.max(0, goal - total) }), tone: 'good', action: undo });
-          return reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` });
-        });
+        run(
+          (s, msgs) => {
+            const key = tapped ?? dayKey();
+            const id = uid();
+            let next = patchDay(s, key, (d) => ({ ...d, water: [...d.water, { id, ml, at: at ?? Date.now() }] }));
+            const d = dayOf(next, key);
+            const total = waterMl(d);
+            const goal = waterGoalFor(next, key);
+            // Undo is today's only: a tap from before midnight just counts.
+            const undo: ToastAction | undefined = tapped ? undefined : { undo: { kind: 'water', id, day: key } };
+            if (!d.waterGoalHit && total >= goal) {
+              next = patchDay(next, key, (x) => ({ ...x, waterGoalHit: true }));
+              msgs.push({
+                text: `${L(next, 'waterGoal')} +${XP.waterGoal} XP · +${BONUS_MIN.waterGoal} min gaming`,
+                tone: 'epic',
+                action: undo,
+              });
+              // The glass is undoable; the goal it reached stays reached.
+              next = reward(reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` }), msgs, XP.waterGoal, BONUS_MIN.waterGoal, key);
+              return hasPerk(next, 'hydro_glands') ? perkCoins(next, msgs, 25, '💧 Hydro Glands') : next;
+            }
+            msgs.push(tapped ? lateTap(key, `💧 ${ml} ml`) : { text: L(next, 'waterLogged', { ml, left: Math.max(0, goal - total) }), tone: 'good', action: undo });
+            return reward(next, msgs, XP.water, 0, key, { ref: `w:${id}` });
+          },
+          { early: !!tapped },
+        );
       },
 
       undoWater(key?: string) {
@@ -1583,6 +1603,18 @@ function useStoreValue() {
       // --- coffee ---
       addCoffee(key?: string, at?: number) {
         const past = pastKey(key);
+        const tapped = tappedOn(past, at);
+        if (tapped) {
+          // Tapped before midnight: on that day as it happened (coffee earns no XP either way).
+          run(
+            (s, msgs) => {
+              msgs.push(lateTap(tapped, '☕ A coffee'));
+              return patchDay(s, tapped, (d) => ({ ...d, coffee: [...coffeeOf(d), { id: uid(), mg: s.settings.caffeinePerCupMg, at: at as number }] }));
+            },
+            { early: true },
+          );
+          return;
+        }
         if (past) {
           run((s, msgs) => {
             msgs.push(backdated(past, '☕ A coffee'));
@@ -1702,7 +1734,8 @@ function useStoreValue() {
       // --- mood ---
       logMood(level: MoodLevel, emotions: string[], note: string, key?: string, at?: number) {
         const past = pastKey(key);
-        if (past) {
+        const tapped = tappedOn(past, at);
+        if (past && !tapped) {
           run((s, msgs) => {
             msgs.push(backdated(past, `${moodInfo(level).emoji} A check-in`));
             const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? nowOn(past), late: true };
@@ -1710,18 +1743,21 @@ function useStoreValue() {
           });
           return;
         }
-        run((s, msgs) => {
-          const key = dayKey();
-          const d0 = dayOf(s, key);
-          const paid = d0.paid?.mood ?? moodsOf(d0).length; // check-ins already paid today, deleted ones included
-          const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? Date.now() };
-          let next = patchDay(s, key, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
-          msgs.push({ text: L(next, moodInfo(level).line), tone: level <= 2 ? 'info' : 'good' });
-          // XP for the first three check-ins a day, so it can't be farmed.
-          if (paid >= 3) return next;
-          next = patchDay(next, key, (d) => ({ ...d, paid: { ...d.paid, mood: paid + 1 } }));
-          return reward(next, msgs, XP.mood, 0, key);
-        });
+        run(
+          (s, msgs) => {
+            const key = tapped ?? dayKey();
+            const d0 = dayOf(s, key);
+            const paid = d0.paid?.mood ?? moodsOf(d0).length; // check-ins already paid that day, deleted ones included
+            const entry = { id: uid(), level, emotions, note: note.trim() || undefined, at: at ?? Date.now() };
+            let next = patchDay(s, key, (d) => ({ ...d, moods: [...moodsOf(d), entry] }));
+            msgs.push(tapped ? lateTap(key, `${moodInfo(level).emoji} A check-in`) : { text: L(next, moodInfo(level).line), tone: level <= 2 ? 'info' : 'good' });
+            // XP for the first three check-ins a day, so it can't be farmed.
+            if (paid >= 3) return next;
+            next = patchDay(next, key, (d) => ({ ...d, paid: { ...d.paid, mood: paid + 1 } }));
+            return reward(next, msgs, XP.mood, 0, key);
+          },
+          { early: !!tapped },
+        );
       },
 
       removeMood(id: string, key = dayKey()) {
@@ -2529,7 +2565,17 @@ function useStoreValue() {
       } else if (a.kind === 'habit') {
         if (habitsDone(s, a.day).includes(a.habitId) || !s.habits.some((h) => h.id === a.habitId)) return;
         if (a.day === dayKey()) actions.toggleHabit(a.habitId);
-        else {
+        else if (tappedOn(a.day, a.at)) {
+          // Tapped before midnight, applied after: it counts on its day, with its XP (no on-cue or range extras).
+          run(
+            (x, msgs) => {
+              const h = x.habits.find((y) => y.id === a.habitId);
+              msgs.push(lateTap(a.day, `📌 ${h ? `${h.emoji} ${h.name}` : 'A habit'}`));
+              return reward(patchDay(x, a.day, (d) => ({ ...d, habits: [...habitsDone(x, a.day), a.habitId] })), msgs, XP.habit, 0, a.day, { ref: `h:${a.habitId}` });
+            },
+            { early: true },
+          );
+        } else {
           // "Done" on yesterday's reminder, tapped after midnight: back-dated like other late entries.
           run((x, msgs) => {
             msgs.push(backdated(a.day, '📌 A habit'));
@@ -2546,19 +2592,27 @@ function useStoreValue() {
     if (!ready) return;
     return onNotificationTap(applyReminder, openSoon);
   }, [ready, applyReminder]);
+  // The queue (pending-actions.ts): applied and saved before it lets go of the taps. In the background RN stops this
+  // runtime's timers once the task that woke it ends, so the save, the replan and the widget can't wait for theirs.
+  // Drained on load and on coming back (before the day rolls over), and while the task waits (onQueued).
+  useEffect(() => {
+    drainRef.current = () =>
+      drainQueued(
+        async (q) => {
+          q.forEach(applyReminder);
+          await saveNow().catch(() => save()); // a failed save keeps retrying (and says so)
+        },
+        () => pushWidgetFor(stateRef.current),
+      )
+        .then(async (n) => {
+          if (n && AppState.currentState !== 'active') await replanNow.current();
+        })
+        .catch((e) => console.warn('[spider] queue failed', e));
+  }, [applyReminder, saveNow, save]);
   useEffect(() => {
     if (!ready) return;
-    const drain = () => void takeQueued().then((q) => q.forEach(applyReminder), (e) => console.warn('[spider] queue failed', e));
-    drain();
-    const offQueued = onQueued(drain); // the background task ran while the app was alive
-    const sub = AppState.addEventListener('change', (st) => {
-      if (st === 'active') drain();
-    });
-    return () => {
-      offQueued();
-      sub.remove();
-    };
-  }, [ready, applyReminder]);
+    return onQueued(() => drainRef.current()); // the background task ran while the app was alive
+  }, [ready]);
   // ----- if-then prompts (if-then.ts): Done checks the habit (or, for a gym plan, opens Gym); plan B logs the workout -----
   const cueDone = useCallback(() => {
     const p = cuePrompt;
