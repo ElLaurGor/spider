@@ -21,6 +21,7 @@ import { noonOf, useToday } from '@/components/use-today';
 import { OutsideAlerts } from '@/components/outside-alerts';
 import { WeatherRow } from '@/components/weather-row';
 import { SlCard } from '@/components/sl-card';
+import { WeekCard } from '@/components/week-card';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { hqVisible, type HqSectionId } from '@/lib/hq-layout';
@@ -118,6 +119,7 @@ export default function HQ() {
   const verdict = useMemo(() => quip(vKey), [quip, vKey]);
   const emptyKey = cal.status === 'granted' ? 'calFree' : 'tasksEmpty';
   const emptyLine = useMemo(() => quip(emptyKey), [quip, emptyKey]);
+  const visible = hqVisible(s.hq);
 
   // A tap on the spider: a random jab, its opinion of your week, or a word about the task that won't die.
   const tapSpider = () => {
@@ -211,7 +213,8 @@ export default function HQ() {
           </Card>
         </Pressable>
       ) : null,
-    quests: () => <QuestsCard />,
+    week: () => <WeekCard />,
+    quests: () => <QuestsCard boss={!visible.includes('week')} />, // the boss sits in This week while that card is on
     tiles: () => (
       <View style={styles.grid}>
         <Tile icon="water_drop" color={C.water} label="Water" onPress={() => router.navigate('/fuel')}>
@@ -418,7 +421,7 @@ export default function HQ() {
         </View>
       ) : null}
 
-      {hqVisible(s.hq).map((id) => (
+      {visible.map((id) => (
         <Fragment key={id}>{SECTIONS[id]()}</Fragment>
       ))}
 

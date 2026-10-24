@@ -28,7 +28,8 @@ import {
 import { SECRET_ACHIEVEMENTS } from '../src/lib/xp';
 import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log';
 import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '../src/lib/xp';
-import { HQ_SECTIONS, hqOrder, hqVisible, moveSection, toggleSection } from '../src/lib/hq-layout';
+import { HQ_SECTIONS, hqHidden, hqOrder, hqVisible, moveSection, toggleSection, WEEK_PARTS, withWeekCard } from '../src/lib/hq-layout';
+import { medalLine, weekDaysLeft } from '../src/lib/week-card';
 import { fmtTime } from '../src/lib/dates';
 import { allRivalLines, rivalTalk } from '../src/lib/rival-talk';
 import { eveningKey, IMMORTAL_DAYS, immortalTask, taskAgeDays, tomorrowKey, topToday, yesterdayHighlight } from '../src/lib/memory';
@@ -98,7 +99,7 @@ import { goalsOn, liveGoals, withGoals } from '../src/lib/goals';
 import { doneTasksOn, gameCapAt, gamesInTimerMin, gamingBudgetMin, gamingUsedMs as usedMs, waterGoalMet, workoutsThisWeek } from '../src/lib/selectors';
 import { areaScores } from '../src/lib/weak-spot';
 import { chestShelf, SHELF_MAX, withChestGold } from '../src/lib/loot';
-import { applyFixes, recheckCoffeeGremlin } from '../src/lib/fixes';
+import { applyFixes, moveToWeekCard, recheckCoffeeGremlin } from '../src/lib/fixes';
 import { credit, earnBonus, ledgerOn, penalize, refundPenalty, unreward, withoutUndoRecords } from '../src/lib/ledger';
 import { withoutCrit } from '../src/lib/critters';
 import { createQueue } from '../src/lib/action-queue';
@@ -1284,6 +1285,9 @@ assert.ok(wFull.grade != null && ['A', 'B', 'C', 'D', 'F'].includes(wFull.grade)
   assert.equal(by('gaming').tier, 'silver');
   assert.equal(by('focus').tier, null);
   assert.ok(!medalsFor(md, week, end).some((m) => m.def.id === 'steps' || m.def.id === 'habits')); // no watch, no habits: no medal to chase
+  // HQ's This week line: what's won, then the closest next tier
+  assert.equal(medalLine(medalsFor(md, week, end)), '🏋️🥇 💧🥈 🎮🥈 · next 🥉 Web Focus: 1 session to go');
+  assert.equal(medalLine(medalsFor(defaultState(), week, end)), 'none yet · closest 🥉 Web Focus: 1 session to go');
   md.days[mk(0)].steps = 9000;
   assert.ok(medalsFor(md, week, end).some((m) => m.def.id === 'steps'));
   // two sick days lower the bar: the same 5 water days are gold
@@ -3258,9 +3262,39 @@ void (async () => {
   const moved = moveSection(null, 'quests', -1);
   assert.equal(moved.order.indexOf('quests'), ids.indexOf('quests') - 1);
   assert.deepEqual(moveSection(null, 'weather', -1).order, ids); // already first
-  const hidden = toggleSection(null, 'league');
-  assert.ok(!hqVisible(hidden).includes('league'));
-  assert.ok(hqVisible(toggleSection(hidden, 'league')).includes('league'));
+  const hidden = toggleSection(null, 'insight');
+  assert.ok(!hqVisible(hidden).includes('insight'));
+  assert.ok(hqVisible(toggleSection(hidden, 'insight')).includes('insight'));
+
+  // This week: on by default in place of the full weekly cards, which stay in the list (hidden) to bring back
+  const shown = hqVisible();
+  assert.ok(shown.includes('week') && shown.includes('quests'));
+  for (const id of WEEK_PARTS) assert.ok(!shown.includes(id) && ids.includes(id), id);
+  assert.ok(shown.indexOf('tiles') < shown.indexOf('level') && shown.indexOf('buttons') < shown.indexOf('week'), 'quick logging comes first');
+  assert.ok(hqVisible(toggleSection(null, 'league')).includes('league'), 'a hidden-by-default card comes back');
+  assert.ok(hqHidden(moveSection(null, 'weather', 1)).includes('silk'), 'moving keeps the default hidden cards hidden');
+  // a saved layout: This week takes the first weekly card's place, the rest is untouched, nothing is lost
+  const mine = { order: ['tiles', 'quests', 'silk', 'league', 'weather'], hidden: ['medals', 'achievements'] };
+  const moved2 = withWeekCard(mine);
+  assert.ok(moved2.order.indexOf('week') === moved2.order.indexOf('silk') - 1 && moved2.order.indexOf('quests') < moved2.order.indexOf('week'));
+  assert.equal(new Set(moved2.order).size, ids.length);
+  assert.ok(WEEK_PARTS.every((id) => moved2.hidden.includes(id)) && moved2.hidden.includes('achievements') && !moved2.hidden.includes('week'));
+  assert.ok(hqVisible(moved2).includes('week') && !hqVisible(moved2).includes('silk'));
+  // no weekly card was showing: it goes just above the quests; everything it replaces was hidden: it stays hidden
+  const aboveQuests = withWeekCard({ order: ['weather', 'quests'], hidden: [...WEEK_PARTS] }).order;
+  assert.equal(aboveQuests.indexOf('week'), aboveQuests.indexOf('quests') - 1);
+  assert.ok(withWeekCard({ order: ['weather'], hidden: [...WEEK_PARTS, 'quests'] }).hidden.includes('week'));
+  // the one-time repair: only a saved layout changes, and only once
+  const hqSave = defaultState();
+  hqSave.settings.hq = mine;
+  assert.deepEqual(moveToWeekCard(hqSave).settings.hq, moved2);
+  assert.equal(moveToWeekCard(defaultState()).settings.hq, undefined);
+  const repaired = hydrate({ ...hqSave, fixes: ['coffee-gremlin'] });
+  assert.ok(repaired.fixes?.includes('hq-week-card') && hqVisible(repaired.settings.hq).includes('week'));
+  const reshown = { ...repaired, settings: { ...repaired.settings, hq: toggleSection(repaired.settings.hq, 'silk') } };
+  assert.ok(hqVisible(hydrate(reshown).settings.hq).includes('silk'), 'a card brought back stays back');
+  assert.equal(weekDaysLeft(new Date(2026, 9, 26, 12)), 7); // Monday
+  assert.equal(weekDaysLeft(new Date(2026, 10, 1, 12)), 1); // Sunday
 
   // the immortal task: the oldest one open a week or more, counted by age (never "days in a row")
   const day = 86_400_000;

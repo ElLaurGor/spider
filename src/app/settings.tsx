@@ -8,7 +8,7 @@ import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T, useNow } 
 import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { dayKey, pad } from '@/lib/dates';
-import { hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
+import { hqHidden, hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
 import { ACRONYM_REAL, bannedLines, line } from '@/lib/lines';
 import { openHealthSettings } from '@/lib/health';
 import { guardSupported, hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
@@ -202,7 +202,7 @@ export default function SettingsScreen() {
           Order HQ&apos;s cards and hide the ones you don&apos;t look at. The spider, health alerts and banners stay on top.
         </T>
         {hqOrder(s.hq).map((id, i, all) => {
-          const shown = !(s.hq?.hidden ?? []).includes(id);
+          const shown = !hqHidden(s.hq).includes(id);
           return (
             <Row key={id} gap={6}>
               <T style={{ flex: 1, opacity: shown ? 1 : 0.45 }}>{hqLabel(id)}</T>

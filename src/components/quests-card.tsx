@@ -17,8 +17,9 @@ import { WEAK_SPOT_LABEL, type WeakSpot } from '@/lib/weak-spot';
 
 const num = (n: number) => (n >= 1000 ? n.toLocaleString('sv-SE') : String(n));
 
-export function QuestsCard() {
-  const { state, quip, actions } = useStore();
+/** `boss`: false when HQ's This week card has the boss (week-card.tsx). */
+export function QuestsCard({ boss = true }: { boss?: boolean }) {
+  const { state, actions } = useStore();
   // Ticks each minute: the draft closes at noon and the finisher is only for the weekend.
   const at = useNow(60_000);
   const quests = questsFor(state);
@@ -26,28 +27,6 @@ export function QuestsCard() {
   const drafting = draftOpen(state, new Date(at));
   const done = today.questsDone ?? [];
   const focus = today.questFocus;
-  const boss = bossFor(state);
-  const hpPct = boss.hp / boss.maxHp;
-  const rematchDay = boss.rank > 1 ? lastKillDay(state, boss.id, boss.key) : null;
-  // Its second weakness counts from the day after it dropped below half HP.
-  const rageFrom = boss.ragedOn
-    ? boss.ragedOn === dayKey()
-      ? 'tomorrow'
-      : WEEKDAYS_LONG[addDays(new Date(`${boss.ragedOn}T12:00`), 1).getDay()]
-    : null;
-  const tauntKey = boss.defeated
-    ? null
-    : hpPct > 0.66
-      ? rematchDay
-        ? 'bossRematch'
-        : (`taunt_${boss.id}` as const)
-      : hpPct > 0.33
-        ? 'bossHurt'
-        : 'bossDying';
-  const taunt = useMemo(
-    () => (tauntKey ? quip(tauntKey, { boss: boss.name, day: rematchDay ?? '' }) : ''),
-    [quip, tauntKey, boss.name, rematchDay],
-  );
 
   return (
     <Card accent={C.purple}>
@@ -59,7 +38,7 @@ export function QuestsCard() {
         }>
         Daily quests
       </H>
-      <BossRecapPanel />
+      {boss ? <BossRecapPanel /> : null}
       {drafting ? <QuestDraft key={dayKey(at)} at={at} /> : null}
       {drafting ? null : quests.map((q) => {
         const complete = done.includes(q.id);
@@ -99,57 +78,87 @@ export function QuestsCard() {
         {!today.questRerolled ? ` One quest a day can be swapped for ${QUEST_REROLL_COST} 🪙 before you start it.` : ''}
       </T>
       <ChestButton />
-
-      <View style={styles.boss}>
-        <Row>
-          <Text style={{ fontSize: 34 }}>{boss.emoji}</Text>
-          <View style={{ flex: 1, gap: 4 }}>
-            <Row style={{ justifyContent: 'space-between' }}>
-              <Text style={[styles.bossName, { flex: 1 }]}>{boss.name}</Text>
-              <Text style={styles.progress}>{boss.defeated ? 'DEFEATED' : `${boss.hp}/${boss.maxHp} HP`}</Text>
-            </Row>
-            <Bar pct={boss.defeated ? 0 : hpPct} color={boss.final ? C.yellow : C.red} height={8} />
-          </View>
-        </Row>
-        <T dim small>
-          {boss.defeated ? 'Defeated! A new boss shows up on Monday.' : `${taunt} Every XP you earn this week is damage. Its HP is sized to beat your usual week.`}
-          {!boss.defeated && boss.healed > 0 ? ` 💀 Doomscrolling healed it +${boss.healed} HP.` : ''}
-          {!boss.defeated && boss.paused > 0 ? ` 🛌 ${boss.paused} sick/away day${boss.paused === 1 ? '' : 's'} this week: it has less HP.` : ''}
-        </T>
-        <FinisherLine at={at} />
-        {!boss.defeated ? (
-          <T small style={{ color: C.yellow }}>
-            🎯 Weakness: {boss.weakness}. Those days&apos; XP hits 50% harder.
-            {boss.rageWeakness && rageFrom ? ` 😡 Enraged below half HP: from ${rageFrom}, ${boss.rageWeakness} counts too.` : ''}
-            {boss.bonus > 0 ? ` +${num(boss.bonus)} bonus damage so far.` : ''}
-          </T>
-        ) : (
-          <View style={{ gap: 4 }}>
-            <Row gap={8}>
-              <Text style={{ fontSize: 16 }}>👾</Text>
-              <View style={{ flex: 1 }}>
-                <Bar pct={boss.minionProgress / boss.minionHp} color={C.purple} height={6} />
-              </View>
-              <Text style={styles.progress}>
-                {num(boss.minionProgress)}/{num(boss.minionHp)}
-              </Text>
-            </Row>
-            <T dim small>
-              Henchmen wave {boss.minions + 1}. Every wave you clear this week pays {MINION_COINS} 🪙.
-              {boss.minions > 0 ? ` ${boss.minions} cleared so far.` : ''}
-            </T>
-          </View>
-        )}
-        <Text style={[styles.link, { alignSelf: 'flex-end' }]} onPress={() => router.push('/bestiary')}>
-          Bestiary →
-        </Text>
-      </View>
+      {boss ? <BossPanel at={at} /> : null}
     </Card>
   );
 }
 
+/** This week's boss: HP, taunt, weakness and the weekend finisher, or the henchmen once it's down. */
+export function BossPanel({ at }: { at: number }) {
+  const { state, quip } = useStore();
+  const boss = bossFor(state);
+  const hpPct = boss.hp / boss.maxHp;
+  const rematchDay = boss.rank > 1 ? lastKillDay(state, boss.id, boss.key) : null;
+  // Its second weakness counts from the day after it dropped below half HP.
+  const rageFrom = boss.ragedOn
+    ? boss.ragedOn === dayKey()
+      ? 'tomorrow'
+      : WEEKDAYS_LONG[addDays(new Date(`${boss.ragedOn}T12:00`), 1).getDay()]
+    : null;
+  const tauntKey = boss.defeated
+    ? null
+    : hpPct > 0.66
+      ? rematchDay
+        ? 'bossRematch'
+        : (`taunt_${boss.id}` as const)
+      : hpPct > 0.33
+        ? 'bossHurt'
+        : 'bossDying';
+  const taunt = useMemo(
+    () => (tauntKey ? quip(tauntKey, { boss: boss.name, day: rematchDay ?? '' }) : ''),
+    [quip, tauntKey, boss.name, rematchDay],
+  );
+
+  return (
+    <View style={styles.boss}>
+      <Row>
+        <Text style={{ fontSize: 34 }}>{boss.emoji}</Text>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <Text style={[styles.bossName, { flex: 1 }]}>{boss.name}</Text>
+            <Text style={styles.progress}>{boss.defeated ? 'DEFEATED' : `${boss.hp}/${boss.maxHp} HP`}</Text>
+          </Row>
+          <Bar pct={boss.defeated ? 0 : hpPct} color={boss.final ? C.yellow : C.red} height={8} />
+        </View>
+      </Row>
+      <T dim small>
+        {boss.defeated ? 'Defeated! A new boss shows up on Monday.' : `${taunt} Every XP you earn this week is damage. Its HP is sized to beat your usual week.`}
+        {!boss.defeated && boss.healed > 0 ? ` 💀 Doomscrolling healed it +${boss.healed} HP.` : ''}
+        {!boss.defeated && boss.paused > 0 ? ` 🛌 ${boss.paused} sick/away day${boss.paused === 1 ? '' : 's'} this week: it has less HP.` : ''}
+      </T>
+      <FinisherLine at={at} />
+      {!boss.defeated ? (
+        <T small style={{ color: C.yellow }}>
+          🎯 Weakness: {boss.weakness}. Those days&apos; XP hits 50% harder.
+          {boss.rageWeakness && rageFrom ? ` 😡 Enraged below half HP: from ${rageFrom}, ${boss.rageWeakness} counts too.` : ''}
+          {boss.bonus > 0 ? ` +${num(boss.bonus)} bonus damage so far.` : ''}
+        </T>
+      ) : (
+        <View style={{ gap: 4 }}>
+          <Row gap={8}>
+            <Text style={{ fontSize: 16 }}>👾</Text>
+            <View style={{ flex: 1 }}>
+              <Bar pct={boss.minionProgress / boss.minionHp} color={C.purple} height={6} />
+            </View>
+            <Text style={styles.progress}>
+              {num(boss.minionProgress)}/{num(boss.minionHp)}
+            </Text>
+          </Row>
+          <T dim small>
+            Henchmen wave {boss.minions + 1}. Every wave you clear this week pays {MINION_COINS} 🪙.
+            {boss.minions > 0 ? ` ${boss.minions} cleared so far.` : ''}
+          </T>
+        </View>
+      )}
+      <Text style={[styles.link, { alignSelf: 'flex-end' }]} onPress={() => router.push('/bestiary')}>
+        Bestiary →
+      </Text>
+    </View>
+  );
+}
+
 /** Saturday and Sunday: what still finishes this week's boss today (lib/boss-plan.ts), if anything does. */
-function FinisherLine({ at }: { at: number }) {
+export function FinisherLine({ at }: { at: number }) {
   const { state, quip } = useStore();
   const f = bossFinisher(state, new Date(at));
   const boss = f?.boss ?? '';

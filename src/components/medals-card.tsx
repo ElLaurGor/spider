@@ -13,34 +13,44 @@ export function MedalsCard() {
   const { state } = useStore();
   const today = useToday();
   const week = weekKeyOf(new Date(`${today}T12:00`));
-  const list = medalsFor(state, week);
-  if (!list.length) return null;
+  if (!medalsFor(state, week).length) return null;
   const totals = medalTotals(state);
-  const open = openDays(state, week);
   return (
     <Pressable onPress={() => router.push('/records')}>
       <Card>
         <H right={<T dim small>{totals.gold + totals.silver + totals.bronze ? `${totals.gold} 🥇 ${totals.silver} 🥈 ${totals.bronze} 🥉` : 'records →'}</T>}>
           🏅 Weekly medals
         </H>
-        {list.map((m) => (
-          <Row key={m.def.id}>
-            <Text style={styles.emoji}>{m.def.emoji}</Text>
-            <View style={{ flex: 1 }}>
-              <T small>{m.def.label}</T>
-              <T dim small>
-                {m.def.unit(m.count)} so far
-                {m.next ? ` · ${MEDAL_EMOJI[m.next]} at ${m.need[m.next]}` : ' · top tier'}
-              </T>
-            </View>
-            <Text style={styles.tier}>{m.tier ? MEDAL_EMOJI[m.tier] : '·'}</Text>
-          </Row>
-        ))}
-        <T dim small>
-          Counted on Monday for the week that ended.{open < 7 ? ` ${7 - open} rest day${7 - open === 1 ? '' : 's'} this week lower the bar.` : ''}
-        </T>
+        <MedalRows week={week} />
       </Card>
     </Pressable>
+  );
+}
+
+/** Each medal's count so far and the next tier, plus how rest days lower the bar (also in HQ's This week card). */
+export function MedalRows({ week }: { week: string }) {
+  const { state } = useStore();
+  const list = medalsFor(state, week);
+  const open = openDays(state, week);
+  return (
+    <>
+      {list.map((m) => (
+        <Row key={m.def.id}>
+          <Text style={styles.emoji}>{m.def.emoji}</Text>
+          <View style={{ flex: 1 }}>
+            <T small>{m.def.label}</T>
+            <T dim small>
+              {m.def.unit(m.count)} so far
+              {m.next ? ` · ${MEDAL_EMOJI[m.next]} at ${m.need[m.next]}` : ' · top tier'}
+            </T>
+          </View>
+          <Text style={styles.tier}>{m.tier ? MEDAL_EMOJI[m.tier] : '·'}</Text>
+        </Row>
+      ))}
+      <T dim small>
+        Counted on Monday for the week that ended.{open < 7 ? ` ${7 - open} rest day${7 - open === 1 ? '' : 's'} this week lower the bar.` : ''}
+      </T>
+    </>
   );
 }
 
