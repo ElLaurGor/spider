@@ -161,7 +161,9 @@ export default function HQ() {
     level: () => (
       <Card accent={C.red}>
         <Row style={{ justifyContent: 'space-between' }}>
-          <SpiderAvatar size={58} />
+          <Pressable onPress={() => router.push('/shop')} accessibilityRole="button" accessibilityLabel="Wardrobe">
+            <SpiderAvatar size={58} />
+          </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.lvl}>LVL {lvl.level}</Text>
             <T dim small>

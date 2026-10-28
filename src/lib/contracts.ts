@@ -1,6 +1,7 @@
 // Weekly contract: early in the week, stake coins on a weekly goal. Reach it and the stake comes back
 // double; miss it and S.P.I.D.E.R. keeps the coins, unless the week was a rough one (low mood, period,
 // sick or away days), then the stake comes back. Goals are counts within the week, never streaks.
+// A contract won before Sunday makes room for another one that same week, on a goal the week hasn't had yet.
 import { addDays, dayKey, startOfDay, startOfWeek } from './dates';
 import { usedOn } from './day-filters';
 import { dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, moodsOf, onPeriod, trainedOn, waterGoalMet } from './selectors';
@@ -84,6 +85,24 @@ export const payoutOf = (c: Pick<Contract, 'stake' | 'difficulty'>, bonus = 0) =
 
 /** Contracts can be signed Monday to Wednesday, so there's a real week left to do it in. */
 export const canSign = (now = new Date()) => [1, 2, 3].includes(now.getDay());
+
+/** The goals a week's contracts took so far: the won ones before it, and its own. */
+export const weekGoals = (c: Contract) => [...(c.before ?? []), c.goal];
+
+/**
+ * What can be signed now, or null. The week's first contract: Monday to Wednesday. A follow-up: any day once this
+ * week's contract is won, on a goal the week hasn't had (so a day never counts twice for the same goal) and with
+ * a difficulty that still fits the days left. `before`: the goals the new contract follows.
+ */
+export function signOptions(s: State, now = new Date()): { goals: ContractGoal[]; before: ContractGoal[] } | null {
+  const c = s.contract?.week === dayKey(startOfWeek(now)) ? s.contract : null;
+  if (c ? c.status !== 'won' : !canSign(now)) return null;
+  const before = c ? weekGoals(c) : [];
+  const goals = CONTRACT_GOALS.filter(
+    (g) => g.available(s) && !before.includes(g.id) && (Object.keys(DIFFICULTIES) as Difficulty[]).some((d) => difficultyOk(g.id, d, now)),
+  ).map((g) => g.id);
+  return goals.length ? { goals, before } : null;
+}
 
 export const goalOf = (id: ContractGoal) => CONTRACT_GOALS.find((g) => g.id === id) ?? CONTRACT_GOALS[0];
 

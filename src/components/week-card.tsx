@@ -10,7 +10,7 @@ import { BossPanel, FinisherLine } from '@/components/quests-card';
 import { Bar, Card, H, Icon, T, useNow } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
-import { canSign, contractProgress, goalOf } from '@/lib/contracts';
+import { contractProgress, goalOf, signOptions } from '@/lib/contracts';
 import { coopSummary } from '@/lib/coop';
 import { standings, TIERS, weekKeyOf } from '@/lib/league';
 import { medalsFor } from '@/lib/medals';
@@ -53,13 +53,14 @@ export function WeekCard() {
   const coop = coopSummary(state, new Date(at));
   const trek = trekSummary(state, new Date(at));
 
+  const canSign = !!signOptions(state, date);
   const contractText = c
     ? c.status === 'won'
-      ? `${goalOf(c.goal).title(c.target)} · fulfilled`
+      ? `${goalOf(c.goal).title(c.target)} · fulfilled${canSign ? ' · sign another →' : ''}`
       : c.status === 'open'
         ? `${goalOf(c.goal).title(c.target)} · ${Math.min(contractProgress(state, c), c.target)}/${c.target}`
         : `${goalOf(c.goal).title(c.target)} · ${c.status === 'voided' ? 'voided, stake refunded' : 'missed'}`
-    : canSign(date)
+    : canSign
       ? 'Sign a contract →'
       : null;
 

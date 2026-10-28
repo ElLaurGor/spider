@@ -6,6 +6,8 @@ import type { State } from './types';
 import { levelForXp, titleFor } from './xp';
 
 export type Slot = 'hat' | 'held' | 'aura';
+/** What the avatar shows besides the worn items: the evolution stage's badge and its opinion of you (respect.ts). */
+export type AvatarExtra = 'badge' | 'respect';
 export type Cosmetic = {
   id: string;
   slot: Slot;
@@ -118,6 +120,15 @@ export const withWorn = (s: State, slot: Slot, id: string | null): State => ({
   ...s,
   cosmetics: { ...wardrobe(s), worn: { ...wardrobe(s).worn, [slot]: id ?? undefined } },
 });
+
+/** Whether the avatar shows `extra` (both do unless switched off in the wardrobe). */
+export const shows = (s: State, extra: AvatarExtra) => !(s.cosmetics?.hidden ?? []).includes(extra);
+
+/** `s` with the avatar's `extra` switched on or off. */
+export const withShown = (s: State, extra: AvatarExtra, on: boolean): State => {
+  const hidden = (wardrobe(s).hidden ?? []).filter((x) => x !== extra);
+  return { ...s, cosmetics: { ...wardrobe(s), hidden: on ? hidden : [...hidden, extra] } };
+};
 
 /** `s` showing `title` on HQ (null: the current level's). */
 export const withTitle = (s: State, title: string | null): State => ({ ...s, cosmetics: { ...wardrobe(s), title: title ?? undefined } });

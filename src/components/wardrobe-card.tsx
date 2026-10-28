@@ -1,10 +1,12 @@
-import { Alert, Text, View } from 'react-native';
+import { Alert, Switch, Text, View } from 'react-native';
 
 import { SpiderAvatar } from '@/components/spider-avatar';
 import { Btn, Card, Chip, H, Row, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { useToday } from '@/components/use-today';
-import { buyable, COSMETICS, owns, shownTitle, SILK_COSMETICS, SLOTS, titlesEarned, whereToGet, worn, type Cosmetic } from '@/lib/cosmetics';
+import { buyable, COSMETICS, owns, shows, shownTitle, SILK_COSMETICS, SLOTS, titlesEarned, whereToGet, worn, type AvatarExtra, type Cosmetic } from '@/lib/cosmetics';
+import { stageFor } from '@/lib/evolution';
+import { respectFor } from '@/lib/respect';
 import { editionFor, monthOf, silkBadges } from '@/lib/silk-track';
 import { useStore } from '@/lib/store';
 import { levelForXp, titleFor } from '@/lib/xp';
@@ -20,6 +22,13 @@ export function WardrobeCard() {
   const thisEdition = new Set(editionFor(monthOf(today)).rewards.map((r) => r.id));
   const listed = [...COSMETICS, ...SILK_COSMETICS.filter((c) => owns(state, c.id) || thisEdition.has(c.id))];
   const badges = silkBadges(state);
+  const stage = stageFor(levelForXp(state.xp));
+  const respect = respectFor(state);
+  // Besides what it wears, the avatar shows its stage badge and what it thinks of you: both can go.
+  const extras: { id: AvatarExtra; emoji: string; name: string }[] = [
+    ...(stage.badge ? [{ id: 'badge' as const, emoji: stage.badge, name: `Level badge (${stage.name})` }] : []),
+    ...(respect ? [{ id: 'respect' as const, emoji: respect.emoji, name: `What I think of you (${respect.name.toLowerCase()})` }] : []),
+  ];
 
   const confirmBuy = (c: Cosmetic) =>
     Alert.alert(`Buy ${c.name}?`, `${c.price} 🪙 · you have ${state.coins} 🪙`, [
@@ -33,6 +42,28 @@ export function WardrobeCard() {
       <T dim small>
         Looks only. Seasonal pieces are sold while their season is on, auras drop from legendary chests, a few are gifts (the Advent Web, the Prizes), and the Silk Track, co-op weeks and the trek hand out the rest.
       </T>
+      {extras.length ? (
+        <View style={{ gap: 8 }}>
+          <T dim small mono>
+            ON THE SPIDER
+          </T>
+          {extras.map((x) => (
+            <Row key={x.id}>
+              <Text style={{ fontSize: 22, opacity: shows(state, x.id) ? 1 : 0.35 }}>{x.emoji}</Text>
+              <T style={{ flex: 1 }}>{x.name}</T>
+              <Switch
+                value={shows(state, x.id)}
+                onValueChange={(v) => actions.showOnSpider(x.id, v)}
+                trackColor={{ true: C.red, false: C.card2 }}
+                thumbColor={C.text}
+              />
+            </Row>
+          ))}
+          <T dim small>
+            Hats and held things come off with their On ✓ below.
+          </T>
+        </View>
+      ) : null}
       {SLOTS.map((slot) => (
         <View key={slot.id} style={{ gap: 8 }}>
           <T dim small mono>

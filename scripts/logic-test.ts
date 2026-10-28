@@ -113,7 +113,7 @@ import { DEFAULT_WIDGET_COLORS, forToday, snapshotOf, widgetLines, withQueued } 
 import { bankFor, PITY_AFTER, rollChest as rollChestB, shopPrice } from '../src/lib/economy';
 import { daysLeftInWeek, difficultyOk, payoutOf, targetFor } from '../src/lib/contracts';
 // step 4 plans: if-then plans, the comeback bonus, weekly range habits
-import { newMission } from '../src/lib/contracts';
+import { newMission, signOptions } from '../src/lib/contracts';
 import { habitsShownOn, rangeDueOn, rangeNeededOn, rangeRemindOn, rangeText, rangeWeek } from '../src/lib/habits';
 import { checkCues, cueHappened, cueReminders, cueSaid, cueTimes, firedEvents, onCueNow, planBToday, planMinutes, planText, rainAtGym, reminderRetired } from '../src/lib/if-then';
 import { COMEBACK, missedGymBefore } from '../src/lib/comeback';
@@ -164,7 +164,7 @@ import { adventCandles, adventYear, doorOpenable, doorPrize, doorsWaiting, julfr
 import { acceptPrizes, isPrizeDay, prizeCardUp, prizesFor } from '../src/lib/prizes';
 import { nemesisOfYear, withNemesis, yearWrapped, yearWrappedDue } from '../src/lib/year-wrapped';
 import { firstAdventSunday, isJulfridKey } from '../src/lib/swedish-days';
-import { owns } from '../src/lib/cosmetics';
+import { owns, shows, withShown } from '../src/lib/cosmetics';
 import { pauseOn } from '../src/lib/pause';
 
 // levels
@@ -325,6 +325,49 @@ function foodTests() {
   }
 }
 foodTests();
+
+// a contract won before Sunday makes room for another, on a goal the week hasn't had, at a difficulty that fits
+function contractFollowUpTests() {
+  const s = defaultState();
+  const mon = new Date(2026, 9, 12, 12);
+  const thu = new Date(2026, 9, 15, 12);
+  const sun = new Date(2026, 9, 18, 12);
+  const week = '2026-10-12';
+  assert.deepEqual(signOptions(s, mon)?.before, []);
+  assert.equal(signOptions(s, thu), null, 'the first one: Monday to Wednesday');
+  s.contract = { week, from: week, goal: 'train', target: 3, stake: 100, status: 'open' };
+  assert.equal(signOptions(s, mon), null, 'one open at a time');
+  s.contract = { ...s.contract, status: 'won' };
+  const o = signOptions(s, thu);
+  assert.deepEqual(o?.before, ['train']);
+  assert.ok(o && !o.goals.includes('train') && o.goals.includes('water') && o.goals.includes('focus'));
+  // Sunday: goals counted in days don't fit any more, counts still do
+  const sunday = signOptions(s, sun);
+  assert.ok(sunday && sunday.goals.includes('focus') && !sunday.goals.includes('water') && !sunday.goals.includes('gaming'));
+  // a follow-up passes the week's goals on
+  s.contract = { week, from: '2026-10-15', goal: 'water', target: 4, stake: 100, status: 'won', before: ['train'] };
+  assert.deepEqual(signOptions(s, thu)?.before, ['train', 'water']);
+  assert.ok(!signOptions(s, thu)?.goals.includes('water'));
+  // every goal taken: nothing left to sign
+  s.contract = { ...s.contract, before: ['train', 'steps', 'focus', 'habits', 'gaming', 'tasks'] };
+  assert.equal(signOptions(s, thu), null);
+  // last week's contract doesn't count for this week
+  s.contract = { ...s.contract, week: '2026-10-05', status: 'lost' };
+  assert.deepEqual(signOptions(s, mon)?.before, []);
+}
+contractFollowUpTests();
+
+// the avatar's stage badge and opinion face show unless switched off, each on its own; the wardrobe stays as it was
+function avatarExtrasTests() {
+  const a = withOwned(defaultState(), 'cap');
+  assert.ok(shows(a, 'badge') && shows(a, 'respect'));
+  const off = withShown(withShown(a, 'respect', false), 'respect', false);
+  assert.deepEqual(off.cosmetics?.hidden, ['respect']);
+  assert.ok(shows(off, 'badge') && !shows(off, 'respect'));
+  assert.deepEqual(off.cosmetics?.owned, ['cap']);
+  assert.ok(shows(withShown(off, 'respect', true), 'respect'));
+}
+avatarExtrasTests();
 
 // free-time finder + meeting detection (tomorrow, so "now" doesn't clip it)
 const tomorrow = atTime(new Date(), 1, 0);

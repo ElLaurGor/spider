@@ -248,6 +248,7 @@ export type Contract = {
   stake: number;
   status: 'open' | 'won' | 'lost' | 'voided';
   difficulty?: 'easy' | 'normal' | 'hard'; // cluster B; older contracts are normal
+  before?: ContractGoal[]; // a follow-up: the goals of this week's earlier contracts, all won (contracts.ts signOptions)
 };
 
 export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number; firstDoneAt?: number }; // firstDoneAt: re-checking later counts for that day
@@ -350,7 +351,7 @@ export type State = {
   rested?: number; // rested-bonus XP left to hand out (lib/rested.ts)
   chestsSinceLegendary?: number; // loot chests opened since the last legendary one (lib/economy.ts pity)
   perks?: string[]; // spider abilities taken (lib/perks.ts)
-  cosmetics?: { owned: string[]; worn: Partial<Record<'hat' | 'held' | 'aura', string>>; title?: string }; // lib/cosmetics.ts
+  cosmetics?: { owned: string[]; worn: Partial<Record<'hat' | 'held' | 'aura', string>>; title?: string; hidden?: ('badge' | 'respect')[] }; // lib/cosmetics.ts; hidden: avatar extras switched off
   silk?: { month: string; tier: number; prev?: { month: string; tier: number } }; // Silk Track (lib/silk-track.ts): the month on record and the highest tier handed out in it, and the month before
   // cluster F
   eggsFound?: Record<string, Record<string, number>>; // Easter hunt: year -> egg id -> found at

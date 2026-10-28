@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { Bar, Btn, Card, Chip, H, Row, T } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
-import { canSign, CONTRACT_GOALS, contractProgress, DIFFICULTIES, difficultyOk, goalOf, newMission, payoutOf, STAKES, targetFor, type Difficulty } from '@/lib/contracts';
+import { CONTRACT_GOALS, contractProgress, DIFFICULTIES, difficultyOk, goalOf, newMission, payoutOf, signOptions, STAKES, targetFor, type Difficulty } from '@/lib/contracts';
 import { weekKeyOf } from '@/lib/league';
 import { contractBonus } from '@/lib/perks';
 import { useStore } from '@/lib/store';
@@ -15,31 +15,32 @@ function Shell({ bare, accent, children }: { bare?: boolean; accent: string; chi
   return bare ? <View style={styles.panel}>{children}</View> : <Card accent={accent}>{children}</Card>;
 }
 
-/** HQ card: this week's contract, or (Monday to Wednesday) the form to sign one. */
+/** HQ card: this week's contract, or (Monday to Wednesday, and again once it's won) the form to sign one. */
 export function ContractCard({ bare }: { bare?: boolean }) {
-  const { state, actions } = useStore();
+  const { state } = useStore();
   const today = useToday();
-  // After a lost contract a different goal comes first (a new mission), and last week's goes last.
-  const mission = newMission(state);
-  const goals = CONTRACT_GOALS.filter((g) => g.available(state)).sort((a, b) => Number(a.id === mission?.lost) - Number(b.id === mission?.lost));
-  const [goal, setGoal] = useState<ContractGoal>(mission?.goal ?? goals[0]?.id ?? 'train');
-  const [stake, setStake] = useState(STAKES[0]);
-  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const c = state.contract?.week === weekKeyOf(noonOf(today)) ? state.contract : null;
+  const won = c?.status === 'won' ? `${c.week}:${c.goal}` : null;
+  const [more, setMore] = useState<string | null>(null); // the won contract the form for another one was opened after
+  const options = signOptions(state);
   const bonus = contractBonus(state);
 
-  if (c) {
+  if (c && !(won && more === won && options)) {
     const def = goalOf(c.goal);
     const progress = contractProgress(state, c);
     const level = DIFFICULTIES[c.difficulty ?? 'normal'].label;
+    const n = (c.before?.length ?? 0) + 1;
     return (
       <Shell bare={bare} accent={c.status === 'won' ? C.green : C.yellow}>
-        <H right={<T dim small mono>{c.stake} 🪙 · {level}</T>}>📜 Weekly contract</H>
+        <H right={<T dim small mono>{c.stake} 🪙 · {level}</T>}>📜 Weekly contract{n > 1 ? ` #${n}` : ''}</H>
         <T>{def.title(c.target)}</T>
         {c.status === 'won' ? (
-          <T small style={{ color: C.green }}>
-            Fulfilled. +{payoutOf(c, bonus)} 🪙 paid out.
-          </T>
+          <>
+            <T small style={{ color: C.green }}>
+              Fulfilled. +{payoutOf(c, bonus)} 🪙 paid out.
+            </T>
+            {options ? <Btn label="Sign another contract" icon="edit" kind="ghost" small onPress={() => setMore(won)} /> : null}
+          </>
         ) : (
           <>
             <Bar pct={progress / c.target} color={C.yellow} />
@@ -52,16 +53,37 @@ export function ContractCard({ bare }: { bare?: boolean }) {
     );
   }
 
-  if (!canSign()) return null;
+  if (!options) return null;
+  return (
+    <Shell bare={bare} accent={C.yellow}>
+      <SignForm key={options.before.join()} goalIds={options.goals} next={options.before.length + 1} onCancel={c ? () => setMore(null) : undefined} />
+    </Shell>
+  );
+}
+
+/** Picking a goal, stake and difficulty. `next` > 1: a follow-up after a won contract, on a goal the week hasn't had. */
+function SignForm({ goalIds, next, onCancel }: { goalIds: ContractGoal[]; next: number; onCancel?: () => void }) {
+  const { state, actions } = useStore();
+  // After a lost contract a different goal comes first (a new mission), and last week's goes last.
+  const mission = next === 1 ? newMission(state) : null;
+  const goals = CONTRACT_GOALS.filter((g) => goalIds.includes(g.id)).sort((a, b) => Number(a.id === mission?.lost) - Number(b.id === mission?.lost));
+  const [picked, setGoal] = useState<ContractGoal>(mission?.goal ?? goals[0]?.id ?? 'train');
+  const [stake, setStake] = useState(STAKES[0]);
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  const bonus = contractBonus(state);
+  const goal = goalIds.includes(picked) ? picked : (goals[0]?.id ?? 'train');
   const def = goalOf(goal);
-  const level = difficultyOk(goal, difficulty) ? difficulty : 'normal';
+  // Late in the week only some difficulties fit a goal counted in days.
+  const level = difficultyOk(goal, difficulty) ? difficulty : ((['normal', 'easy', 'hard'] as const).find((d) => difficultyOk(goal, d)) ?? 'easy');
   const target = targetFor(goal, level);
   const payout = payoutOf({ stake, difficulty: level }, bonus);
   return (
-    <Shell bare={bare} accent={C.yellow}>
-      <H right={<T dim small mono>{state.coins} 🪙</T>}>📜 Weekly contract</H>
+    <>
+      <H right={<T dim small mono>{state.coins} 🪙</T>}>📜 {next > 1 ? `Contract #${next} this week` : 'Weekly contract'}</H>
       <T dim small>
-        Stake coins on a goal for the rest of this week. Reach it and get double back. A rough week (low mood or period days) voids it and refunds you.
+        {next > 1
+          ? 'Another goal for the rest of this week, counted from today. Same deal: reach it for the payout, a rough week refunds the stake.'
+          : 'Stake coins on a goal for the rest of this week. Reach it and get double back. A rough week (low mood or period days) voids it and refunds you.'}
       </T>
       {mission ? (
         <T small style={{ color: C.yellow }}>
@@ -95,7 +117,8 @@ export function ContractCard({ bare }: { bare?: boolean }) {
         onPress={() => actions.signContract(goal, stake, level)}
         disabled={state.coins < stake}
       />
-    </Shell>
+      {onCancel ? <Btn label="Not now" kind="ghost" small onPress={onCancel} /> : null}
+    </>
   );
 }
 

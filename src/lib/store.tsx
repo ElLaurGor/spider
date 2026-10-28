@@ -48,7 +48,7 @@ import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './phot
 import { bossFor, bossSeasonOf, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questsFor, reducedDay, reopenQuests, rerollFor, validDraft, weekKey } from './quests';
 import { bossRecap, lastWeekKey } from './boss-recap';
 import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
-import { canSign, contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, targetFor, type Difficulty } from './contracts';
+import { contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, signOptions, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
 import { rivalTalk } from './rival-talk';
 import { withNights } from './sleep';
@@ -116,7 +116,7 @@ import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, 
 import { nextStorm } from './storm';
 import { ACHIEVEMENTS, activityXp, BADGE_NOTE, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, SET_XP_DAILY, titleFor, XP } from './xp';
 // cluster B: economy & progression
-import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withTitle, withWorn, type Slot } from './cosmetics';
+import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withShown, withTitle, withWorn, type AvatarExtra, type Slot } from './cosmetics';
 import { chestShelf, SHELF_MAX, withChestGold } from './loot';
 import { credit, earnBonus, penalize, refundPenalty, unreward, withoutUndoRecords } from './ledger';
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
@@ -2526,22 +2526,27 @@ function useStoreValue() {
         });
       },
 
-      /** Stakes coins on a weekly goal (Monday to Wednesday, one per week), at a difficulty that sets target and payout. */
+      /**
+       * Stakes coins on a weekly goal (Monday to Wednesday; another one any day once this week's is won), at a
+       * difficulty that sets target and payout.
+       */
       signContract(goal: ContractGoal, stake: number, difficulty: Difficulty = 'normal') {
         run((s0, msgs) => {
-          const s = checkContract(s0, msgs); // last week's, if it's still open
+          const s = checkContract(s0, msgs); // last week's, if it's still open, and this week's if it's just been reached
           const week = weekKeyOf();
-          if (!canSign() || s.contract?.week === week || !difficultyOk(goal, difficulty)) return s;
+          const options = signOptions(s);
+          if (!options?.goals.includes(goal) || !difficultyOk(goal, difficulty)) return s;
           if (s.coins < stake) {
             msgs.push({ text: L(s, 'tooPoor', { missing: stake - s.coins }), tone: 'bad' });
             return s;
           }
           const target = targetFor(goal, difficulty);
-          msgs.push({ text: `📜 ${L(s, 'contractSigned', { goal: goalOf(goal).title(target), stake })}`, tone: 'info' });
+          const { before } = options;
+          msgs.push({ text: `📜 ${before.length ? `#${before.length + 1} ` : ''}${L(s, 'contractSigned', { goal: goalOf(goal).title(target), stake })}`, tone: 'info' });
           return {
             ...s,
             coins: s.coins - stake,
-            contract: { week, from: dayKey(), signedAt: Date.now(), goal, target, stake, status: 'open', difficulty },
+            contract: { week, from: dayKey(), signedAt: Date.now(), goal, target, stake, status: 'open', difficulty, ...(before.length ? { before } : {}) },
           };
         });
       },
@@ -2602,6 +2607,11 @@ function useStoreValue() {
       /** The title shown on HQ; null goes back to the current level's. */
       setTitle(title: string | null) {
         run((s) => withTitle(s, title));
+      },
+
+      /** The avatar's level badge or opinion face, on or off. */
+      showOnSpider(extra: AvatarExtra, on: boolean) {
+        run((s) => withShown(s, extra, on));
       },
 
       addReward(r: Omit<Reward, 'id'>) {

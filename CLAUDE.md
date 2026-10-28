@@ -46,6 +46,7 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - Ghost of last week: `xp-timeline.ts` (`DayLog.xpHours`). Weekly medals: `medals.ts`, paid once per week at rollover (up to 4 unsettled weeks back), thresholds scale down for rough days but bronze/silver/gold still need 1/2/3 days. Weekly nemesis: `nemesisOf` in `league.ts`.
   - Monthly Silk Track: `silk-track.ts`. Its tiers come from the month's `xpEarned`, an `EDITIONS` table has one edition per calendar month, and its rewards are cosmetics, never XP. `silk.prev` lets late XP from last month still grant its tiers during the first 2 days.
   - The boss's seasonal costume (Halloween, nyår) is chosen per week (`bossSeasonOf`): one name for the whole week, in recaps too.
+  - Weekly contract (`contracts.ts`): the first one is signed Monday to Wednesday. Once it's won, another can be signed any day, on a goal the week hasn't had and at a difficulty that fits the days left (`signOptions`, `Contract.before`).
   - All of these are per-week or per-month counts. Nothing here may become a streak.
 - Step 4 layers:
   - Lines: `freshLine` deals each pool list like a deck across runs (`State.lineMemory`). Notifications use `dayLine` via `sayOn(…, day, n)`. Long-press a toast to retire a line (`retireLine`, banned for good, softens today's tone via `toneEase`). Daily pools keep at least 4 savage lines, and a catchphrase may appear in at most 2 pools (tested).
@@ -57,6 +58,7 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - SL departures (`sl.ts`, `sl-card.tsx`, `settings.sl`): keyless SL APIs, the card polls itself (≤1/min, foreground and visible), and timetable data is never shown as live.
 - Findings (insights, the detective, cycle notes) go through `stats.ts`: `MIN_SIDE` (8) days per side, a seeded permutation test (`permP` < 0.05) and a Benjamini–Hochberg cut (`family()`, q = 0.10); paused days left out; wording says "goes with", never "makes". Experiments need 7+ days per side and p < 0.10.
 - Periods come from `periodRuns` (`body.ts`): a run of spotting only isn't a period (`realFlow` in `tone.ts`). `phaseOn` counts back from the next start.
+- The avatar's stage badge and opinion face can be switched off in the wardrobe (`cosmetics.hidden`, `shows`); the HQ avatar opens the shop.
 - Lines may not repeat across pools (tested). Weather pools: rain, cold (and any snow), hot, grey (overcast, fog, little sun), nice. `Stepper` takes `label` and `typeable` (tap to type). Closed HQ banners are in `State.dismissed`.
 - Steps mirror Zepp (`stepsPlan`/`stepsIn` in `steps.ts`, `stepsDetail` in `health.ts`):
   - Zepp's own Health Connect records are added up directly. Where they overlap, each stretch counts once from the newest record (what Health Connect does within one app), never through Health Connect's aggregate for Zepp: that applies its app priority list and gives 0 for an app left off it.
