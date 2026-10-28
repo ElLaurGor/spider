@@ -1,13 +1,14 @@
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { CaffeineCurve } from '@/components/caffeine-curve';
 import { lastCallText } from '@/lib/caffeine';
 import { DayPicker } from '@/components/day-picker';
 import { EntryEditor } from '@/components/entry-editor';
 import { FoodSuggestions } from '@/components/food-search';
+import { FoodWeekCard } from '@/components/food-week-card';
 import { PhotoViewer } from '@/components/photo-viewer';
 import { ReadinessCard } from '@/components/readiness-card';
 import { Bar, Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
@@ -16,8 +17,10 @@ import { HiddenEgg } from '@/components/swedish-year';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, fmtTime, WEEKDAYS } from '@/lib/dates';
 import { foodNutrients, type Food } from '@/lib/food-db';
-import { caffeineMg, coffeeOf, dayOf, kcalOf, nextWaterReminder, proteinOf, recentFoods, waterGoalFor, waterGoalParts, waterMl } from '@/lib/selectors';
+import { hiddenFoods, QUICK_MAX, quickAddOf, quickFoods, withPinned, withRemoved, withRestored } from '@/lib/quick-add';
+import { caffeineMg, coffeeOf, dayOf, kcalOf, nextWaterReminder, proteinOf, waterGoalFor, waterGoalParts, waterMl } from '@/lib/selectors';
 import { deletePhoto, getPhoto, type PhotoSource } from '@/lib/photos';
+import type { QuickFood } from '@/lib/types';
 import { useStore } from '@/lib/store';
 
 export default function Fuel() {
@@ -97,6 +100,7 @@ export default function Fuel() {
 
       <CoffeeCard day={day} />
       <FoodCard day={day} sharedPhoto={sharedPhoto} />
+      <FoodWeekCard onOpenDay={(k) => setPicked(k === todayKey ? null : k)} />
       <HiddenEgg id="fuel" align="flex-end" />
     </Screen>
   );
@@ -184,7 +188,9 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
   const [looking, setLooking] = useState(false);
   const meals = [...shownDay.food].sort((a, b) => a.at - b.at);
   const meal = meals.find((f) => f.id === editing);
-  const recent = recentFoods(state);
+  const quick = quickFoods(state);
+  const [editQuick, setEditQuick] = useState(false);
+  const [quickFood, setQuickFood] = useState<{ was?: string; food: QuickFood } | null>(null); // the quick-add food being edited or added
   const k = kcalOf(shownDay);
   const p = proteinOf(shownDay);
 
@@ -249,18 +255,36 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
         <Bar pct={k / s.kcalGoal} color={C.yellow} />
       </View>
 
-      {recent.length > 0 ? (
-        <View style={{ gap: 6 }}>
+      <View style={{ gap: 6 }}>
+        <Row style={{ justifyContent: 'space-between' }}>
           <T dim small>
             Quick add
           </T>
+          <Pressable onPress={() => setEditQuick(!editQuick)} hitSlop={8} accessibilityRole="button">
+            <T small style={{ color: C.green, fontWeight: '700' }}>
+              {editQuick ? 'Done' : 'Edit'}
+            </T>
+          </Pressable>
+        </Row>
+        {editQuick ? (
+          <QuickAddEditor
+            onEdit={(f) => setQuickFood({ was: f.name, food: f })}
+            onAdd={() =>
+              setQuickFood({ food: { name: picked ? `${picked.name} (${grams} g)` : name.trim(), kcal: Number(kcal) || 0, protein: Number(protein) || 0 } })
+            }
+          />
+        ) : quick.length > 0 ? (
           <Row gap={6} style={{ flexWrap: 'wrap' }}>
-            {recent.map((f) => (
+            {quick.map((f) => (
               <Chip key={f.name} label={`${f.name} · ${f.protein}g`} onPress={() => actions.addFood({ name: f.name, kcal: f.kcal, protein: f.protein }, day)} />
             ))}
           </Row>
-        </View>
-      ) : null}
+        ) : (
+          <T dim small>
+            {quickAddOf(state).auto === false ? 'Nothing pinned. Tap Edit to pin foods here.' : 'Foods you log often show up here. Tap Edit to pin your own.'}
+          </T>
+        )}
+      </View>
 
       <Row>
         {photo ? (
@@ -358,7 +382,84 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
           onClose={() => setEditing(null)}
         />
       ) : null}
+      {quickFood ? (
+        <EntryEditor
+          title={quickFood.was === undefined ? 'New quick-add food' : 'Quick-add food'}
+          name={quickFood.food.name}
+          numbers={[
+            { key: 'kcal', label: 'Calories', value: quickFood.food.kcal, step: 10, min: 0, max: 5000, suffix: 'kcal' },
+            { key: 'protein', label: 'Protein', value: quickFood.food.protein, step: 1, min: 0, max: 300, suffix: 'g' },
+          ]}
+          note="A tap on it logs these numbers. Put the portion in the name if it helps, e.g. Havregryn (60 g)."
+          onSave={(_, v) => {
+            const food = { name: v.name ?? '', kcal: v.numbers.kcal, protein: v.numbers.protein };
+            if (food.name.trim()) actions.editQuickAdd((q) => withPinned(q, food, quickFood.was));
+          }}
+          onDelete={quickFood.was === undefined ? undefined : () => actions.editQuickAdd((q) => withRemoved(q, quickFood.was ?? ''))}
+          onClose={() => setQuickFood(null)}
+        />
+      ) : null}
     </Card>
+  );
+}
+
+/** Quick add, edit mode: every food on the row (tap to change it, × to take it off), new ones, and the taken-off ones. */
+function QuickAddEditor({ onEdit, onAdd }: { onEdit: (f: QuickFood) => void; onAdd: () => void }) {
+  const { state, actions } = useStore();
+  const quick = quickFoods(state);
+  const hidden = hiddenFoods(state);
+  const auto = quickAddOf(state).auto !== false;
+  return (
+    <View style={{ gap: 8 }}>
+      {quick.map((f) => (
+        <Row key={f.name}>
+          <Icon name={f.pinned ? 'push_pin' : 'history'} size={16} color={f.pinned ? C.green : C.faint} />
+          <Pressable onPress={() => onEdit(f)} style={styles.foodRow} accessibilityRole="button" accessibilityLabel={`Edit ${f.name}`}>
+            <T style={{ flex: 1 }}>{f.name}</T>
+            <T small dim mono>
+              {f.kcal} kcal · {f.protein}g
+            </T>
+          </Pressable>
+          <Pressable
+            onPress={() => actions.editQuickAdd((q) => withRemoved(q, f.name))}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Take ${f.name} off quick add`}>
+            <Icon name="close" size={18} color={C.faint} />
+          </Pressable>
+        </Row>
+      ))}
+      <Btn label="Add a food" icon="add" kind="ghost" small onPress={onAdd} />
+      <Row style={{ justifyContent: 'space-between' }}>
+        <View style={{ flex: 1 }}>
+          <T small>Fill up with my most-logged foods</T>
+          <T dim small>
+            Pinned foods come first, then the month&apos;s most-logged up to {QUICK_MAX} in all.
+          </T>
+        </View>
+        <Switch
+          value={auto}
+          onValueChange={(v) => actions.editQuickAdd((q) => ({ ...q, auto: v }))}
+          trackColor={{ true: C.green, false: C.card2 }}
+          thumbColor={C.text}
+        />
+      </Row>
+      {hidden.length ? (
+        <View style={{ gap: 6 }}>
+          <T dim small>
+            Taken off (tap to put back)
+          </T>
+          <Row gap={6} style={{ flexWrap: 'wrap' }}>
+            {hidden.map((n) => (
+              <Chip key={n} label={`↩ ${n}`} onPress={() => actions.editQuickAdd((q) => withRestored(q, n))} />
+            ))}
+          </Row>
+        </View>
+      ) : null}
+      <T dim small>
+        Tap a food to change its name or numbers; saving pins it.
+      </T>
+    </View>
   );
 }
 

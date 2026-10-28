@@ -50,6 +50,14 @@ export function startOfWeek(d: Date | number = new Date()) {
   return addDays(x, -back);
 }
 
+/** ISO week number (Swedish "vecka"): week 1 holds the year's first Thursday. */
+export function isoWeek(d: Date | number) {
+  const thu = startOfDay(d);
+  thu.setDate(thu.getDate() + 3 - ((thu.getDay() + 6) % 7));
+  const jan4 = new Date(thu.getFullYear(), 0, 4);
+  return 1 + Math.round(((thu.getTime() - jan4.getTime()) / 86_400_000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+}
+
 export const fmtTime = (d: Date | number) => {
   const x = new Date(d);
   return `${pad(x.getHours())}:${pad(x.getMinutes())}`;

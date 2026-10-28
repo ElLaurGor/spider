@@ -83,7 +83,13 @@ export type Settings = {
   moveNudgeHour?: number | null; // workdays at this hour: a nudge to move (her stillest hour on the movement map); unset = off
   // step 4
   sl?: { siteId: number; name: string; routes: string[]; walkMin: number } | null; // SL departures card (lib/sl.ts); unset = no card
+  quickAdd?: QuickAdd; // Fuel's quick-add chips (lib/quick-add.ts); unset = the most-logged foods only
 };
+
+/** A one-tap food on Fuel's quick-add row. */
+export type QuickFood = { name: string; kcal: number; protein: number };
+/** Pinned foods (in order) come first; `hidden` (food keys, quick-add.ts foodKey) stay out of the most-logged fill, which `auto: false` turns off. */
+export type QuickAdd = { pinned: QuickFood[]; hidden: string[]; auto?: boolean };
 
 // `late`: added to a past day afterwards. Counts for that day's totals, never for quests, bosses or contracts.
 export type WaterEntry = { id: string; ml: number; at: number; late?: boolean };

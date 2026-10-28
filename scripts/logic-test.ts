@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-import { addDays, atTime, dayKey, fmtClock, fmtDuration, isDayKey, MIN, startOfWeek } from '../src/lib/dates';
+import { addDays, atTime, dayKey, fmtClock, fmtDuration, isDayKey, isoWeek, MIN, startOfWeek } from '../src/lib/dates';
+import { foodWeek } from '../src/lib/food-week';
+import { hiddenFoods, QUICK_MAX, quickAddOf, quickFoods, withPinned, withRemoved, withRestored } from '../src/lib/quick-add';
 import { defaultState, emptyDay, hydrate, idTime, withRealDays } from '../src/lib/defaults';
 import { BASE_KEY, changedMonths, daysByMonth, fingerprint, INDEX_KEY, monthKey, olderCopy, readSaved, ReadError, ROW_LIMIT, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from '../src/lib/persist';
 import { fillLine, freshLine, GOLDEN, LINES, line } from '../src/lib/lines';
@@ -235,6 +237,94 @@ assert.equal(slots.length, 10);
   assert.equal(foodBase('Ägg (2,5 g)'), 'Ägg');
   assert.equal(foodBase('Pasta (cooked)'), 'Pasta (cooked)');
 }
+
+// Fuel's food tests run in a function of their own: the module body is at TypeScript's control-flow size limit.
+function foodTests() {
+  // quick-add row: pinned foods first, the most-logged fill the rest; a food taken off stays off until put back
+  {
+    const q0 = defaultState();
+    const food = (id: string, name: string, kcal: number, protein: number, at: number) => ({ id, name, kcal, protein, at });
+    q0.days[dayKey()] = { ...emptyDay(), food: [food('a', 'Havregryn (60 g)', 220, 8, 1), food('b', 'Kvarg', 120, 20, 2), food('c', 'Havregryn (80 g)', 290, 10, 3), food('d', 'Ägg', 70, 6, 4)] };
+    const on = (q: ReturnType<typeof quickAddOf>) => ({ ...q0, settings: { ...q0.settings, quickAdd: q } });
+    const names = (q: ReturnType<typeof quickAddOf>) => quickFoods(on(q)).map((f) => `${f.pinned ? '📌' : ''}${f.name}`);
+    let q = quickAddOf(q0);
+    assert.deepEqual(names(q), ['Havregryn (80 g)', 'Kvarg', 'Ägg']);
+    q = withPinned(q, { name: ' Proteinbar ', kcal: 199.6, protein: 20 });
+    assert.deepEqual(quickFoods(on(q))[0], { name: 'Proteinbar', kcal: 200, protein: 20, pinned: true });
+    assert.deepEqual(names(q), ['📌Proteinbar', 'Havregryn (80 g)', 'Kvarg', 'Ägg']);
+    // editing a most-logged food pins it with its new numbers instead of the chip it was
+    q = withPinned(q, { name: 'Havregryn (60 g)', kcal: 220, protein: 8 }, 'Havregryn (80 g)');
+    assert.deepEqual(names(q), ['📌Proteinbar', '📌Havregryn (60 g)', 'Kvarg', 'Ägg']);
+    // taken off: out of the fill and listed to put back; a pinned one is unpinned too
+    q = withRemoved(withRemoved(q, 'Kvarg'), 'havregryn (60 g)');
+    assert.deepEqual(names(q), ['📌Proteinbar', 'Ägg']);
+    assert.deepEqual(hiddenFoods(on(q)), ['Havregryn', 'Kvarg']);
+    q = withRestored(q, 'Kvarg');
+    assert.deepEqual(names(q), ['📌Proteinbar', 'Kvarg', 'Ägg']);
+    // a renamed food keeps its place, and the old name stays off the row
+    q = withPinned(q, { name: 'Kvarg vanilj', kcal: 130, protein: 18 }, 'Kvarg');
+    q = withPinned(q, { name: 'Proteinbar choklad', kcal: 210, protein: 20 }, 'Proteinbar');
+    assert.deepEqual(names(q), ['📌Proteinbar choklad', '📌Kvarg vanilj', 'Ägg']);
+    // pinning what's already pinned replaces it; a blank name changes nothing
+    q = withPinned(q, { name: 'kvarg vanilj', kcal: 140, protein: 18 });
+    assert.deepEqual(q.pinned.map((f) => [f.name, f.kcal]), [['Proteinbar choklad', 210], ['kvarg vanilj', 140]]);
+    assert.equal(withPinned(q, { name: '  ', kcal: 1, protein: 1 }), q);
+    // the fill can be switched off: pinned foods only
+    assert.deepEqual(names({ ...q, auto: false }), ['📌Proteinbar choklad', '📌kvarg vanilj']);
+    assert.deepEqual(hiddenFoods(on({ ...q, auto: false })), []);
+    // pinned foods all show; the fill stops at QUICK_MAX chips
+    let many = quickAddOf(q0);
+    for (let i = 0; i <= QUICK_MAX; i++) many = withPinned(many, { name: `Mat ${i}`, kcal: 100, protein: 5 });
+    assert.equal(quickFoods(on(many)).length, QUICK_MAX + 1);
+    assert.ok(quickFoods(on(many)).every((f) => f.pinned));
+    assert.equal(quickFoods(on(withRemoved(withRemoved(many, 'Mat 0'), 'Mat 1'))).length, QUICK_MAX);
+  }
+
+  // the week of food: averages over finished days with numbers (photo-only meals and today left out), per-day protein goals
+  {
+    const fw = defaultState();
+    fw.settings.proteinGoal = 100;
+    const mon = startOfWeek(new Date(2026, 9, 28));
+    const k = (i: number) => dayKey(addDays(mon, i));
+    const meal = (id: string, name: string, kcal: number, protein: number) => ({ id, name, kcal, protein, at: 1 });
+    fw.days[k(0)] = { ...emptyDay(), food: [meal('a', 'Kvarg', 150, 25), meal('b', 'Havregryn (60 g)', 220, 8), meal('c', 'Lax', 600, 80)] };
+    fw.days[k(1)] = { ...emptyDay(), food: [meal('d', 'Kvarg', 150, 25), meal('e', 'Meal', 0, 0)] };
+    fw.days[k(2)] = { ...emptyDay(), food: [meal('f', 'Meal', 0, 0)] };
+    fw.days[k(3)] = { ...emptyDay(), food: [meal('g', 'Havregryn (80 g)', 290, 10)] };
+    const w = foodWeek(fw, new Date(2026, 9, 29, 12), k(3));
+    assert.equal(w.monday, '2026-10-26');
+    assert.deepEqual(w.days.map((d) => [d.kcal, d.protein, d.logged, d.done]).slice(0, 5), [
+      [970, 113, true, true],
+      [150, 25, true, true],
+      [0, 0, false, true],
+      [290, 10, true, false],
+      [0, 0, false, false],
+    ]);
+    assert.equal(w.counted, 2);
+    assert.equal(w.avgKcal, 560);
+    assert.equal(w.avgProtein, 69);
+    assert.equal(w.proteinPct, 49);
+    assert.deepEqual([w.proteinDays, w.goalDays], [1, 2]);
+    assert.equal(w.topProtein?.key, k(0));
+    assert.deepEqual([w.totalKcal, w.totalProtein], [1410, 148]);
+    assert.deepEqual(w.top, [{ name: 'Havregryn', n: 2 }, { name: 'Kvarg', n: 2 }]);
+    // a finished day goes by its own frozen protein goal
+    fw.days[k(1)].goals = { water: 2000, steps: 8000, gaming: 60, protein: 20, workout: null, habits: [] };
+    assert.deepEqual(((x) => [x.proteinDays, x.goalDays])(foodWeek(fw, mon, k(3))), [2, 2]);
+    fw.days[k(1)].goals = { water: 2000, steps: 8000, gaming: 60, protein: 0, workout: null, habits: [] };
+    assert.deepEqual(((x) => [x.proteinDays, x.goalDays])(foodWeek(fw, mon, k(3))), [1, 1]);
+    // a week with nothing logged
+    const none = foodWeek(fw, addDays(mon, -7), k(3));
+    assert.deepEqual([none.counted, none.avgKcal, none.proteinPct, none.topProtein, none.top.length], [0, null, null, null, 0]);
+    // Swedish week numbers (ISO): 2026 has 53 weeks
+    assert.equal(isoWeek(new Date(2026, 9, 28)), 44);
+    assert.equal(isoWeek(new Date(2025, 11, 29)), 1);
+    assert.equal(isoWeek(new Date(2026, 0, 1)), 1);
+    assert.equal(isoWeek(new Date(2027, 0, 1)), 53);
+    assert.equal(isoWeek(new Date(2027, 0, 4)), 1);
+  }
+}
+foodTests();
 
 // free-time finder + meeting detection (tomorrow, so "now" doesn't clip it)
 const tomorrow = atTime(new Date(), 1, 0);

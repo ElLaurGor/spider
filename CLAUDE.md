@@ -18,6 +18,7 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - Economy and progression: `economy.ts` (coins, chest, shop), `league.ts` (rival bots), `evolution.ts` (spider stages, themes).
   - Recaps: `insights.ts`, `wrapped.ts`, `records.ts` (Hall of Fame/Shame).
   - Other: `countdowns.ts`, `body-log.ts`, `mood.ts`.
+  - Food: `food-week.ts` (Fuel's week card: kcal and protein per day, averages over finished logged days, never graded) and `quick-add.ts` (pinned foods first, then the month's most-logged; `settings.quickAdd`, a taken-off food stays off via `hidden`).
 - Device and network code: `calendar.ts`, `health.ts`, `weather.ts` (Open-Meteo; past days come from `historical-forecast-api`, the forecast API only keeps ~43), `outside.ts` (pollen/AQI from Open-Meteo, SMHI warnings, Krisinformation VMA), `food-db.ts` (Open Food Facts), `photos.ts`, `backup.ts`.
 - Every fetch goes through `getJson()` in `http.ts` (timeout via AbortController). RN's fetch never times out on its own.
 - SMHI and VMA are matched on `settings.weather.county` ("Stockholms län"), which needs Swedish geocoding (`language=sv`). Old saves get it via `withCounty()`. From APK 1.5.0 a background task checks them while the app is closed too (see Background work).
@@ -87,6 +88,7 @@ npx expo-doctor
   - `npm run test:logic` runs `scripts/logic-test.ts`: offline checks of the pure modules. Extend it when changing logic. It also checks that every `{placeholder}` in `lines.ts` is in its known list.
   - `npm run test:live` runs `scripts/live-api-test.ts`: hits Open-Meteo, SMHI and Krisinformation and prints what came back.
   - Modules that import `@/constants/theme` (e.g. `records.ts`, `store.tsx`) can't load under tsx. Test their pure parts via other modules or leave them to tsc.
+  - `logic-test.ts`'s module body is at TypeScript's control-flow size limit (TS2563, which then breaks inference in other files too). Put new tests in a function of their own, like `foodTests()`.
 - Parallel work in git worktrees: new worktrees start at `origin/master`, which lags local master, so reset to `master` first. With a `node_modules` junction they share Metro's cache in TEMP, and an export can bundle another worktree's `src/app`. Export with a private `TEMP`/`TMP` and `--clear`. Delete the junction before `git worktree remove`.
 - Typed routes: `npx expo start --port 8099` run for ~45 s (e.g. `timeout 45 npx expo start --port 8099`) regenerates `.expo/types`; `--offline` does not.
 

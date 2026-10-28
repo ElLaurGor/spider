@@ -108,6 +108,7 @@ import type {
   Weekday,
   WorkoutDay,
   MoveWhy,
+  QuickAdd,
 } from './types';
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, needsPlaceInfo, samePlace, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
@@ -133,6 +134,7 @@ import { recheckDay, recheckTask, recordTask, uncheckTask } from './tasks';
 import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, planText, type CuePrompt } from './if-then';
 // step 6: moving a slipping workout
 import { copingPlan, copingWeekday, movedTo, moveDayName, moveTargets, withMove, withoutMove, withWhy } from './workout-move';
+import { quickAddOf } from './quick-add';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -1761,6 +1763,11 @@ function useStoreValue() {
 
       updateFood(id: string, patch: { at?: number; name?: string; kcal?: number; protein?: number }, key = dayKey()) {
         run((s) => patchDay(s, key, (d) => ({ ...d, food: d.food.map((f) => (f.id === id ? { ...f, ...patch } : f)) })));
+      },
+
+      /** Fuel's quick-add row: pin, edit, take off or put back a food (lib/quick-add.ts). */
+      editQuickAdd(change: (q: QuickAdd) => QuickAdd) {
+        run((s) => ({ ...s, settings: { ...s.settings, quickAdd: change(quickAddOf(s)) } }));
       },
 
       /** `undoable` (the × and the editor's Delete): a toast offers Undo, and the photo file waits until it's gone. */
