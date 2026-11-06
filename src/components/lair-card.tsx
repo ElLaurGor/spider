@@ -3,16 +3,20 @@ import { useEffect, useState } from 'react';
 import { Alert, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MODEL, SpiderModel } from '@/components/spider-model';
+import { RpsPanel, TankNews, TankShopFolk } from '@/components/tank-extras';
 import { Terrarium3D } from '@/components/terrarium-3d';
 import { useAwake } from '@/components/use-awake';
-import { Btn, Card, H, Row, T } from '@/components/ui';
+import { useToday } from '@/components/use-today';
+import { Btn, Card, H, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { worn } from '@/lib/cosmetics';
 import { eggKm } from '@/lib/egg-sacs';
+import { shelfOf } from '@/lib/expeditions';
 import { crashedInGl, glForgive } from '@/lib/gl-guard';
+import { GUESTS, guestLineKey } from '@/lib/guests';
 import { LAIR, LAIR_HOME, lairLeft, lairPieces, lairSpots, nextPiece, nextSpot, type LairPiece, type LairSpot } from '@/lib/lair';
 import { useStore } from '@/lib/store';
-import { moltState } from '@/lib/tank-life';
+import { moltState, tankLifeOf } from '@/lib/tank-life';
 
 const num = (n: number) => n.toLocaleString('sv-SE');
 
@@ -165,6 +169,7 @@ const SPECKS: Blob[] = [
  */
 export function TerrariumView({ onTap }: { onTap?: () => void }) {
   const [mode, setMode] = useState<'wait' | '3d' | 'flat' | 'crashed'>('wait');
+  const [playing, setPlaying] = useState(false); // step 9 tank: sten, sax, påse under the tank
   useEffect(() => {
     let on = true;
     crashedInGl().then((crashed) => {
@@ -174,11 +179,25 @@ export function TerrariumView({ onTap }: { onTap?: () => void }) {
       on = false;
     };
   }, []);
+  const game = playing ? <RpsPanel onClose={() => setPlaying(false)} /> : null;
   if (mode === 'wait') return <View style={styles.waiting} />;
-  if (mode === '3d') return <Terrarium3D onFail={() => setMode('flat')} onTap={onTap} />;
+  if (mode === '3d')
+    return (
+      <>
+        <Terrarium3D onFail={() => setMode('flat')} onTap={onTap} onPlay={() => setPlaying(true)} />
+        {game}
+      </>
+    );
   return (
     <>
       <Terrarium />
+      {game ?? (
+        <Pressable onPress={() => setPlaying(true)} accessibilityRole="button" hitSlop={6}>
+          <T dim small>
+            ✊ Play sten, sax, påse against the spider
+          </T>
+        </Pressable>
+      )}
       {mode === 'crashed' ? (
         <Pressable
           onPress={() => {
@@ -203,7 +222,19 @@ export function TerrariumView({ onTap }: { onTap?: () => void }) {
  * the middle of the floor while the screen is away or motion is reduced.
  */
 export function Terrarium() {
-  const { state } = useStore();
+  const { state, actions, quip, say, weather, health } = useStore();
+  // step 9 tank: out for the night, the shelf, today's guest, the party cake (looks only, as in 3D)
+  const today = useToday();
+  const now = useNow(60_000);
+  const life = tankLifeOf(state, { now, forecast: weather.data?.days.find((d) => d.date === today) ?? null, nights: health.data?.nights ?? null });
+  const away = life.mode === 'out';
+  const shelf = shelfOf(state);
+  const tapGuest = () => {
+    if (!life.guest) return;
+    if (!life.guest.awake) actions.wakeGuest();
+    const g = guestLineKey(state, life.guest.id, today);
+    say(`${GUESTS[life.guest.id].emoji} ${quip(g.key, { summary: g.summary })}`, 'info');
+  };
   const built = lairPieces(state);
   const next = nextPiece(state);
   const ids = built.map((p) => p.id).join(',');
@@ -315,8 +346,15 @@ export function Terrarium() {
       <View style={styles.rim} />
       {blobs(SPECKS)}
       <Pieces built={built} next={next} layer="back" />
-      {w && awake && thread ? <Animated.View style={[styles.thread, { left: threadX, height: threadH }]} /> : null}
-      {w ? (
+      {shelf.length ? (
+        <View style={styles.shelf}>
+          <Text style={styles.shelfItems}>{shelf.map((x) => x.emoji).join(' ')}</Text>
+        </View>
+      ) : null}
+      {life.party ? <Text style={[styles.abs, { left: '52%', top: '68%', fontSize: life.party.gentle ? 18 : 24 }]}>{life.party.gentle ? '🧁' : '🎂'}</Text> : null}
+      {away ? <Text style={[styles.abs, { left: '44%', top: '72%', fontSize: 18 }]}>📝</Text> : null}
+      {w && awake && thread && !away ? <Animated.View style={[styles.thread, { left: threadX, height: threadH }]} /> : null}
+      {w && !away ? (
         <Animated.View style={[styles.spider, { transform: [{ translateX: pos.x }, { translateY: pos.y }, { scale: depth }, { scaleY: squash }] }]}>
           <Animated.View style={[styles.shadow, { opacity: shadow }]} />
           <Animated.View style={{ transform: [{ rotate: turn }] }}>
@@ -337,7 +375,20 @@ export function Terrarium() {
       </View>
       <Pieces built={built} next={next} layer="top" />
       <View style={styles.base} />
-      {w && awake && act ? (
+      {life.guest ? (
+        <Pressable onPress={tapGuest} style={styles.guest} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${GUESTS[life.guest.id].name}. Tap to ${life.guest.awake ? 'hear from it' : 'wake it'}.`}>
+          <Text style={{ fontSize: 20, opacity: life.guest.awake ? 1 : 0.7 }}>
+            {GUESTS[life.guest.id].emoji}
+            {life.guest.awake ? '' : '💤'}
+          </Text>
+        </Pressable>
+      ) : null}
+      {away ? (
+        <View style={styles.note}>
+          <Text style={styles.noteText}>📝 Out. Don&apos;t wait up.</Text>
+        </View>
+      ) : null}
+      {w && awake && act && !away ? (
         <Animated.View style={[styles.spider, { transform: [{ translateX: pos.x }, { translateY: pos.y }] }]}>
           <Text style={styles.act}>{act}</Text>
         </Animated.View>
@@ -376,6 +427,7 @@ export function LairCard() {
             {[molt.premolt ? `🕷️ ${premoltNote(molt.toGo)}` : null, egg ? `🥚 ${eggKm(state, egg).toFixed(1)} / ${egg.km} km to hatch` : null].filter(Boolean).join(' · ')}
           </T>
         ) : null}
+        <TankNews />
       </Card>
     </Pressable>
   );
@@ -439,6 +491,7 @@ export function LairShop() {
       </T>
       <TerrariumView />
       <TankFolk />
+      <TankShopFolk />
       {LAIR.map((p) => {
         const inside = have.includes(p.id);
         const isNext = next?.id === p.id;
@@ -486,4 +539,10 @@ const styles = StyleSheet.create({
   base: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, backgroundColor: '#2B3038' },
   act: { position: 'absolute', left: MODEL / 2 + 6, top: MODEL / 2 - 30, fontSize: 15 },
   inside: { color: C.green, fontFamily: MONO, fontSize: 11, fontWeight: '800' },
+  // step 9 tank
+  shelf: { position: 'absolute', left: '50%', top: '24%', paddingHorizontal: 4, borderBottomWidth: 3, borderBottomColor: '#7A5636', pointerEvents: 'none' },
+  shelfItems: { fontSize: 12 },
+  guest: { position: 'absolute', left: '70%', top: '58%' },
+  note: { position: 'absolute', left: 0, right: 0, bottom: 8, alignItems: 'center', pointerEvents: 'none' },
+  noteText: { color: C.text, fontSize: 12, fontWeight: '700', backgroundColor: C.card2, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
 });

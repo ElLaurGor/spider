@@ -2783,6 +2783,446 @@ export const LINES = {
     mild: ['Waiting on {title}. It comes back as a task {day}.', '{title}: on hold until {day}, then you chase it.'],
     savage: ['{title}: the ball is in their court until {day}. Then it is in yours.', 'Waiting on {title}. If nothing arrives by {day}, we chase.'],
   },
+  // ---- step 9 tank ----
+  // Night expeditions (expeditions.ts): the toast when it comes back, then the two-line story, picked by the night
+  // (dayLine), the same in both lists: a night out is a story, not a roast. {title}: the souvenir, {day}: the
+  // holiday that evening, {forecast}: the night's low ("−3°").
+  tripBack: {
+    mild: [
+      "Back from a night out with {title}. It's on the shelf.",
+      'The spider came home at dawn with {title}. Shelf updated.',
+      'Night out over. Souvenir: {title}.',
+      "Home again, carrying {title}. Don't ask where it found it.",
+    ],
+    savage: [
+      "Back from a night out with {title}. It's on the shelf.",
+      'The spider came home at dawn with {title}. Shelf updated.',
+      'Night out over. Souvenir: {title}.',
+      "Home again, carrying {title}. Don't ask where it found it.",
+    ],
+  },
+  tripWinter: {
+    mild: [
+      'Skated the length of Brunnsviken in the dark. Found {title} by the shore.',
+      'Rode the last tunnelbana to the end of the line and back. Came home with {title}.',
+      'Followed the street lights all the way down Drottninggatan. Kept {title}.',
+      'Spent the night in a bus shelter at Slussen, watching the snowplows. Brought back {title}.',
+    ],
+    savage: [
+      'Skated the length of Brunnsviken in the dark. Found {title} by the shore.',
+      'Rode the last tunnelbana to the end of the line and back. Came home with {title}.',
+      'Followed the street lights all the way down Drottninggatan. Kept {title}.',
+      'Spent the night in a bus shelter at Slussen, watching the snowplows. Brought back {title}.',
+    ],
+  },
+  tripSpring: {
+    mild: [
+      'Went to hear the blackbirds start up in Vasaparken. Brought back {title}.',
+      'Walked the quay at Skeppsholmen while the ice broke up. Found {title}.',
+      'Took the night bus out to Djurgården to check on the spring. Came home with {title}.',
+    ],
+    savage: [
+      'Went to hear the blackbirds start up in Vasaparken. Brought back {title}.',
+      'Walked the quay at Skeppsholmen while the ice broke up. Found {title}.',
+      'Took the night bus out to Djurgården to check on the spring. Came home with {title}.',
+    ],
+  },
+  tripSummer: {
+    mild: [
+      'It never got dark, so it never came home early. Brought back {title}.',
+      'Took a night ferry out past Fjäderholmarna. Came home with {title}.',
+      'Sat on the cliffs at Skinnarviksberget until sunrise, which came almost at once. Kept {title}.',
+    ],
+    savage: [
+      'It never got dark, so it never came home early. Brought back {title}.',
+      'Took a night ferry out past Fjäderholmarna. Came home with {title}.',
+      'Sat on the cliffs at Skinnarviksberget until sunrise, which came almost at once. Kept {title}.',
+    ],
+  },
+  tripAutumn: {
+    mild: [
+      'Hunted for mushrooms in Lill-Jansskogen by moonlight. Found {title} instead.',
+      'Walked along Söder Mälarstrand counting lit windows. Brought back {title}.',
+      'Hid under a park bench in Humlegården while the leaves came down. Kept {title}.',
+    ],
+    savage: [
+      'Hunted for mushrooms in Lill-Jansskogen by moonlight. Found {title} instead.',
+      'Walked along Söder Mälarstrand counting lit windows. Brought back {title}.',
+      'Hid under a park bench in Humlegården while the leaves came down. Kept {title}.',
+    ],
+  },
+  tripFeast: {
+    mild: [
+      'Snuck into a {day} party in Vasastan. Came home with {title}.',
+      'Spent {day} night out on the town. Souvenir: {title}.',
+      'Followed the {day} crowd until it went home, then went home too. Kept {title}.',
+    ],
+    savage: [
+      'Snuck into a {day} party in Vasastan. Came home with {title}.',
+      'Spent {day} night out on the town. Souvenir: {title}.',
+      'Followed the {day} crowd until it went home, then went home too. Kept {title}.',
+    ],
+  },
+  tripSnow: {
+    mild: [
+      'It snowed the whole way home. {forecast} and worth it.',
+      'Left eight tiny tracks in the fresh snow. {forecast} at the coldest.',
+      'Got caught in the snow and rode home on a snowplow. {forecast}.',
+    ],
+    savage: [
+      'It snowed the whole way home. {forecast} and worth it.',
+      'Left eight tiny tracks in the fresh snow. {forecast} at the coldest.',
+      'Got caught in the snow and rode home on a snowplow. {forecast}.',
+    ],
+  },
+  tripRain: {
+    mild: [
+      'It rained, so it hid under a café awning half the night.',
+      "Came home soaked. The rain didn't stop once.",
+      'Waited out the rain in a phone box. Stockholm still has one, apparently.',
+    ],
+    savage: [
+      'It rained, so it hid under a café awning half the night.',
+      "Came home soaked. The rain didn't stop once.",
+      'Waited out the rain in a phone box. Stockholm still has one, apparently.',
+    ],
+  },
+  tripFrost: {
+    mild: [
+      '{forecast} out there. The frost on the railings was spectacular.',
+      'A clear, frosty night, {forecast}. Every star was out.',
+      '{forecast} and frost on everything. Eight cold feet, one warm heart.',
+    ],
+    savage: [
+      '{forecast} out there. The frost on the railings was spectacular.',
+      'A clear, frosty night, {forecast}. Every star was out.',
+      '{forecast} and frost on everything. Eight cold feet, one warm heart.',
+    ],
+  },
+  tripWarm: {
+    mild: [
+      'A warm night, {forecast} even at the coolest. Perfect for wandering.',
+      'Still {forecast} at dawn. Half the city was out too.',
+      'A mild night, {forecast}. It could have stayed out till noon.',
+    ],
+    savage: [
+      'A warm night, {forecast} even at the coolest. Perfect for wandering.',
+      'Still {forecast} at dawn. Half the city was out too.',
+      'A mild night, {forecast}. It could have stayed out till noon.',
+    ],
+  },
+  tripFog: {
+    mild: [
+      'Fog over the water all night. It got lost twice, on purpose.',
+      'So foggy it walked past its own tank twice.',
+      'The fog swallowed the bridges. It found its way home by the street lamps.',
+    ],
+    savage: [
+      'Fog over the water all night. It got lost twice, on purpose.',
+      'So foggy it walked past its own tank twice.',
+      'The fog swallowed the bridges. It found its way home by the street lamps.',
+    ],
+  },
+  tripCalm: {
+    mild: [
+      'A quiet night, {forecast}. Nothing much happened, which was the point.',
+      'Grey and still, {forecast}. A good night for thinking.',
+      '{forecast} and calm. The city was asleep, mostly.',
+    ],
+    savage: [
+      'A quiet night, {forecast}. Nothing much happened, which was the point.',
+      'Grey and still, {forecast}. A good night for thinking.',
+      '{forecast} and calm. The city was asleep, mostly.',
+    ],
+  },
+  tripNoWeather: {
+    mild: [
+      "It won't say what the weather did. Probably fine.",
+      "Weather report: it wasn't looking at the sky.",
+      'No idea what the sky did. It was busy.',
+    ],
+    savage: [
+      "It won't say what the weather did. Probably fine.",
+      "Weather report: it wasn't looking at the sky.",
+      'No idea what the sky did. It was busy.',
+    ],
+  },
+  // Rare guests (guests.ts): each in its own voice on the day's logs ({summary}: water, training, tasks, habits,
+  // focus, steps; never food, mood, sleep or the body), and a quiet pool for kind days, kind in both lists.
+  guestJumper: {
+    mild: [
+      "{summary}! On Gotland that would be a whole summer's news.",
+      "I jumped all the way here and you've done {summary}. Impressive.",
+      'Hej! Lost, but I see {summary} so far. Nice place.',
+    ],
+    savage: [
+      '{summary}? On Gotland the sheep do more. Kidding. Mostly.',
+      'Jumped two hundred kilometres to find {summary}. I expected more drama.',
+      "{summary}. Small spider, big eyes. I'm watching the rest of the day.",
+    ],
+  },
+  guestJumperQuiet: {
+    mild: [
+      "Just resting here a while. Don't mind me.",
+      'Lost my way, found a warm tank. Mind if I stay?',
+      "Big eyes, small spider. I'll keep you company today.",
+    ],
+    savage: [
+      "Just resting here a while. Don't mind me.",
+      'Lost my way, found a warm tank. Mind if I stay?',
+      "Big eyes, small spider. I'll keep you company today.",
+    ],
+  },
+  guestReginald: {
+    mild: [
+      "Ahem. Today's chronicle: {summary}. Splendid stuff.",
+      'I shall note it for posterity: {summary}.',
+      'Observe, dear viewer: {summary}. A respectable day.',
+    ],
+    savage: [
+      'Ahem. The record shows {summary}. One has seen grander days.',
+      '{summary}. I have narrated nature documentaries with more plot.',
+      'Let the minutes reflect: {summary}. The minutes are unmoved.',
+    ],
+  },
+  guestReginaldQuiet: {
+    mild: [
+      'Sir Reginald, at your service. Today I shall simply sit here, nobly.',
+      'No narration today. Just a harvestman and his host, keeping company.',
+      "A quiet day suits a gentleman. I'll stay by the glass.",
+    ],
+    savage: [
+      'Sir Reginald, at your service. Today I shall simply sit here, nobly.',
+      'No narration today. Just a harvestman and his host, keeping company.',
+      "A quiet day suits a gentleman. I'll stay by the glass.",
+    ],
+  },
+  // Sir Reginald narrates the spider for an hour once woken (guests.ts narrating), nature-documentary style.
+  guestReginaldNarrates: {
+    mild: [
+      'And here we see the spider, crossing the moss with tremendous purpose.',
+      'The spider pauses. Is it thinking? Is it resting? We may never know.',
+      'A rare sight: the spider, in its natural habitat, being a spider.',
+      'Notice the legs. All eight of them, working in perfect harmony.',
+      'The spider approaches the glass. Our host, it seems, is being watched back.',
+      'Silence in the terrarium. Only the soft patter of eight feet.',
+    ],
+    savage: [
+      'And here we see the spider, crossing the moss with tremendous purpose.',
+      'The spider pauses. Is it thinking? Is it resting? We may never know.',
+      'A rare sight: the spider, in its natural habitat, being a spider.',
+      'Notice the legs. All eight of them, working in perfect harmony.',
+      'The spider approaches the glass. Our host, it seems, is being watched back.',
+      'Silence in the terrarium. Only the soft patter of eight feet.',
+    ],
+  },
+  guestOrb: {
+    mild: [
+      "Spinning season! And you've got {summary}. Lovely work.",
+      "I weave a wheel a night. You've woven {summary}. Same thing, really.",
+      '{summary}. Neat as a fresh web.',
+    ],
+    savage: [
+      '{summary}. My web has more rings than your day has entries.',
+      'I rebuild my whole web every night. You managed {summary}.',
+      "{summary}. Autumn's busy. Keep up.",
+    ],
+  },
+  guestOrbQuiet: {
+    mild: [
+      "Autumn's long. I'll sit in the corner and keep you company.",
+      'No web today. Just company.',
+      'Resting my spinnerets. Glad to be here with you.',
+    ],
+    savage: [
+      "Autumn's long. I'll sit in the corner and keep you company.",
+      'No web today. Just company.',
+      'Resting my spinnerets. Glad to be here with you.',
+    ],
+  },
+  guestHouse: {
+    mild: [
+      'God jul! I see {summary}. A fine gift to yourself.',
+      'Visiting for jul. {summary} so far. Very cosy.',
+      '{summary}. The house spider approves, with tinsel.',
+    ],
+    savage: [
+      '{summary}. Even the tomte works harder in December.',
+      "Jul is coming and you've got {summary}. The gnomes are talking.",
+      '{summary}. I came in from the cold for this?',
+    ],
+  },
+  guestHouseQuiet: {
+    mild: [
+      "Just in from the cold. Let's sit by the glass a while.",
+      'God jul. No reviews today, only company.',
+      "Warm tank, dark evening. I'll stay close.",
+    ],
+    savage: [
+      "Just in from the cold. Let's sit by the glass a while.",
+      'God jul. No reviews today, only company.',
+      "Warm tank, dark evening. I'll stay close.",
+    ],
+  },
+  guestSpy: {
+    mild: [
+      'Pebble report: {summary}. Transmitting to the Syndicate. Beep.',
+      'I am a pebble. Pebbles notice things like {summary}.',
+      'Intelligence gathered: {summary}. This pebble is impressed.',
+    ],
+    savage: [
+      'Pebble report: {summary}. The Syndicate will be thrilled. Or bored.',
+      'Noted for the dossier: {summary}. Your secrets are safe with this rock.',
+      '{summary}. They sent a whole pebble for this?',
+    ],
+  },
+  guestSpyQuiet: {
+    mild: [
+      'I am a pebble. Pebbles keep quiet and keep you company.',
+      'Off duty today. Just a rock that likes you.',
+      'No reports today. Even spies take a day off.',
+    ],
+    savage: [
+      'I am a pebble. Pebbles keep quiet and keep you company.',
+      'Off duty today. Just a rock that likes you.',
+      'No reports today. Even spies take a day off.',
+    ],
+  },
+  // A guest's gift, the morning after: {title} the guest, {reward} coins or its keepsake. Kind in both.
+  guestLeft: {
+    mild: [
+      '{title} left in the night and left you {reward}.',
+      '{title} has gone home and left {reward} behind.',
+      'The guest is gone. {title} left {reward} on the moss.',
+    ],
+    savage: [
+      '{title} left in the night and left you {reward}.',
+      '{title} has gone home and left {reward} behind.',
+      'The guest is gone. {title} left {reward} on the moss.',
+    ],
+  },
+  // Hatch day and the hundreds (hatch-day.ts): {n} years, or {n} days used. On a rough day only partyGentle (kind in both).
+  partyYear: {
+    mild: [
+      '{n} years since the spider hatched. Cake on the moss, guests at the glass.',
+      'Hatch day! {n} years of you and the spider. It made a speech.',
+      '{n} years together. The spider is reading out your firsts.',
+    ],
+    savage: [
+      '{n} years since it hatched, and the spider remembers everything. Every. Thing.',
+      'Hatch day, {n} years. It baked a cake and invited the rivals. Risky.',
+      '{n} years. The spider reads your firsts aloud. Some of them twice.',
+    ],
+  },
+  partyHundred: {
+    mild: [
+      'Day {n} together. Cake on the moss, and a scroll of firsts.',
+      '{n} days with something logged. The spider threw a party.',
+      "That's {n} days. The spider wrote down the highlights.",
+    ],
+    savage: [
+      'Day {n}. The spider kept count, so you never had to.',
+      'Day {n}. It invited the rivals to gloat politely.',
+      '{n} days in. The scroll of firsts is getting long.',
+    ],
+  },
+  partyGentle: {
+    mild: [
+      'A quiet party today. The cake will keep.',
+      "Just you, the spider and a small cake. That's plenty.",
+      'A gentle one: a small cake, and the scroll of firsts read softly.',
+    ],
+    savage: [
+      'A quiet party today. The cake will keep.',
+      "Just you, the spider and a small cake. That's plenty.",
+      'A gentle one: a small cake, and the scroll of firsts read softly.',
+    ],
+  },
+  // Sten, sax, påse (rps.ts). {finding}: her real numbers ("You open with rock 64% of the time."); {count}–{n}: the match score, hers first.
+  rpsTaunt: {
+    mild: [
+      '{finding} Just an observation.',
+      "{finding} I'm only saying.",
+      '{finding} Make of that what you will.',
+    ],
+    savage: [
+      '{finding} I keep notes.',
+      "{finding} You're an open book.",
+      '{finding} Predictable, but charming.',
+    ],
+  },
+  rpsRoundYou: {
+    mild: [
+      'Your round. Nicely thrown.',
+      'You got me there.',
+      'Point to you.',
+    ],
+    savage: [
+      'Lucky. Very lucky.',
+      "Fine. That one's yours.",
+      'I let you have that one. Obviously.',
+    ],
+  },
+  rpsRoundSpider: {
+    mild: [
+      'My round.',
+      'Point to the spider.',
+      'Got you that time.',
+    ],
+    savage: [
+      'Saw that coming a mile off.',
+      'Too easy.',
+      'Read you like a web.',
+    ],
+  },
+  rpsRoundDraw: {
+    mild: [
+      'Same throw. Great minds.',
+      'A draw. Again!',
+      'Snap. Nobody scores.',
+    ],
+    savage: [
+      'Copying me now?',
+      'Stop reading my mind.',
+      'Draw. Annoying for both of us.',
+    ],
+  },
+  rpsMatchWon: {
+    mild: [
+      'You win the match, {count}–{n}. +{coins} 🪙.',
+      'Match to you, {count}–{n}. +{coins} 🪙. Rematch?',
+    ],
+    savage: [
+      '{count}–{n} to you. +{coins} 🪙. I demand a rematch.',
+      'You beat me {count}–{n}. +{coins} 🪙. Enjoy it while it lasts.',
+    ],
+  },
+  rpsMatchWonFree: {
+    mild: [
+      "You win, {count}–{n}. The coins are done for today, the glory isn't.",
+    ],
+    savage: [
+      '{count}–{n} to you. No coins left today, just bragging rights.',
+    ],
+  },
+  rpsMatchLost: {
+    mild: [
+      'The spider takes it, {count}–{n}. Good game.',
+      '{count}–{n} to the spider. Another?',
+    ],
+    savage: [
+      '{count}–{n}. The spider wins. As predicted.',
+      '{count}–{n} to me. I had your numbers.',
+    ],
+  },
+  rpsMatchDraw: {
+    mild: [
+      'A draw, {count}–{n}. Evenly matched.',
+    ],
+    savage: [
+      '{count}–{n}. A draw. Neither of us will speak of it.',
+    ],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

@@ -3,11 +3,15 @@
 // branch, rises to the web on a thread and hides under the bark. What it does and how the tank looks follow the
 // app (tank-life.ts, fed in with `setLife`): the real day and night, the owner's sleep, Web Focus and gaming, kind
 // days, today's web, molts, growing plants, the weather, the season, the worn pet and hat, a fly to catch, egg sacs
-// and spiderlings, and replays of what was just logged. Pure scene code with no renderer, so the tests can run it;
+// and spiderlings, and replays of what was just logged. Step 9: nights out (an empty tank and a note), the shelf of
+// souvenirs, a rare guest (the spider model recoloured, asleep until tapped), the party cake with tiny guests and
+// the scroll, and the spider's throw in sten, sax, påse. Pure scene code with no renderer, so the tests can run it;
 // components/terrarium-3d.tsx draws it with expo-gl. Units: the tank is 10 wide (x), 6 deep (z, the front glass at
 // +3) and 5.5 high (y), the substrate's surface at y = 0. The spider faces +z at yaw 0.
 import * as THREE from 'three';
 
+import type { SouvenirShape } from './expeditions';
+import type { GuestLook } from './guests';
 import { lairSpots } from './lair';
 import { IDLE_LIFE, sizeAfter, SKINS_SHOWN, type Dressing, type HatShape, type PetMotion, type TankEvent, type TankLife, type TankMode, type WebSpec } from './tank-life';
 
@@ -67,6 +71,12 @@ const COSY: Spot3D = { id: 'cosy', pos: v(-0.5, 0, 2.05), mode: 'floor', face: 0
 const NAP: Spot3D = { id: 'nap', pos: v(0.4, 3.2, -1.6), mode: 'hang', entry: v(0.4, 0, -1.6), act: '💤' };
 const SUN = v(1.3, 0, 1.95);
 const SUN_SPOT: Spot3D = { id: 'sun', pos: SUN.clone(), mode: 'floor', face: 0, act: '☀️' };
+/** Step 9: the party cake on the moss and where the spider reads its scroll; where a guest sleeps; the note left on a night out; the souvenir shelf on the back glass. */
+const CAKE = v(0.75, 0, 2.15);
+const PARTY_SPOT: Spot3D = { id: 'party', pos: v(0.75, 0, 0.85), mode: 'floor', face: 0, act: '📜' };
+const GUEST_AT = v(2.35, 0, 1.85);
+const NOTE_AT = v(-0.35, 0, 1.55);
+const SHELF = { x0: 0.45, x1: 2.75, y: 1.75, z: -TANK.d / 2 + 0.2 };
 /** Where each molt happens, so its shed skin stays right there. */
 const SKIN_SLOTS = [v(-2.6, 0, -0.9), v(2.4, 0, -2.1), v(0.2, 0, 2.3), v(-0.6, 0, -2.2), v(4.3, 0, -0.2)];
 const FLOOR = { x: TANK.w / 2 - 0.8, z: TANK.d / 2 - 0.6 };
@@ -172,14 +182,22 @@ export const SPIDER_SCALE = 1.55;
 const SKIN = { color: '#2a1f1b', roughness: 0.62, sheen: 0.8 };
 const PREMOLT = { color: '#120c0a', roughness: 0.3, sheen: 1 };
 
-function buildSpider(marking: THREE.ColorRepresentation) {
+/** A different spider from the same model (step 9's guests): other colours, longer or shorter legs, a bigger abdomen. */
+type SpiderOpts = { skin?: string; leg?: string; legScale?: number; abdomen?: number };
+/** How far the body sits above (or below) the usual hip height for legs `k` times as long, so the feet stay on the floor. */
+const liftFor = (k: number) => 0.33 * (k - 1);
+
+function buildSpider(marking: THREE.ColorRepresentation, o: SpiderOpts = {}) {
+  const k = o.legScale ?? 1;
+  const thin = k > 1.2 ? 0.65 : 1; // long legs are thin ones
   const root = new THREE.Group();
   root.scale.setScalar(SPIDER_SCALE);
   const body = new THREE.Group();
+  body.position.y = liftFor(k);
   root.add(body);
-  const skin = new THREE.MeshPhysicalMaterial({ color: SKIN.color, roughness: SKIN.roughness, sheen: SKIN.sheen, sheenColor: new THREE.Color('#7a5c48'), sheenRoughness: 0.7 });
+  const skin = new THREE.MeshPhysicalMaterial({ color: o.skin ?? SKIN.color, roughness: SKIN.roughness, sheen: SKIN.sheen, sheenColor: new THREE.Color('#7a5c48'), sheenRoughness: 0.7 });
   const bellyMat = skin.clone(); // premolt darkens and glosses it
-  const legMat = new THREE.MeshPhysicalMaterial({ color: '#3a2b25', roughness: 0.6, sheen: 0.6, sheenColor: new THREE.Color('#6b5040'), sheenRoughness: 0.7 });
+  const legMat = new THREE.MeshPhysicalMaterial({ color: o.leg ?? '#3a2b25', roughness: 0.6, sheen: 0.6, sheenColor: new THREE.Color('#6b5040'), sheenRoughness: 0.7 });
   const jointMat = std('#7a5e4c', 0.6);
   const markMat = std(marking, 0.45, { emissive: new THREE.Color(marking), emissiveIntensity: 0.18 });
   const eyeMat = std('#050505', 0.06, { metalness: 0.2 });
@@ -196,6 +214,7 @@ function buildSpider(marking: THREE.ColorRepresentation) {
   const abdomen = new THREE.Group();
   abdomen.position.set(0, 0.42, -0.2);
   abdomen.rotation.x = -0.15;
+  abdomen.scale.setScalar(o.abdomen ?? 1);
   body.add(abdomen);
   const belly = new THREE.Mesh(new THREE.SphereGeometry(0.36, 28, 20), bellyMat);
   belly.scale.set(0.82, 0.72, 1.1);
@@ -253,21 +272,21 @@ function buildSpider(marking: THREE.ColorRepresentation) {
       const femur = new THREE.Group();
       femur.rotation.z = T1;
       hip.add(femur);
-      const [l1, l2, l3] = [0.42 * def.scale, 0.5 * def.scale, 0.22 * def.scale];
-      femur.add(segment(l1, 0.045, legMat));
+      const [l1, l2, l3] = [0.42 * def.scale * k, 0.5 * def.scale * k, 0.22 * def.scale * k];
+      femur.add(segment(l1, 0.045 * thin, legMat));
       const knee = new THREE.Group();
       knee.position.x = l1;
       knee.rotation.z = T2;
       femur.add(knee);
       const kneeCap = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), jointMat);
       knee.add(kneeCap);
-      knee.add(segment(l2, 0.036, legMat));
+      knee.add(segment(l2, 0.036 * thin, legMat));
       const ankle = new THREE.Group();
       ankle.position.x = l2;
       ankle.rotation.z = T3;
       knee.add(ankle);
       ankle.add(new THREE.Mesh(new THREE.SphereGeometry(0.034, 8, 6), jointMat));
-      ankle.add(segment(l3, 0.026, legMat));
+      ankle.add(segment(l3, 0.026 * thin, legMat));
       body.add(hip);
       // alternating tetrapod: L1 R2 L3 R4 step together, then R1 L2 R3 L4
       legs.push({ hip, femur, knee, base, side, phase: (i % 2 === 0) === (side === 1) ? 0 : Math.PI, t1: T1, t2: T2, pair: i });
@@ -295,7 +314,7 @@ function buildSpider(marking: THREE.ColorRepresentation) {
   const hatMount = new THREE.Group();
   hatMount.position.set(0, 0.135, 0.1);
   front.add(hatMount);
-  return { root, body, front, abdomen, legs, palps, markMat, bellyMat, hatMount };
+  return { root, body, front, abdomen, legs, palps, markMat, bellyMat, hatMount, lift: liftFor(k), abdomenScale: o.abdomen ?? 1 };
 }
 
 /** A small spider as one geometry (one draw call): for shed skins and spiderlings. Its feet stand at y = 0. */
@@ -868,6 +887,92 @@ function buildBug(motion: PetMotion, fly: string) {
   return { group: g, wings, glowMat };
 }
 
+// ---- step 9: souvenirs, the party, the note ----
+
+/** A souvenir on the shelf (expeditions.ts SOUVENIRS), standing on y = 0. */
+function souvenirMesh(shape: SouvenirShape, color: string): THREE.Mesh {
+  const shiny = shape === 'coin' || shape === 'screw';
+  const mat = std(color, shiny ? 0.35 : 0.8, shiny ? { metalness: 0.6 } : {});
+  if (shape === 'card') {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.17, 0.015), mat);
+    m.position.y = 0.085;
+    m.rotation.set(-0.2, 0.15, 0);
+    return m;
+  }
+  if (shape === 'berry') {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), mat);
+    m.position.y = 0.075;
+    return m;
+  }
+  if (shape === 'screw') {
+    const m = new THREE.Mesh(merged([rod(v(-0.11, 0.03, 0), v(0.09, 0.03, 0), 0.022, 8), placed(new THREE.CylinderGeometry(0.05, 0.05, 0.03, 10), v(0.1, 0.03, 0), v(1, 1, 1), new THREE.Euler(0, 0, Math.PI / 2))]), mat);
+    m.rotation.y = 0.4;
+    return m;
+  }
+  if (shape === 'crumb') {
+    const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.07, 0), mat);
+    m.position.y = 0.05;
+    return m;
+  }
+  if (shape === 'pebble') {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 1), mat);
+    m.scale.set(1, 0.6, 0.8);
+    m.position.y = 0.06;
+    return m;
+  }
+  if (shape === 'needle') {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 5), mat);
+    m.rotation.set(0, 0.5, Math.PI / 2);
+    m.position.y = 0.015;
+    return m;
+  }
+  if (shape === 'leaf' || shape === 'feather') {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 6), std(color, 0.8, { side: THREE.DoubleSide }));
+    m.scale.set(shape === 'leaf' ? 0.9 : 0.25, 1, 0.08);
+    m.position.y = 0.11;
+    m.rotation.z = shape === 'leaf' ? 0.3 : -0.25;
+    return m;
+  }
+  if (shape === 'coin') {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.015, 16), mat);
+    m.rotation.x = Math.PI / 2 - 0.25;
+    m.position.y = 0.07;
+    return m;
+  }
+  const m = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 10), mat); // cone: a party hat
+  m.position.y = 0.08;
+  return m;
+}
+
+/** The party cake on the moss: two tiers, icing and a candle a year (one for a hundredth day), flames that flicker. Gentle: smaller. */
+function buildCake(candles: number, gentle: boolean): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'cake';
+  const sponge = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.44, 0.28, 24), std('#f4e3c3', 0.85));
+  sponge.position.y = 0.14;
+  const icing = new THREE.Mesh(new THREE.CylinderGeometry(0.43, 0.43, 0.06, 24), std('#ff9ec7', 0.6));
+  icing.position.y = 0.3;
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.18, 20), std('#f4e3c3', 0.85));
+  top.position.y = 0.42;
+  g.add(sponge, icing, top);
+  const flame = new THREE.MeshBasicMaterial({ color: '#ffcc66' });
+  const wax = std('#ffffff', 0.7);
+  const n = Math.max(1, Math.min(5, candles));
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const r = n === 1 ? 0 : 0.15;
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.16, 8), wax);
+    c.position.set(Math.cos(a) * r, 0.59, Math.sin(a) * r);
+    const f = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.08, 8), flame);
+    f.position.set(Math.cos(a) * r, 0.71, Math.sin(a) * r);
+    f.name = 'flicker';
+    g.add(c, f);
+  }
+  g.position.copy(CAKE);
+  g.scale.setScalar(gentle ? 0.75 : 1);
+  return g;
+}
+
 // ---- the spider's plans ----
 
 type Anim = 'drink' | 'flex' | 'wave' | 'wrap' | 'curl' | 'still' | 'bask';
@@ -910,7 +1015,7 @@ const angleDelta = (a: number, b: number) => ((((b - a) % (Math.PI * 2)) + Math.
 // ---- the world ----
 
 export type World = ReturnType<typeof createWorld>;
-export type Hit = 'spider' | 'fly' | null;
+export type Hit = 'spider' | 'fly' | 'guest' | null;
 
 /**
  * The scene, its camera and the spider's life in it. `step(dt)` moves time on; `setYaw` turns the camera round the
@@ -952,7 +1057,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     scene.add(g);
     return g;
   };
-  const extras = { skins: layer('skins'), lings: layer('spiderlings'), eggs: layer('eggs'), dressing: layer('dressing'), weather: layer('weather'), pet: layer('pet'), fx: layer('fx') };
+  const extras = { skins: layer('skins'), lings: layer('spiderlings'), eggs: layer('eggs'), dressing: layer('dressing'), weather: layer('weather'), pet: layer('pet'), fx: layer('fx'), shelf: layer('shelf'), guest: layer('guest'), party: layer('party') };
   // What's taken out of the scene waits here and leaves the GPU in collect(), which the view calls while it draws:
   // freeing GL resources is a GL call, and those only happen while the view is on screen.
   const trash: THREE.Object3D[] = [];
@@ -1244,6 +1349,109 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     }
     if (life.hat) spider.hatMount.add(buildHat(life.hat.shape, life.hat.id));
   };
+
+  // ---- step 9: the shelf, a guest, the party, the note, the scroll ----
+  let shelfKey = '';
+  let shelfCount = 0;
+  const buildShelf = () => {
+    const key = JSON.stringify(life.souvenirs);
+    if (key === shelfKey) return;
+    shelfKey = key;
+    clear(extras.shelf);
+    shelfCount = life.souvenirs.length;
+    if (!shelfCount) return;
+    const g = new THREE.Group();
+    const wood = std('#7a5636', 0.9);
+    const mid = (SHELF.x0 + SHELF.x1) / 2;
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(SHELF.x1 - SHELF.x0, 0.07, 0.36), wood);
+    plank.position.set(mid, SHELF.y - 0.035, SHELF.z);
+    const bracket = (x: number) => strand(v(x, SHELF.y - 0.07, SHELF.z - 0.15), v(x, SHELF.y - 0.45, SHELF.z - 0.17), 0.03, wood);
+    g.add(plank, bracket(SHELF.x0 + 0.2), bracket(SHELF.x1 - 0.2));
+    life.souvenirs.forEach((x, i) => {
+      const m = souvenirMesh(x.shape, x.color);
+      m.position.add(v(SHELF.x0 + 0.27 + i * ((SHELF.x1 - SHELF.x0 - 0.54) / 4), SHELF.y, SHELF.z + 0.02));
+      g.add(m);
+    });
+    g.name = 'shelf';
+    extras.shelf.add(g);
+  };
+  type GuestRig = ReturnType<typeof buildSpider> & { key: string; look: GuestLook; curl: number; rear: number; wave: number; yaw: number };
+  let guest: GuestRig | null = null;
+  const buildGuest = () => {
+    const key = life.guest?.id ?? '';
+    if ((guest?.key ?? '') === key) return;
+    if (guest) {
+      extras.guest.remove(guest.root);
+      trash.push(guest.root);
+    }
+    guest = null;
+    if (!life.guest) return;
+    const L = life.guest.look;
+    const rig = buildSpider(L.marking, { skin: L.skin, leg: L.leg, legScale: L.legScale, abdomen: L.abdomen });
+    rig.root.scale.setScalar(SPIDER_SCALE * L.size);
+    rig.root.position.copy(GUEST_AT);
+    if (L.hat) rig.hatMount.add(buildHat(L.hat, L.hat));
+    rig.root.name = 'guest-spider';
+    extras.guest.add(rig.root);
+    guest = { ...rig, key, look: L, curl: life.guest.awake ? 0 : 1, rear: 0, wave: 0, yaw: -0.6 };
+  };
+  let partyKey = '';
+  let partyFolk: { mesh: THREE.InstancedMesh; hats: THREE.InstancedMesh; at: THREE.Vector3[] } | null = null;
+  let partyFlames: THREE.Object3D[] = [];
+  const PARTY_COLORS = ['#4fa3ff', '#ffb23f', '#9b6bff', '#3fcf8e'];
+  const buildParty = () => {
+    const key = JSON.stringify(life.party);
+    if (key === partyKey) return;
+    partyKey = key;
+    clear(extras.party);
+    partyFolk = null;
+    partyFlames = [];
+    if (!life.party) return;
+    const cake = buildCake(life.party.candles, life.party.gentle);
+    cake.traverse((o) => {
+      if (o.name === 'flicker') partyFlames.push(o);
+    });
+    extras.party.add(cake);
+    const n = life.party.gentle ? 0 : life.party.guests;
+    if (!n) return;
+    // tiny rival guests round the cake, in party hats (their own geometry: the shared spiderling one stays put)
+    const mesh = new THREE.InstancedMesh(miniSpiderGeometry(), std('#ffffff', 0.6), n);
+    const hats = new THREE.InstancedMesh(new THREE.ConeGeometry(0.11, 0.26, 10), std('#ffffff', 0.7), n);
+    const at = Array.from({ length: n }, (_, i) => {
+      const a = [0.05, 0.3, 0.7, 0.95][i % 4] * Math.PI;
+      return CAKE.clone().add(v(Math.cos(a) * 1.05, 0, -Math.sin(a) * 0.55 + 0.15));
+    });
+    at.forEach((_, i) => {
+      const c = new THREE.Color(PARTY_COLORS[i % PARTY_COLORS.length]);
+      mesh.setColorAt(i, c.clone().multiplyScalar(0.45));
+      hats.setColorAt(i, c);
+    });
+    mesh.name = 'party-guests';
+    extras.party.add(mesh, hats);
+    partyFolk = { mesh, hats, at };
+  };
+  const note = new THREE.Group();
+  {
+    const paper = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.02, 0.42), std('#f6f1e4', 0.95));
+    paper.position.y = 0.012;
+    const fold = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.02, 0.2), std('#ebe4d2', 0.95));
+    fold.position.set(0, 0.07, -0.16);
+    fold.rotation.x = -0.6;
+    const weight = new THREE.Mesh(new THREE.IcosahedronGeometry(0.09, 0), std('#6e6a64', 0.9));
+    weight.position.set(0.18, 0.08, 0.06);
+    note.add(paper, fold, weight);
+  }
+  note.position.copy(NOTE_AT);
+  note.rotation.y = 0.35;
+  note.visible = false;
+  note.name = 'note';
+  extras.fx.add(note);
+  const scroll = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.32, 10), std('#f4ead2', 0.85));
+  scroll.rotation.z = Math.PI / 2;
+  scroll.position.set(0, -0.02, 0.5);
+  scroll.visible = false;
+  scroll.name = 'scroll';
+  spider.front.add(scroll);
   // effects: the mist from a glass of water, a silk bundle, the mat it molts on
   const MIST = 40;
   const mistGeo = new THREE.BufferGeometry();
@@ -1269,6 +1477,9 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     buildDressingFor(life.dressing);
     buildPet();
     buildHatFor();
+    buildShelf();
+    buildGuest();
+    buildParty();
     rain.visible = life.weather.rain;
     snowLid.visible = life.weather.snowLid;
     catchable.group.visible = life.fly;
@@ -1327,6 +1538,8 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
   };
   const wanderSpots = () => (life.weather.sun && life.daylight > 0.5 ? [...spots, SUN_SPOT] : spots);
   const pickNext = () => {
+    // a party: half the time back at the cake, reading its scroll of firsts
+    if (life.party && at.id !== 'party' && rnd() < 0.5) return PARTY_SPOT;
     const all = wanderSpots();
     // premolt: more time in the hide
     const hide = all.find((s) => s.id === 'couch');
@@ -1409,11 +1622,13 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
       }
     }
     if (steps.length) return;
+    if (life.mode === 'out') return; // out for the night: nobody home
     if (life.mode === 'wander') {
       const to = pickNext();
       steps = planRoute(at, to, rnd);
       const last = steps[steps.length - 1];
       if (life.premolt && to.id === 'couch' && last.kind === 'wait') last.time *= 2.5;
+      if (to.id === 'party' && last.kind === 'wait') last.time *= 2;
       at = to;
       return;
     }
@@ -1573,12 +1788,16 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     }
     for (const p of spider.palps) p.upper.rotation.z = -0.25 + anim.wave * 0.45 * Math.sin(time * 11 + p.side) + anim.dip * 0.3;
     // its shadow on the floor, and its thread to the lid
-    const onFloor = pose.pos.y < 0.08 && Math.abs(pose.pitch) < 0.2;
+    const away = life.mode === 'out';
+    spider.root.visible = !away;
+    note.visible = away;
+    scroll.visible = act === '📜';
+    const onFloor = pose.pos.y < 0.08 && Math.abs(pose.pitch) < 0.2 && !away;
     shadow.visible = onFloor;
     shadow.scale.setScalar(scale * (1 - 0.3 * Math.min(1, extraY)));
     shadow.position.set(pose.pos.x, 0.012, pose.pos.z);
-    silk.visible = pose.thread;
-    if (pose.thread) {
+    silk.visible = pose.thread && !away;
+    if (silk.visible) {
       const top = v(pose.pos.x, TANK.h, pose.pos.z);
       const bottom = pose.pos.clone().add(v(0, 0.3 * scale, 0));
       silk.position.copy(top).lerp(bottom, 0.5);
@@ -1695,6 +1914,19 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
       if (mistT <= 0) mist.visible = false;
     }
     if (bundle.visible) bundle.scale.setScalar(Math.min(1, bundle.scale.x + dt * 0.35));
+    stepGuest(dt);
+    if (partyFolk) {
+      const s = SPIDER_SCALE * 0.32;
+      partyFolk.at.forEach((p, i) => {
+        const bob = 0.06 * Math.max(0, Math.sin(time * 5 + i * 1.7));
+        const yaw = faceTo(p, CAKE);
+        partyFolk?.mesh.setMatrixAt(i, m4.compose(p.clone().setY(0.01 + bob), q.setFromAxisAngle(up, yaw), v(s, s, s)));
+        partyFolk?.hats.setMatrixAt(i, m4.compose(p.clone().setY(0.62 * s + 0.13 + bob), q.identity(), v(1, 1, 1)));
+      });
+      partyFolk.mesh.instanceMatrix.needsUpdate = true;
+      partyFolk.hats.instanceMatrix.needsUpdate = true;
+    }
+    partyFlames.forEach((o, i) => o.scale.set(1, 0.85 + 0.2 * Math.sin(time * 9 + i * 2) * Math.sin(time * 3.3 + i), 1));
     if (mat.visible) {
       const m = mat.material as THREE.MeshBasicMaterial;
       m.opacity = ease(m.opacity, matTarget, dt * 0.5);
@@ -1702,7 +1934,30 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     }
   }
 
+  /** The guest: curled up asleep (the pebble with its legs tucked right in), awake it stands, breathes and looks about; woken, it rears up and waves. */
+  function stepGuest(dt: number) {
+    const g = guest;
+    if (!g || !life.guest) return;
+    const k = Math.min(1, dt * 3);
+    const awake = life.guest.awake;
+    g.curl += ((awake ? 0 : 1) - g.curl) * k;
+    g.wave = Math.max(0, g.wave - dt);
+    g.rear += ((g.wave > 0 ? 1 : 0) - g.rear) * k;
+    const look = awake ? faceTo(GUEST_AT, camera.position) + Math.sin(time * 0.35) * 0.5 : -0.6;
+    g.yaw += angleDelta(g.yaw, look) * Math.min(1, dt * 2);
+    g.root.rotation.set(-0.32 * g.rear, g.yaw, 0, 'YXZ');
+    const tuck = g.look.pebble ? 1.9 : 1;
+    g.body.position.y = g.lift - (g.look.pebble ? 0.22 : 0.06) * g.curl;
+    g.abdomen.scale.setScalar(g.abdomenScale * (1 + 0.02 * Math.sin(time * (awake ? 2 : 1.1))));
+    for (const leg of g.legs) {
+      const raise = leg.pair === 0 ? g.rear * (0.75 + 0.25 * Math.sin(time * 8 + leg.side)) : 0;
+      leg.femur.rotation.z = leg.t1 + raise + g.curl * 0.55 * tuck;
+      leg.knee.rotation.z = leg.t2 - g.curl * 0.7 * tuck;
+    }
+  }
+
   const actAnchor = () => {
+    if (life.mode === 'out') return null;
     const p = pose.pos.clone().add(v(0, 1.1 * SPIDER_SCALE * pose.size, 0)).project(camera);
     if (p.z > 1) return null;
     return { x: (p.x + 1) / 2, y: (1 - p.y) / 2 };
@@ -1716,9 +1971,11 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     scene.updateMatrixWorld();
     ray.setFromCamera(new THREE.Vector2(x * 2 - 1, -(y * 2 - 1)), camera);
     if (catchable.group.visible && ray.ray.intersectsSphere(new THREE.Sphere(catchable.group.position, 0.75))) return 'fly';
-    if (ray.intersectObject(spider.root, true).length) return 'spider';
+    const home = life.mode !== 'out';
+    if (home && ray.intersectObject(spider.root, true).length) return 'spider';
+    if (guest && ray.ray.intersectsSphere(new THREE.Sphere(GUEST_AT.clone().add(v(0, 0.3 * SPIDER_SCALE * guest.look.size, 0)), Math.max(0.55, 0.8 * SPIDER_SCALE * guest.look.size)))) return 'guest';
     // a fingertip is bigger than a leg: near the body counts too
-    if (ray.ray.intersectsSphere(new THREE.Sphere(pose.pos.clone().add(v(0, 0.35 * SPIDER_SCALE * pose.size, 0)), 0.75 * SPIDER_SCALE * pose.size))) return 'spider';
+    if (home && ray.ray.intersectsSphere(new THREE.Sphere(pose.pos.clone().add(v(0, 0.35 * SPIDER_SCALE * pose.size, 0)), 0.75 * SPIDER_SCALE * pose.size))) return 'spider';
     return null;
   };
   /** Poked: it stops, turns to the camera (on the floor), rears up and waves its pedipalps, then goes on. */
@@ -1730,6 +1987,17 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     // on the floor it turns to face you; hanging or climbing, it waves where it is
     steps = pose.thread || Math.abs(pose.pitch) > 0.2 ? [wave, done] : [{ kind: 'turn', yaw: yawToCamera(), pitch: 0 }, wave, done];
     special = 'poke';
+  };
+  /** Sten, sax, påse: it rears up where it is and shows its throw (`emoji`) over its head. Not while molting or out. */
+  const sign = (emoji: string) => {
+    if (special === 'molt' || life.mode === 'out') return;
+    interrupt();
+    steps = [{ kind: 'wait', time: 2.6, act: emoji, anim: 'wave' }, { kind: 'fx', fx: 'done' }];
+    special = 'poke';
+  };
+  /** The guest was tapped: it rears up and waves (it wakes through setLife). */
+  const greetGuest = () => {
+    if (guest) guest.wave = 2.4;
   };
 
   /** For a still tank (no frames running): eased looks go straight to where they're headed. */
@@ -1743,7 +2011,8 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     life = next;
     if (!next.molt) moltStarted = false;
     applyLooks();
-    if (before.mode !== next.mode) interrupt();
+    if (before.mode === 'out' && next.mode !== 'out') start(); // back from a night out, at home
+    else if (before.mode !== next.mode) interrupt();
   };
 
   /** Frees everything (the tests; the app never calls it: the GL context may be gone with the view). */
@@ -1783,6 +2052,8 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     },
     pick,
     poke,
+    sign,
+    greetGuest,
     settle,
     collect,
     setDragging: (on: boolean) => {
@@ -1813,6 +2084,14 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
       webLines: ((named['web-lines']?.[0] as THREE.LineSegments | undefined)?.geometry.attributes.position.count ?? 0) / 2,
       dew: (named['web-dew']?.[0] as THREE.InstancedMesh | undefined)?.count ?? 0,
       bundles: (named['web-bundles']?.[0] as THREE.InstancedMesh | undefined)?.count ?? 0,
+      home: spider.root.visible,
+      note: note.visible,
+      shelf: shelfCount,
+      guest: guest?.key ?? null,
+      guestCurl: guest?.curl ?? 0,
+      cake: extras.party.children.length > 0,
+      partyGuests: partyFolk?.at.length ?? 0,
+      scroll: scroll.visible,
     }),
     dispose,
   };

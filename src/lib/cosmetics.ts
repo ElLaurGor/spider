@@ -63,6 +63,12 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'trek_ticket', slot: 'held', name: 'Travel card', emoji: '🎫', source: 'reward', note: 'Walk the tunnelbana trek' },
   { id: 'trek_map', slot: 'held', name: 'Trail map', emoji: '🗺️', source: 'reward', note: 'Halfway along Sörmlandsleden' },
   { id: 'trek_pack', slot: 'held', name: 'Trail backpack', emoji: '🎒', source: 'reward', note: 'Walk Sörmlandsleden' },
+  // step 9 tank: keepsakes left by the terrarium's rare guests (guests.ts), never sold
+  { id: 'visby_postcard', slot: 'held', name: 'Visby postcard', emoji: '🏰', source: 'gift', note: 'Left by a guest: the jumping spider from Gotland' },
+  { id: 'monocle', slot: 'held', name: 'Monocle', emoji: '🧐', source: 'gift', note: 'Left by a guest: Sir Reginald' },
+  { id: 'dew_drop', slot: 'held', name: 'Dew drop', emoji: '💧', source: 'gift', note: 'Left by a guest: the garden orb weaver' },
+  { id: 'straw_goat', slot: 'held', name: 'Straw goat', emoji: '🐐', source: 'gift', note: 'Left by a guest: the house spider at jul' },
+  { id: 'fake_moustache', slot: 'held', name: 'Fake moustache', emoji: '🥸', source: 'gift', note: 'Left by a guest: a pebble, allegedly' },
 ];
 
 /** Silk Track hats, held items and auras (seasonal pieces it hands out are in COSMETICS already). */

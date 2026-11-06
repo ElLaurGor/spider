@@ -7,10 +7,13 @@
 import { worn } from './cosmetics';
 import { logEvents } from './critters';
 import { dayKey, HOUR, MIN } from './dates';
+import { morningOf, shelfOf, tripOn, type SouvenirShape } from './expeditions';
+import { GUESTS, guestAwake, guestOn, type GuestLook } from './guests';
+import { PARTY_GUESTS, partyOn } from './hatch-day';
 import { isAllSaintsDay, isSnow, seasonOn, winterOf } from './seasons';
 import { dayOf } from './selectors';
 import { toneOn } from './tone';
-import type { State } from './types';
+import type { GuestId, State } from './types';
 import { webParams } from './web-art';
 import { weatherKey, type DayForecast } from './weather';
 import { levelProgress } from './xp';
@@ -101,18 +104,19 @@ export function wakeAtOf(s: State, key: string, nights?: { key: string; night: {
   return dayOf(s, key).wakeAt ?? nights?.find((n) => n.key === key)?.night?.wakeAt ?? null;
 }
 
-export type TankMode = 'wander' | 'focus' | 'game' | 'sleep' | 'storm' | 'cosy';
+export type TankMode = 'wander' | 'focus' | 'game' | 'sleep' | 'storm' | 'cosy' | 'out';
 
 /**
  * What the spider is up to. A Web Focus session (still in its web) and the gaming timer (at the crystal) are
- * happening right now, so they come first; then the owner's sleep window (asleep on a thread), the Storm protocol
+ * happening right now, so they come first; then the owner's sleep window (asleep on a thread, or out for the night
+ * on a night out, expeditions.ts), the Storm protocol
  * (calm in the hide), a kind day (cosy, by the moss at the front: the same for every reason) and otherwise its
  * usual wandering.
  */
-export function tankMode(o: { focus: boolean; game: boolean; asleep: boolean; storm: boolean; kind: boolean }): TankMode {
+export function tankMode(o: { focus: boolean; game: boolean; asleep: boolean; storm: boolean; kind: boolean; out?: boolean }): TankMode {
   if (o.focus) return 'focus';
   if (o.game) return 'game';
-  if (o.asleep) return 'sleep';
+  if (o.asleep) return o.out ? 'out' : 'sleep';
   if (o.storm) return 'storm';
   if (o.kind) return 'cosy';
   return 'wander';
@@ -346,6 +350,10 @@ export type TankLife = {
   fly: boolean; // a fly is buzzing around, catchable
   spiderlings: number;
   eggs: number;
+  // step 9 tank
+  souvenirs: { shape: SouvenirShape; color: string }[]; // the shelf's newest souvenirs (expeditions.ts)
+  guest: { id: GuestId; awake: boolean; look: GuestLook } | null; // today's rare guest (guests.ts)
+  party: { gentle: boolean; guests: number; candles: number } | null; // hatch day or a hundredth day (hatch-day.ts)
 };
 
 /** The tank before it knows anything: daytime, wandering, a bare web. */
@@ -365,6 +373,9 @@ export const IDLE_LIFE: TankLife = {
   fly: false,
   spiderlings: 0,
   eggs: 0,
+  souvenirs: [],
+  guest: null,
+  party: null,
 };
 
 export type TankInputs = {
@@ -384,7 +395,10 @@ export function tankLifeOf(s: State, o: TankInputs): TankLife {
   const tone = toneOn(s, key, now);
   const focus = !!s.activeFocus && o.now < s.activeFocus.start + s.activeFocus.minutes * MIN;
   const asleep = asleepAt(now, { sleepHour: s.settings.sleepHour, wakeHour: s.settings.wakeHour, wakeAt: wakeAtOf(s, key, o.nights) });
-  const mode = tankMode({ focus, game: !!s.activeGame, asleep, storm: !!tone.storm, kind: tone.kind });
+  const out = asleep && tripOn(s, morningOf(now), now); // a night out: the tank is empty until she's up
+  const mode = tankMode({ focus, game: !!s.activeGame, asleep, storm: !!tone.storm, kind: tone.kind, out });
+  const guest = guestOn(s, key);
+  const party = partyOn(s, key, now);
   const cosy = tone.kind; // the same warm light whatever made the day kind
   const m = moltState(s);
   const w = worn(s);
@@ -406,5 +420,8 @@ export function tankLifeOf(s: State, o: TankInputs): TankLife {
     fly: !!s.pendingFly && s.pendingFly.until > o.now,
     spiderlings: Math.min(3, (s.spiderlings ?? []).length),
     eggs: Math.min(3, (s.eggSacs ?? []).length),
+    souvenirs: shelfOf(s).map((x) => ({ shape: x.shape, color: x.color })),
+    guest: guest ? { id: guest, awake: guestAwake(s, key), look: GUESTS[guest].look } : null,
+    party: party ? { gentle: party.gentle, guests: party.gentle ? 0 : Math.min(PARTY_GUESTS, s.league?.rivals.length || 3), candles: party.kind === 'year' ? Math.min(5, party.n) : 1 } : null,
   };
 }

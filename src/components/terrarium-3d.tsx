@@ -16,8 +16,16 @@ import { importPhoto } from '@/lib/photos';
 import { useStore } from '@/lib/store';
 import { grewSince, TANK_EVENT_MS, tankLifeOf } from '@/lib/tank-life';
 import { createWorld, type World } from '@/lib/terrarium-3d';
+// step 9 tank
+import { GUESTS, guestLineKey, narrating } from '@/lib/guests';
+import { firstsOf } from '@/lib/hatch-day';
+import { THROW_EMOJI } from '@/lib/rps';
 
 const HEIGHT = 210;
+/** A party's scroll is read out a line at a time, this far apart; Sir Reginald narrates this often while he's at it. */
+const SCROLL_MS = 6000;
+const NARRATE_EVERY_MS = 25_000;
+const shortDate = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 /** The month's automatic snapshot waits this long on screen, so the spider has settled somewhere. */
 const AUTO_SNAP_MS = 9000;
 
@@ -85,7 +93,7 @@ async function snapshot(x: Gfx, onFail: () => void): Promise<string | null> {
  * still turns it). While it draws, lib/gl-guard.ts keeps a flag up, so a native crash sends the next session to
  * the flat terrarium. `onFail`: GL, three.js or a shader gave up.
  */
-export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () => void }) {
+export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onTap?: () => void; onPlay?: () => void }) {
   const { state, actions, quip, say, weather, health, tank } = useStore();
   const ids = lairPieces(state)
     .map((p) => p.id)
@@ -162,7 +170,18 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
     else if (hit === 'spider') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       x.world?.poke();
-      setBubble(quip('tankPoke'));
+      setBubble(`🕷️ ${quip('tankPoke')}`);
+      if (!x.running) {
+        x.world?.step(0);
+        paint(x, onFail);
+      }
+    } else if (hit === 'guest' && life.guest) {
+      // step 9 tank: a guest wakes up and has a word about the day (on a kind day it only keeps her company)
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      x.world?.greetGuest();
+      if (!life.guest.awake) actions.wakeGuest();
+      const g = guestLineKey(state, life.guest.id, today);
+      setBubble(`${GUESTS[life.guest.id].emoji} ${quip(g.key, { summary: g.summary })}`);
       if (!x.running) {
         x.world?.step(0);
         paint(x, onFail);
@@ -300,6 +319,42 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
     const t = setTimeout(() => setBubble(null), 4200);
     return () => clearTimeout(t);
   }, [bubble]);
+  // step 9 tank: sten, sax, påse. The spider shows the throw it just made (State.rps.last), while that's news.
+  const thrown = state.rps?.last;
+  const throwAt = thrown?.at ?? 0;
+  const throwSign = thrown ? THROW_EMOJI[thrown.it] : '';
+  useEffect(() => {
+    const x = gfx.current;
+    if (!ready || !x.world || !throwAt || Date.now() - throwAt > 5000) return;
+    try {
+      x.world.sign(throwSign);
+      if (!x.running) x.world.step(0);
+    } catch {
+      onFail();
+      return;
+    }
+    if (!x.running) paint(x, onFail);
+  }, [ready, throwAt, throwSign, onFail]);
+  // Sir Reginald, once woken, narrates the spider for an hour.
+  const narrate = awake && narrating(state, now);
+  useEffect(() => {
+    if (!narrate) return;
+    const t = setInterval(() => setBubble(`🎩 ${quip('guestReginaldNarrates')}`), NARRATE_EVERY_MS);
+    return () => clearInterval(t);
+  }, [narrate, quip]);
+  // A party: the spider reads its scroll of firsts aloud, a line at a time, once each time the tank comes on screen.
+  const scroll = life.party ? firstsOf(state, { now, gentle: life.party.gentle }).map((f) => `📜 ${f.emoji} ${f.label}${f.emoji === '🧟' ? '' : `, ${shortDate(f.at)}`}`) : [];
+  const scrollKey = scroll.join('\n');
+  useEffect(() => {
+    if (!awake || !scrollKey) return;
+    const lines = scrollKey.split('\n');
+    let i = 0;
+    const t = setInterval(() => {
+      if (i >= lines.length) return clearInterval(t);
+      setBubble(lines[i++]);
+    }, SCROLL_MS);
+    return () => clearInterval(t);
+  }, [awake, scrollKey]);
 
   // The spider's life: one frame per screen refresh while awake.
   useEffect(() => {
@@ -400,14 +455,24 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
           <Text style={styles.actText}>{act}</Text>
         </Animated.View>
       ) : null}
+      {life.mode === 'out' ? (
+        <View style={styles.note}>
+          <Text style={styles.noteText}>📝 Out. Don&apos;t wait up.</Text>
+        </View>
+      ) : null}
       {bubble ? (
         <View style={styles.bubble}>
-          <Text style={styles.bubbleText}>🕷️ {bubble}</Text>
+          <Text style={styles.bubbleText}>{bubble}</Text>
         </View>
       ) : null}
       {ready ? (
         <Pressable onPress={() => void share()} style={styles.snap} hitSlop={8} accessibilityRole="button" accessibilityLabel="Snap the tank and share it">
           <Text style={styles.snapText}>📸 Snap</Text>
+        </Pressable>
+      ) : null}
+      {ready && onPlay && life.mode !== 'out' ? (
+        <Pressable onPress={onPlay} style={styles.play} hitSlop={8} accessibilityRole="button" accessibilityLabel="Play sten, sax, påse against the spider">
+          <Text style={styles.snapText}>✊ Play</Text>
         </Pressable>
       ) : null}
     </View>
@@ -423,4 +488,7 @@ const styles = StyleSheet.create({
   bubbleText: { color: C.text, fontSize: 12, lineHeight: 16 },
   snap: { position: 'absolute', right: 8, top: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border, opacity: 0.9 },
   snapText: { color: C.text, fontSize: 11, fontWeight: '700' },
+  play: { position: 'absolute', right: 8, bottom: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border, opacity: 0.9 },
+  note: { position: 'absolute', left: 0, right: 0, bottom: 10, alignItems: 'center', pointerEvents: 'none' },
+  noteText: { color: C.text, fontSize: 13, fontWeight: '700', backgroundColor: C.card2, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, overflow: 'hidden' },
 });

@@ -459,6 +459,10 @@ export type State = {
   shelf?: ShelfItem[]; // the due-back shelf (lib/shelf.ts): parcels to pick up, return windows, library loans
   reviews?: string[]; // weeks (their Monday) whose War room review was sealed and paid (lib/review.ts), the newest 12
   weekBig?: { week: string; ids: string[] } | null; // the week's 1–3 big tasks, picked in the War room, shown on Plan
+  // step 9 tank
+  trips?: TripLog; // expeditions.ts: the spider's nights out and the souvenirs on the tank's shelf
+  guests?: GuestBook; // guests.ts: rare guests in the tank, the guestbook and their gifts
+  rps?: RpsState; // rps.ts: sten, sax, påse against the spider (the last throws, the weekly tally, today's coins)
 };
 
 // step 8 days
@@ -641,3 +645,24 @@ export type ShelfItem = {
   at: number; // added
   doneAt?: number; // picked up, sent back or returned
 };
+
+// step 9 tank
+/** A souvenir from a night out (expeditions.ts): the morning it came back, which one, and the night's low and weather code for its story. */
+export type Souvenir = { night: string; id: string; at: number; t?: number | null; code?: number | null };
+/** Nights out: `since` the first morning looked at (none before it), `checked` the last one collected, the newest souvenirs on the shelf, and the total. */
+export type TripLog = { since: string; checked?: string; shelf: Souvenir[]; total: number };
+export type GuestId = 'jumper' | 'reginald' | 'orb' | 'house' | 'spy';
+/** A guest's day in the tank (guests.ts): woken at `woke` if she tapped it, and the gift it left once it had gone. */
+export type GuestVisit = { day: string; guest: GuestId; woke?: number; gift?: { coins?: number; cosmetic?: string } };
+/** The guestbook: `since` the first day looked at, `checked` the last guest day settled, the visits oldest first. */
+export type GuestBook = { since: string; checked?: string; visits: GuestVisit[] };
+/** Sten (r), påse (p), sax (s). */
+export type RpsThrow = 'r' | 'p' | 's';
+export type RpsTally = { w: number; l: number; d: number };
+/** The round just played: both throws, the match score after it, and how the match ended if it did (with the coins it paid). */
+export type RpsLast = { me: RpsThrow; it: RpsThrow; at: number; you: number; spider: number; ended?: 'won' | 'lost' | 'draw'; coins?: number };
+/**
+ * Sten, sax, påse (rps.ts): finished matches as strings of throw pairs (hers, then the spider's), the last
+ * RPS_KEEP throws at most; the match being played; won/lost/drawn per week; coins paid today.
+ */
+export type RpsState = { past: string[]; live?: string; weeks?: Record<string, RpsTally>; paid?: { day: string; coins: number }; last?: RpsLast };
