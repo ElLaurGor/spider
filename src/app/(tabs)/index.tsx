@@ -73,6 +73,7 @@ import {
 import { useStore } from '@/lib/store';
 import type { MoodLevel } from '@/lib/types';
 import { ACHIEVEMENTS, levelProgress, SECRET_ACHIEVEMENTS } from '@/lib/xp';
+import { TankBanner } from '@/components/tank-extras'; // step 9 tank: the party banner; settles nights out and guests
 
 const GREETING: Record<ReturnType<typeof timeOfDay>, LineKey> = {
   morning: 'greetMorning',
@@ -477,6 +478,7 @@ export default function HQ() {
       ) : null}
 
       <FikaBanner />
+      <TankBanner />
       <PrizesCard />
       <JulfridCard />
       <AdventCard />

@@ -222,6 +222,12 @@ import { EGG_CHANCE, EGG_COINS, EGG_KMS, eggDrops, eggKm, hatchEggs, MAX_EGGS } 
 import { asleepAt, daylightAt, DEW_DROPS, dressingFor, grewSince, growthOf, hatShape, IDLE_LIFE, lighting, MOLT_GROWTH_MAX, moltState, NO_WEATHER, PET_MOTION, plantGrowth, sizeAfter, SPROUT, sunTimes } from '../src/lib/tank-life';
 import { TANK_EVENT_MS, TANK_QUEUE, tankEventsOf, tankLifeOf, tankMode, tankSnapsFor, tankWeather, webFor, withMolt, withTankEvents, type TankLife } from '../src/lib/tank-life';
 import type { DayForecast } from '../src/lib/weather';
+// step 9 tank
+import { backThisMorning, degrees, morningOf, nightOver, settleTrips, SHELF_SHOWN, souvenirFor, SOUVENIRS, storyKeys, tripMornings, tripOn, tripPlanned, tripsDue, tripStory, TRIP_BACKFILL } from '../src/lib/expeditions';
+import { daySummary, GUEST_EPOCH, GUESTS, guestDayOf, guestFor, guestLineKey, guestOn, guestsDue, guestWeek, narrating, NARRATE_MS, settleGuests, withGuestAwake } from '../src/lib/guests';
+import { anniversaryYears, dayNumber, firstsOf, PARTY_EVERY, partyOn } from '../src/lib/hatch-day';
+import { decided, emptyRps, guessOf, habitsOf, nextOdds, playRound, rpsFinding, RPS_DAILY_COINS, RPS_KEEP, RPS_WIN_COINS, scoreOf, spiderThrow, throwCount, weekTally, BEATEN_BY, ROUNDS } from '../src/lib/rps';
+import type { RpsState, RpsThrow } from '../src/lib/types';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -6790,5 +6796,342 @@ function step8FixTests() {
   assert.ok(eventsUrl(['music'], ['2026-11-06', '2026-11-07', '2026-11-08'], 1, '2026-11-07').includes('date_from=2026-11-07&date_to=2026-11-08'));
 }
 step8FixTests();
+
+// ---------- step 9 tank: nights out, rare guests, sten sax påse, hatch day ----------
+function step9TankTests() {
+  const DAY = 86_400_000;
+  const noonOf = (k: string) => new Date(`${k}T12:00`);
+  const next = (k: string, n = 1) => dayKey(addDays(noonOf(k), n));
+  const base = { ...defaultState(), onboarded: true };
+
+  // ---- nights out: 2 or 3 a week, seeded per week, never from sleep ----
+  let monday = '2026-11-02';
+  for (let w = 0; w < 60; w++, monday = next(monday, 7)) {
+    const m = tripMornings(monday);
+    assert.ok(m.length === 2 || m.length === 3, `${monday}: ${m.length} nights out`);
+    assert.deepEqual(tripMornings(monday), m, 'seeded');
+    assert.ok(m.every((d) => d >= monday && d <= next(monday, 6) && tripPlanned(d)));
+  }
+  const week = tripMornings('2026-11-09');
+  const tripDay = week[0];
+  const homeDay = [0, 1, 2, 3, 4, 5, 6].map((i) => next('2026-11-09', i)).find((d) => !week.includes(d))!;
+  const evening = next(tripDay, -1);
+  assert.ok(tripOn(base, tripDay) && !tripOn(base, homeDay));
+  const slept = { ...base, days: { [tripDay]: { ...emptyDay(), sleepMin: 190, sleepRating: 1 as const }, [evening]: { ...emptyDay(), sleepMin: 600 } } };
+  assert.ok(tripOn(slept, tripDay), 'how she slept has nothing to do with it');
+  // a kind night it stays home: a low mood that evening, a sick day, Julfrid
+  const low = { ...base, days: { [evening]: { ...emptyDay(), moods: [{ id: 'm', level: 2 as const, emotions: [], at: noonOf(evening).getTime() }] } } };
+  assert.ok(!tripOn(low, tripDay));
+  assert.ok(!tripOn({ ...base, pauses: [{ from: tripDay, to: tripDay, kind: 'sick' as const }] }, tripDay));
+  for (const d of ['2026-12-24', '2026-12-25', '2026-12-26', '2026-12-27']) assert.ok(!tripOn(base, d), `Julfrid: ${d}`);
+  // which night it is, and when it's over (the watch's wake time, else the usual hour)
+  assert.equal(morningOf(new Date(2026, 10, 10, 23, 30)), '2026-11-11');
+  assert.equal(morningOf(new Date(2026, 10, 11, 3)), '2026-11-11');
+  const at = (k: string, h: number, m = 0) => new Date(`${k}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  assert.ok(!nightOver(base, tripDay, at(tripDay, 6, 30)) && nightOver(base, tripDay, at(tripDay, 7, 5)));
+  assert.ok(nightOver(base, tripDay, at(tripDay, 6, 30), at(tripDay, 6, 10).getTime()), 'up early, by the watch');
+  assert.ok(nightOver(base, evening, at(tripDay, 3)), 'an earlier morning is over');
+  // the tank: empty through her sleep window on a night out, asleep on a thread on any other night
+  const out = tankLifeOf(base, { now: at(tripDay, 3).getTime() });
+  assert.equal(out.mode, 'out');
+  assert.equal(tankLifeOf(base, { now: at(homeDay, 3).getTime() }).mode, 'sleep');
+  assert.equal(tankLifeOf(base, { now: at(evening, 23, 30).getTime() }).mode, 'out', 'gone from bedtime');
+  assert.equal(tankLifeOf(low, { now: at(tripDay, 3).getTime() }).mode, 'sleep', 'a kind night it stays');
+  assert.equal(tankMode({ focus: true, game: false, asleep: true, storm: false, kind: false, out: true }), 'focus', 'Web Focus still comes first');
+  // back in the morning with a souvenir and a two-line story; nothing once it's afternoon
+  const back = backThisMorning(base, at(tripDay, 8));
+  assert.ok(back && back.souvenir.id === souvenirFor(tripDay).id && back.story.length === 2 && back.story.every((x) => x.length > 10 && !x.includes('{')));
+  assert.equal(backThisMorning(base, at(tripDay, 6)), null, 'not before she is up');
+  assert.equal(backThisMorning(base, at(tripDay, 13)), null);
+  assert.equal(backThisMorning(base, at(homeDay, 8)), null);
+  // souvenirs fit the night's month (seeded per night)
+  for (let i = 0; i < 400; i++) {
+    const d = next('2026-11-07', i);
+    const sv = souvenirFor(d);
+    const month = noonOf(next(d, -1)).getMonth() + 1;
+    assert.ok(!sv.months || sv.months.includes(month), `${d}: ${sv.id}`);
+    assert.equal(souvenirFor(d), sv);
+  }
+  assert.ok(new Set(SOUVENIRS.map((x) => x.id)).size === SOUVENIRS.length);
+  // the story: the season (or that evening's holiday) and the night's real weather
+  assert.deepEqual(storyKeys('2026-12-14', null), { where: 'tripFeast', weather: 'tripNoWeather', feast: 'Lucia' });
+  assert.equal(storyKeys('2026-11-12', { t: 4, code: 3 }).where, 'tripAutumn');
+  assert.equal(storyKeys('2027-01-20', { t: -2, code: 73 }).weather, 'tripSnow');
+  assert.equal(storyKeys('2027-01-20', { t: -6, code: 0 }).weather, 'tripFrost');
+  assert.equal(storyKeys('2027-07-20', { t: 15, code: 1 }).weather, 'tripWarm');
+  assert.equal(storyKeys('2027-07-20', { t: 15, code: 61 }).weather, 'tripRain');
+  assert.equal(storyKeys('2027-07-20', { t: 9, code: 45 }).weather, 'tripFog');
+  assert.equal(storyKeys('2027-04-20', { t: 5, code: 2 }).where, 'tripSpring');
+  assert.deepEqual([degrees(-4.6), degrees(3.2), degrees(-0.2)], ['−5°', '3°', '0°']);
+  const story = tripStory({ night: '2027-01-20', id: 'sl_ticket', t: -6, code: 0 });
+  assert.ok(story[0].includes('an SL ticket') && story[1].includes('−6°'), story.join(' / '));
+  assert.deepEqual(tripStory({ night: '2027-01-20', id: 'sl_ticket', t: -6, code: 0 }), story, 'the same story every time');
+  // the shelf: each night out once, the weather kept for its story, looks only
+  const fc = [{ date: tripDay, max: 2, min: -3, rainPct: 0, code: 71, rainMm: 0, sunrise: 0, sunset: 0, daylightMin: 480, sunshineMin: 0 }];
+  const s1 = settleTrips(base, at(tripDay, 8), { forecast: fc });
+  assert.deepEqual(s1.back.map((x) => [x.night, x.id, x.t, x.code]), [[tripDay, souvenirFor(tripDay).id, -3, 71]]);
+  assert.deepEqual([s1.state.trips?.since, s1.state.trips?.checked, s1.state.trips?.total, s1.state.xp, s1.state.coins], [tripDay, tripDay, 1, base.xp, base.coins]);
+  assert.equal(settleTrips(s1.state, at(tripDay, 9)).state, s1.state, 'once');
+  assert.ok(!tripsDue(s1.state, at(tripDay, 9)) && tripsDue(s1.state, at(next(tripDay), 9)));
+  assert.equal(settleTrips(base, at(tripDay, 6)).state.trips?.checked, undefined, 'not before she is up');
+  // days without the app: up to TRIP_BACKFILL mornings are looked back on, kind nights left out
+  const away = { ...base, trips: { since: '2026-09-01', checked: '2026-09-01', shelf: [], total: 0 } };
+  const later = settleTrips(away, at('2026-11-20', 9));
+  assert.ok(later.back.length > 0 && later.back.every((x) => x.night >= next('2026-11-20', -TRIP_BACKFILL) && tripPlanned(x.night)));
+  assert.equal(later.state.trips?.checked, '2026-11-20');
+  assert.equal(settleTrips(low, at(tripDay, 8)).back.length, 0);
+  // the tank's shelf shows the newest few
+  const many = { ...base, trips: { since: '2026-01-01', shelf: SOUVENIRS.slice(0, 8).map((x, i) => ({ night: `2026-02-${10 + i}`, id: x.id, at: i })), total: 8 } };
+  assert.equal(tankLifeOf(many, { now: at('2026-11-12', 12).getTime() }).souvenirs.length, SHELF_SHOWN);
+
+  // ---- rare guests: every 2 or 3 weeks, never two weeks running, one day each ----
+  const guestWeeks: string[] = [];
+  for (let k = 0, wk = GUEST_EPOCH; k < 160; k++, wk = next(wk, 7)) if (guestWeek(wk)) guestWeeks.push(wk);
+  assert.equal(guestWeeks[0], GUEST_EPOCH);
+  for (let i = 1; i < guestWeeks.length; i++) {
+    const gap = Math.round((noonOf(guestWeeks[i]).getTime() - noonOf(guestWeeks[i - 1]).getTime()) / (7 * DAY));
+    assert.ok(gap === 2 || gap === 3, `${guestWeeks[i]}: ${gap} weeks`);
+  }
+  for (const wk of guestWeeks.slice(0, 30)) {
+    const days = [0, 1, 2, 3, 4, 5, 6].map((i) => next(wk, i)).filter((d) => guestOn(base, d));
+    assert.deepEqual(days, [guestDayOf(wk)], `one guest day in ${wk}`);
+  }
+  assert.ok(!guestWeek(next(guestWeeks[3], 7)));
+  // who: the spy in a Couch King week, the house spider at jul, the orb weaver only in autumn
+  const kingWeek = guestWeeks.find((wk) => wk > '2026-03-01')!;
+  assert.equal(guestFor({ ...base, kingWeeks: [kingWeek] }, guestDayOf(kingWeek)), 'spy');
+  assert.equal(guestFor(base, '2026-12-20'), 'house');
+  assert.equal(guestFor(base, '2027-01-04'), 'house');
+  for (let i = 0; i < 200; i++) {
+    const d = next('2027-02-01', i);
+    const g = guestFor(base, d);
+    const m = noonOf(d).getMonth() + 1;
+    if (g === 'orb') assert.ok(m === 9 || m === 10, d);
+    assert.notEqual(g, 'spy');
+  }
+  // a guest day: asleep until tapped, then its own voice on the day's logs (kind days: only company)
+  const gDay = guestDayOf(guestWeeks.find((wk) => wk > '2026-11-01' && guestFor(base, guestDayOf(wk)) !== 'house')!);
+  const gid = guestOn(base, gDay)!;
+  assert.ok(gid);
+  const woken = withGuestAwake(base, at(gDay, 10));
+  assert.deepEqual(woken.guests?.visits, [{ day: gDay, guest: gid, woke: at(gDay, 10).getTime() }]);
+  assert.equal(withGuestAwake(woken, at(gDay, 11)), woken, 'once');
+  assert.equal(withGuestAwake(base, at(next(gDay), 10)), base, 'no guest, nothing to wake');
+  assert.ok(tankLifeOf(woken, { now: at(gDay, 12).getTime() }).guest?.awake && !tankLifeOf(base, { now: at(gDay, 12).getTime() }).guest?.awake);
+  const logged = { ...base, days: { [gDay]: { ...emptyDay(), water: [{ id: 'a', ml: 250, at: 1 }, { id: 'b', ml: 250, at: 2 }], food: [{ id: 'f', name: 'Bulle', kcal: 300, protein: 5, at: 3 }], steps: 4200 } } };
+  assert.equal(daySummary(logged, gDay), '2 glasses of water and 4.2k steps', 'never food');
+  assert.equal(daySummary({ ...base, days: { [gDay]: { ...emptyDay(), food: [{ id: 'f', name: 'x', kcal: 1, protein: 1, at: 1 }] } } }, gDay), null);
+  assert.deepEqual(guestLineKey(logged, gid, gDay, at(gDay, 12)), { key: GUESTS[gid].voice, summary: '2 glasses of water and 4.2k steps' });
+  const sad = { ...logged, days: { [gDay]: { ...logged.days[gDay], moods: [{ id: 'm', level: 1 as const, emotions: [], at: at(gDay, 9).getTime() }] } } };
+  assert.deepEqual(guestLineKey(sad, gid, gDay, at(gDay, 12)), { key: GUESTS[gid].quiet, summary: '' }, 'a kind day: just company');
+  assert.equal(guestLineKey(base, gid, gDay, at(gDay, 12)).key, GUESTS[gid].quiet, 'nothing logged: company');
+  // Sir Reginald narrates for an hour once woken
+  const rDay = guestWeeks.map(guestDayOf).find((d) => d > '2026-11-01' && guestFor(base, d) === 'reginald')!;
+  const sir = withGuestAwake(base, at(rDay, 10));
+  assert.ok(narrating(sir, at(rDay, 10).getTime() + NARRATE_MS - 60_000) && !narrating(sir, at(rDay, 10).getTime() + NARRATE_MS + 1));
+  assert.ok(!narrating(base, at(rDay, 10, 30).getTime()), 'asleep, he says nothing');
+  // by the next morning it has gone and left a gift: coins or its keepsake (an owned one pays coins), never XP
+  const first = settleGuests(base, at(gDay, 12));
+  assert.deepEqual([first.state.guests?.since, first.left.length], [gDay, 0], 'the guestbook starts today');
+  const g1 = settleGuests(woken, at(next(gDay), 9));
+  assert.equal(g1.left.length, 1);
+  const left = g1.left[0];
+  assert.ok(left.day === gDay && left.woke && left.gift && (left.gift.coins != null) !== (left.gift.cosmetic != null));
+  if (left.gift?.coins) assert.equal(g1.state.coins - woken.coins, left.gift.coins);
+  else assert.ok(g1.state.cosmetics?.owned.includes(GUESTS[gid].gift) && g1.state.coins === woken.coins);
+  assert.equal(g1.state.xp, woken.xp, 'never XP');
+  assert.equal(g1.state.guests?.checked, gDay);
+  assert.ok(!guestsDue(g1.state, at(next(gDay), 10)));
+  assert.equal(settleGuests(g1.state, at(next(gDay), 10)).left.length, 0, 'once');
+  const owned = { ...woken, cosmetics: { owned: Object.values(GUESTS).map((x) => x.gift), worn: {} } };
+  const g2 = settleGuests(owned, at(next(gDay), 9));
+  assert.ok(g2.left[0].gift?.coins && !g2.left[0].gift.cosmetic, 'a keepsake already owned pays coins');
+  // a guest she slept through still leaves its gift, and goes in the book
+  const slept2 = settleGuests({ ...base, guests: { since: next(gDay, -3), visits: [] } }, at(next(gDay), 9));
+  assert.ok(slept2.left.length === 1 && slept2.left[0].woke == null && slept2.state.guests?.visits.length === 1);
+
+  // ---- sten, sax, påse ----
+  const play = (r: RpsState, me: RpsThrow, it: RpsThrow, when = new Date(2026, 10, 9, 12)) => playRound(r, me, it, when);
+  let r = emptyRps();
+  assert.equal(rpsFinding(r), null, 'nothing to say yet');
+  assert.deepEqual(nextOdds(r), { r: 1 / 3, p: 1 / 3, s: 1 / 3 });
+  // decided once nobody can catch up: six straight rounds, or all ten
+  assert.ok(!decided('rsrsrsrsrs') && decided('rsrsrsrsrsrs') && decided('rr'.repeat(ROUNDS)));
+  assert.deepEqual(scoreOf('rspsss'), { you: 1, spider: 1, played: 3 });
+  // a won match pays coins, at most RPS_DAILY_COINS a day; a lost one pays nothing; the week keeps the tally
+  const winMatch = (x: RpsState, when?: Date) => {
+    let res = play(x, 'r', 's', when);
+    for (let i = 1; i < 6; i++) res = play(res.rps, 'r', 's', when);
+    return res;
+  };
+  const w1 = winMatch(r);
+  assert.deepEqual([w1.ended, w1.coins, w1.rps.live, w1.rps.past.length], ['won', RPS_WIN_COINS, undefined, 1]);
+  const w2 = winMatch(w1.rps);
+  const w3 = winMatch(w2.rps);
+  assert.deepEqual([w2.coins, w3.coins, w3.rps.paid?.coins], [RPS_WIN_COINS, 0, RPS_DAILY_COINS], 'the daily cap');
+  assert.equal(winMatch(w3.rps, new Date(2026, 10, 10, 12)).coins, RPS_WIN_COINS, 'a new day');
+  let lost = play(w3.rps, 's', 'r');
+  for (let i = 1; i < 6; i++) lost = play(lost.rps, 's', 'r');
+  assert.deepEqual([lost.ended, lost.coins], ['lost', 0]);
+  assert.deepEqual(weekTally(lost.rps, new Date(2026, 10, 12)), { w: 3, l: 1, d: 0 });
+  assert.deepEqual(weekTally(lost.rps, new Date(2026, 10, 17)), { w: 0, l: 0, d: 0 }, 'a new week starts at 0');
+  // it learns: someone who always throws rock gets paper
+  r = emptyRps();
+  for (let m = 0; m < 3; m++) for (let i = 0; i < 6; i++) r = play(r, 'r', 's').rps;
+  assert.equal(guessOf(r), 'r');
+  assert.equal(spiderThrow(r, () => 0.5), 'p');
+  // what she opens with, quoted with the real number
+  r = emptyRps();
+  for (let m = 0; m < 10; m++) {
+    r = play(r, m < 8 ? 'r' : 'p', 'r').rps;
+    for (let i = 0; i < 9; i++) r = play(r, 'r', 'r').rps; // draws to the end
+  }
+  assert.equal(rpsFinding(r), 'You open with rock 80% of the time.');
+  assert.equal(guessOf(r), 'r');
+  // after losing a round she goes scissors: the spider knows, and says so
+  r = emptyRps();
+  for (let m = 0; m < 10; m++) {
+    r = play(r, 'p', 's').rps; // she loses
+    r = play(r, 's', 'p').rps; // and goes scissors (two matches of ten, never decided early)
+  }
+  assert.deepEqual([r.past.length, r.live], [2, undefined]);
+  r = play(r, 'p', 's').rps; // she just lost again
+  assert.match(rpsFinding(r) ?? '', /^After losing a round you go scissors \d+% of the time\.$/);
+  assert.equal(guessOf(r), 's');
+  assert.equal(BEATEN_BY[guessOf(r)], 'r');
+  // a player on a fixed cycle (rock, paper, scissors) loses more rounds than she wins
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  r = emptyRps();
+  let you = 0;
+  let it = 0;
+  const cycle: RpsThrow[] = ['r', 'p', 's'];
+  for (let k = 0; k < 300; k++) {
+    const spider = spiderThrow(r, rnd);
+    const res = playRound(r, cycle[k % 3], spider, new Date(2026, 10, 9, 12));
+    if (res.outcome === 'win') you++;
+    if (res.outcome === 'loss') it++;
+    r = res.rps;
+  }
+  assert.ok(it > you * 1.5, `the spider reads the cycle: ${it} to ${you}`);
+  assert.ok(throwCount(r) <= RPS_KEEP + ROUNDS, `kept throws: ${throwCount(r)}`);
+  assert.ok(habitsOf(r).all.r > 0);
+
+  // ---- hatch day and the hundreds: a party, gentle on a rough day ----
+  assert.deepEqual(
+    [anniversaryYears('2025-03-14', '2026-03-14'), anniversaryYears('2025-03-14', '2026-03-15'), anniversaryYears('2025-03-14', '2025-03-14'), anniversaryYears('2024-02-29', '2025-02-28'), anniversaryYears('2024-02-29', '2028-02-29'), anniversaryYears('2024-02-29', '2028-02-28')],
+    [1, 0, 0, 1, 4, 0],
+  );
+  const used: SweState['days'] = {};
+  for (let i = 0; i < 210; i++) {
+    const k = next('2026-01-01', i * 2); // every other day: a total, never a run
+    used[k] = { ...emptyDay(), water: [{ id: `w${i}`, ml: 250, at: noonOf(k).getTime() }] };
+  }
+  const hs = { ...base, days: used };
+  const d100 = next('2026-01-01', 99 * 2);
+  assert.equal(dayNumber(hs, d100), PARTY_EVERY);
+  assert.equal(dayNumber(hs, next(d100)), 0, 'a day with nothing logged has no number');
+  assert.deepEqual(partyOn(hs, d100, noonOf(d100)), { day: d100, kind: 'hundred', n: 100, gentle: false });
+  assert.equal(partyOn(hs, next(d100, -2), noonOf(d100)), null, 'day 99');
+  assert.equal(partyOn(hs, next('2026-01-01', 199 * 2), noonOf(d100))?.n, 200);
+  assert.deepEqual(partyOn(hs, '2027-01-01', noonOf('2027-01-01')), { day: '2027-01-01', kind: 'year', n: 1, gentle: false }, 'hatch day comes round');
+  const rough = { ...hs, days: { ...hs.days, [d100]: { ...hs.days[d100], moods: [{ id: 'm', level: 1 as const, emotions: [], at: noonOf(d100).getTime() }] } } };
+  assert.equal(partyOn(rough, d100, noonOf(d100))?.gentle, true, 'a rough day: the gentle party');
+  assert.equal(partyOn(base, d100), null, 'nothing logged, no hatch day');
+  // the tank: cake and tiny rivals, none on a gentle day
+  assert.deepEqual(tankLifeOf(hs, { now: noonOf(d100).getTime() }).party, { gentle: false, guests: 3, candles: 1 });
+  assert.deepEqual(tankLifeOf(rough, { now: noonOf(d100).getTime() }).party, { gentle: true, guests: 0, candles: 1 });
+  // the scroll of firsts: in order, never food, the body, mood or sleep; the task still alive only on a normal day
+  const t0 = noonOf('2026-01-01').getTime();
+  const fs = {
+    ...hs,
+    days: { ...hs.days, '2026-01-03': { ...hs.days['2026-01-03'], sets: [{ id: 's', exercise: 'Squat', weight: 40, reps: 5, at: t0 + 2 * DAY }], food: [{ id: 'f', name: 'x', kcal: 1, protein: 1, at: t0 }], sleepMin: 400 } },
+    flies: { house_fly: { firstAt: t0 + 5 * DAY, count: 2 } },
+    achievements: { first_sip: t0 + DAY },
+    bossKilledAt: { '2026-01-05': t0 + 9 * DAY },
+    tasks: [{ id: 'old', title: 'Fix the bike', done: false, createdAt: t0 }],
+  };
+  const scroll = firstsOf(fs, { now: t0 + 30 * DAY });
+  assert.deepEqual(scroll.slice(0, 3).map((f) => f.label), ['First glass of water', "First trophy: Baby's First Sip", 'First workout']);
+  assert.ok(scroll.some((f) => f.label === 'First workout' && f.at === t0 + 2 * DAY));
+  assert.ok(scroll.some((f) => f.label.startsWith('First fly caught')) && scroll.some((f) => f.label === 'First boss beaten'));
+  for (let i = 1; i < scroll.length - 1; i++) assert.ok(scroll[i].at >= scroll[i - 1].at, 'oldest first');
+  assert.match(scroll.at(-1)?.label ?? '', /Fix the bike.*still alive/);
+  assert.ok(!firstsOf(fs, { now: t0 + 30 * DAY, gentle: true }).some((f) => f.emoji === '🧟'), 'nothing cheeky on a gentle day');
+  for (const f of scroll) assert.ok(!/food|meal|kcal|weigh|body|mood|sleep/i.test(f.label), f.label);
+
+  // ---- the 3D world: an empty tank, the shelf, a guest, the party, a throw ----
+  const life = (o: Partial<TankLife>): TankLife => ({ ...IDLE_LIFE, ...o });
+  let s3 = 3;
+  const w = createWorld({ ids: ['web', 'lamp', 'rug', 'plant', 'couch', 'books', 'rack', 'radio', 'fireplace', 'arcade'], next: null, marking: '#E23636', background: '#10141F', random: () => (s3 = (s3 * 16807) % 2147483647) / 2147483647 });
+  const runW = (sec: number, each?: () => void) => {
+    for (let i = 0; i < sec * 30; i++) {
+      w.step(1 / 30);
+      each?.();
+    }
+  };
+  const ndc = (p: THREE.Vector3) => {
+    const q = p.clone().project(w.camera);
+    return [(q.x + 1) / 2, (1 - q.y) / 2] as const;
+  };
+  runW(2);
+  w.setLife(life({ mode: 'out', daylight: 0, light: lighting(0, false) }));
+  runW(5);
+  assert.deepEqual([w.shown().home, w.shown().note, w.act()], [false, true, null], 'out: an empty tank and a note');
+  const [ox, oy] = ndc(w.pose().pos.add(new THREE.Vector3(0, 0.4, 0)));
+  assert.notEqual(w.pick(ox, oy), 'spider', 'nobody home to poke');
+  w.sign('✊');
+  runW(0.2);
+  assert.equal(w.act(), null, 'no game while it is out');
+  w.setLife(life({}));
+  runW(0.5);
+  assert.deepEqual([w.shown().home, w.shown().note], [true, false], 'back');
+  assert.ok(['home', 'rug'].includes(w.spotId()) || w.busy() === null);
+  // the souvenir shelf
+  w.setLife(life({ souvenirs: SOUVENIRS.slice(0, 3).map((x) => ({ shape: x.shape, color: x.color })) }));
+  assert.equal(w.shown().shelf, 3);
+  w.setLife(life({ souvenirs: SOUVENIRS.slice(0, 10).map((x) => ({ shape: x.shape, color: x.color })) }));
+  assert.equal(w.shown().shelf, 10);
+  // a guest: curled up asleep, a tap wakes it
+  w.setLife(life({ mode: 'sleep', daylight: 0, light: lighting(0, false), guest: { id: 'reginald', awake: false, look: GUESTS.reginald.look } }));
+  runW(40);
+  assert.ok(w.shown().guest === 'reginald' && w.shown().guestCurl > 0.9, 'asleep in the corner');
+  const gp = w.scene.getObjectByName('guest-spider')!;
+  assert.ok(Math.abs(gp.position.x) < TANK.w / 2 && Math.abs(gp.position.z) < TANK.d / 2);
+  const [gx, gy] = ndc(gp.position.clone().add(new THREE.Vector3(0, 0.3, 0)));
+  assert.equal(w.pick(gx, gy), 'guest');
+  w.greetGuest();
+  w.setLife(life({ mode: 'sleep', daylight: 0, light: lighting(0, false), guest: { id: 'reginald', awake: true, look: GUESTS.reginald.look } }));
+  runW(3);
+  assert.ok(w.shown().guestCurl < 0.1, 'awake');
+  for (const id of ['jumper', 'orb', 'house', 'spy'] as const) {
+    w.setLife(life({ guest: { id, awake: false, look: GUESTS[id].look } }));
+    runW(0.3);
+    assert.equal(w.shown().guest, id);
+  }
+  w.setLife(life({}));
+  assert.equal(w.shown().guest, null);
+  // the party: a cake, tiny rivals in hats, and the spider reads its scroll at the cake
+  w.setLife(life({ party: { gentle: false, guests: 3, candles: 2 } }));
+  assert.deepEqual([w.shown().cake, w.shown().partyGuests], [true, 3]);
+  let read = false;
+  runW(90, () => {
+    if (w.act() === '📜' && w.spotId() === 'party' && w.shown().scroll) read = true;
+  });
+  assert.ok(read, 'reading the scroll of firsts by the cake');
+  w.setLife(life({ party: { gentle: true, guests: 0, candles: 1 } }));
+  assert.deepEqual([w.shown().cake, w.shown().partyGuests], [true, 0], 'gentle: just the cake');
+  w.setLife(life({}));
+  assert.equal(w.shown().cake, false);
+  // its throw in sten, sax, påse, shown over its head
+  w.sign('✌️');
+  runW(0.2);
+  assert.equal(w.act(), '✌️');
+  runW(4);
+  assert.equal(w.busy(), null, 'then back to its day');
+  w.collect();
+  w.dispose();
+}
+step9TankTests();
 
 console.log('synchronous logic tests passed');

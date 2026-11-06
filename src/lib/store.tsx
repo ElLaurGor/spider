@@ -163,6 +163,10 @@ import { landmarkOffer, withChapter } from './chapters';
 import { revealedMult, sealedXp } from './sealed-card';
 import { pickInfo, withBossPick } from './boss-pick';
 import { withLogged } from './contract-log';
+// step 9 tank
+import { settleTrips, SOUVENIR_BY_ID } from './expeditions';
+import { GUESTS, settleGuests, withGuestAwake } from './guests';
+import { isThrow, playRound, rpsOf, spiderThrow } from './rps';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -3427,6 +3431,50 @@ function useStoreValue() {
           msgs.push({ text: `${b.emoji} ${L(next, 'bossPicked', { boss: b.name, weakness: b.weakness })}`, tone: 'info' });
           return next;
         });
+      },
+
+      // --- step 9 tank ---
+      /**
+       * The terrarium's nights out and guests settled (expeditions.ts, guests.ts): souvenirs from nights now over go
+       * on the shelf, and a guest whose day is over leaves its gift. Coins and cosmetics only, never XP.
+       */
+      tankSync(o: Parameters<typeof settleTrips>[2] = {}) {
+        run(
+          (s, msgs) => {
+            const now = new Date();
+            const t = settleTrips(s, now, o);
+            const g = settleGuests(t.state, now);
+            const last = t.back.at(-1);
+            if (last) {
+              const more = t.back.length > 1 ? ` (${t.back.length} nights out while you were away)` : '';
+              msgs.push({ text: `🧳 ${L(g.state, 'tripBack', { title: SOUVENIR_BY_ID[last.id]?.name ?? 'a souvenir' })}${more}`, tone: 'info' });
+            }
+            for (const v of g.left) {
+              const c = v.gift?.cosmetic ? cosmeticOf(v.gift.cosmetic) : undefined;
+              const reward = c ? `${c.emoji} ${c.name}` : `${v.gift?.coins ?? 0} 🪙`;
+              msgs.push({ text: `🎁 ${L(g.state, 'guestLeft', { title: GUESTS[v.guest].short, reward })}`, tone: 'good' });
+            }
+            return g.state;
+          },
+          { quiet: true },
+        );
+      },
+      /** Today's guest tapped awake (guests.ts): it can talk now, in its own voice. */
+      wakeGuest() {
+        run((s) => withGuestAwake(s), { quiet: true });
+      },
+      /** A round of sten, sax, påse (rps.ts): the spider throws first (from her past throws), then hers lands. A won match pays coins within the day's cap, never XP. */
+      rpsThrow(me: Parameters<typeof playRound>[1]) {
+        if (!isThrow(me)) return;
+        run(
+          (s) => {
+            const rps = rpsOf(s);
+            const r = playRound(rps, me, spiderThrow(rps), new Date());
+            const next = { ...s, rps: r.rps };
+            return r.coins ? { ...next, coins: next.coins + r.coins, coinsEarned: next.coinsEarned + r.coins } : next;
+          },
+          { quiet: true },
+        );
       },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],
