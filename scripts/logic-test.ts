@@ -167,7 +167,7 @@ import { firstAdventSunday, isJulfridKey } from '../src/lib/swedish-days';
 import { owns, shows, withShown } from '../src/lib/cosmetics';
 import { forSale, PET_COSMETICS, PET_PRICE, petCaught } from '../src/lib/cosmetics';
 import { CHEST_KEY_COST, cleanName, NAME_MAX } from '../src/lib/economy';
-import { LAIR, lairLeft, lairPieces, nextPiece, withPiece } from '../src/lib/lair';
+import { LAIR, LAIR_HOME, lairLeft, lairPieces, lairSpots, nextPiece, nextSpot, withPiece } from '../src/lib/lair';
 import { PEEL_XP, peelBlocker, PEELS_PER_WEEK, rosterName, withPeel, withRivalName, withRivalNames } from '../src/lib/league';
 import { QUEST_SLOTS, questCardBlocker, questSlotsOn, withBossName, withQuestCard } from '../src/lib/quests';
 import { voiceOf } from '../src/lib/rival-talk';
@@ -404,6 +404,17 @@ function shopTests() {
   assert.equal(nextPiece(lair), null);
   assert.equal(lairPieces(lair).length, LAIR.length);
   assert.equal(lairLeft(lair), 0);
+  // the spider walking around: every piece has a spot inside the room and something to do there
+  assert.ok(LAIR.every((x) => x.visit.x > 0 && x.visit.x < 100 && x.visit.y > 0 && x.visit.y < 100 && x.visit.act.length > 0));
+  const bare = lairSpots([]);
+  assert.equal(bare[0].id, LAIR_HOME.id);
+  assert.ok(bare.length >= 3, 'an empty lair still has some floor to pace');
+  const full = lairSpots(LAIR.map((x) => x.id));
+  assert.equal(full.length, LAIR.length, 'the rug takes the middle of the floor');
+  assert.ok(full.some((x) => x.id === 'rug' && x.x === LAIR_HOME.x && x.y === LAIR_HOME.y));
+  assert.deepEqual(lairSpots(['web']).map((x) => x.id), ['home', 'web', 'left', 'right']);
+  for (const r of [0, 0.3, 0.6, 0.9999]) assert.notEqual(nextSpot(full, 'web', r).id, 'web', 'always somewhere else');
+  assert.ok(LAIR.filter((x) => x.visit.hang).every((x) => x.visit.y < 60), 'hanging spots are off the floor');
 
   // pets: a fly caught at least once can be adopted, priced by rarity, into a slot of its own
   const pet = defaultState();
