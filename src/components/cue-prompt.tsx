@@ -28,11 +28,11 @@ export function CuePromptHost() {
   return (
     <View style={[styles.wrap, { bottom: insets.bottom + 76 }]}>
       <View style={styles.card}>
-        <Text style={styles.title}>🔗 {p.habit ? `${p.habit.emoji} ${p.habit.name}` : 'Gym plan'}</Text>
+        <Text style={styles.title}>🔗 {p.habit ? `${p.habit.emoji} ${p.habit.name}` : p.target === 'woop' ? 'Contract plan' : 'Gym plan'}</Text>
         <Text style={styles.text}>{p.text}</Text>
         <View style={styles.row}>
           <Pressable onPress={cue.done} style={({ pressed }) => [styles.btn, styles.done, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel="Done">
-            <Text style={styles.btnText}>{p.habit ? 'Done ✓' : 'Open Gym'}</Text>
+            <Text style={styles.btnText}>{p.habit ? 'Done ✓' : p.target === 'woop' ? 'On it ✓' : 'Open Gym'}</Text>
           </Pressable>
           <Pressable onPress={later} style={({ pressed }) => [styles.btn, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel="Later">
             <Text style={[styles.btnText, { color: C.dim }]}>Later</Text>

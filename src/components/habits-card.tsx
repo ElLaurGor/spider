@@ -9,6 +9,9 @@ import { HABIT_EMOJIS, HABIT_IDEAS, habitsDone, habitsFor, habitsShownOn, rangeN
 import { planText, reminderRetired } from '@/lib/if-then';
 import { useStore } from '@/lib/store';
 import type { Habit, IfThen, Weekday } from '@/lib/types';
+// step 8 game: mini versions and the 8-week history
+import { HistorySheet } from '@/components/history-grid';
+import { didMini, MINI_XP, miniOffered } from '@/lib/mini';
 
 const daysText = (h: Habit) =>
   h.perWeek
@@ -17,15 +20,16 @@ const daysText = (h: Habit) =>
       ? 'every day'
       : WEEK_ORDER.filter((d) => h.days.includes(d)).map((d) => WEEKDAYS[d]).join(' ');
 
-type Draft = { name: string; emoji: string; days: Weekday[]; remind: number; range: { min: number; max: number } | null; plan: IfThen | null };
-const blank = (): Draft => ({ name: '', emoji: HABIT_EMOJIS[0], days: [], remind: -1, range: null, plan: null });
-const draftOf = (h: Habit): Draft => ({ name: h.name, emoji: h.emoji, days: h.days, remind: h.remindHour ?? -1, range: h.perWeek ?? null, plan: h.plan ?? null });
+type Draft = { name: string; emoji: string; days: Weekday[]; remind: number; range: { min: number; max: number } | null; plan: IfThen | null; mini: string };
+const blank = (): Draft => ({ name: '', emoji: HABIT_EMOJIS[0], days: [], remind: -1, range: null, plan: null, mini: '' });
+const draftOf = (h: Habit): Draft => ({ name: h.name, emoji: h.emoji, days: h.days, remind: h.remindHour ?? -1, range: h.perWeek ?? null, plan: h.plan ?? null, mini: h.mini ?? '' });
 
 export function HabitsCard() {
   const { state, actions } = useStore();
   const [managing, setManaging] = useState(false);
   const [editing, setEditing] = useState<string | null>(null); // habit id, or null for a new one
   const [draft, setDraft] = useState<Draft>(blank);
+  const [history, setHistory] = useState<string | null>(null); // step 8 game: the habit whose 8 weeks are open
 
   const due = habitsFor(state);
   const shown = habitsShownOn(state);
@@ -37,7 +41,7 @@ export function HabitsCard() {
     if (!draft.name.trim()) return;
     // An if-then plan needs both halves: without the "I will" it's no plan.
     const plan = draft.plan && draft.plan.then.trim() ? draft.plan : null;
-    const h = { name: draft.name.trim(), emoji: draft.emoji, days: draft.range ? [] : draft.days, remindHour: draft.remind < 0 ? null : draft.remind, perWeek: draft.range, plan };
+    const h = { name: draft.name.trim(), emoji: draft.emoji, days: draft.range ? [] : draft.days, remindHour: draft.remind < 0 ? null : draft.remind, perWeek: draft.range, plan, mini: draft.mini.trim().slice(0, 40) || null };
     if (editing) actions.updateHabit(editing, h);
     else actions.addHabit(h);
     setEditing(null);
@@ -86,9 +90,17 @@ export function HabitsCard() {
           const w = rangeWeek(state, h);
           // A range habit: its week so far, and whether today is a day it's needed (no slack left).
           const note = w ? `${rangeText(w)}${!isDone && rangeNeededOn(state, h) ? ' · needed today' : w.target > 0 && w.done >= w.target ? ' · ✓ week' : ''}` : null;
-          const sub = [note, h.plan ? `🔗 ${planText(h.plan)}` : null].filter(Boolean).join(' · ');
+          const mini = didMini(state, h.id); // step 8 game: done as its mini version today, or on offer
+          const offered = miniOffered(state, h);
+          const miniNote = mini ? `mini ✓ ${h.mini ?? ''}`.trim() : offered ? `mini: ${h.mini}` : null;
+          const sub = [miniNote, note, h.plan ? `🔗 ${planText(h.plan)}` : null].filter(Boolean).join(' · ');
           return (
-            <Pressable key={h.id} onPress={() => actions.toggleHabit(h.id)} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+            <Pressable
+              key={h.id}
+              onPress={() => actions.toggleHabit(h.id)}
+              onLongPress={() => setHistory(h.id)}
+              accessibilityHint="Long-press for its last 8 weeks"
+              style={({ pressed }) => pressed && { opacity: 0.7 }}>
               <Row>
                 <Icon name={isDone ? 'check_circle' : 'radio_button_unchecked'} size={24} color={isDone ? C.green : C.dim} />
                 <View style={{ flex: 1 }}>
@@ -101,10 +113,21 @@ export function HabitsCard() {
                     </T>
                   ) : null}
                 </View>
+                {offered ? (
+                  <Pressable onPress={() => actions.doMini(h.id)} hitSlop={6} style={styles.mini} accessibilityRole="button" accessibilityLabel={`Mini version: ${h.mini}`}>
+                    <Text style={styles.miniText}>
+                      mini +{MINI_XP}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <Pressable onPress={() => setHistory(h.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`${h.name}: the last 8 weeks`}>
+                  <Icon name="history" size={18} color={C.faint} />
+                </Pressable>
               </Row>
             </Pressable>
           );
         })}
+      <HistorySheet kind="habit" id={history} onClose={() => setHistory(null)} />
       {!managing && elsewhere > 0 ? (
         <T dim small>
           +{elsewhere} habit{elsewhere === 1 ? '' : 's'} on other days
@@ -144,6 +167,10 @@ export function HabitsCard() {
               ))}
             </ScrollView>
             <Field value={draft.name} onChangeText={(name) => patch({ name })} placeholder="e.g. Drink a protein shake" />
+            <Field value={draft.mini} onChangeText={(mini) => patch({ mini })} placeholder="Mini version (optional), e.g. shoes on, 2 minutes" maxLength={40} />
+            <T dim small>
+              On a hard day the mini counts as showing up, for a third of the XP. Never on rough days: those are rest.
+            </T>
             <Row gap={6}>
               <Chip label="On set days" active={!draft.range} color={C.green} onPress={() => setRange(false)} />
               <Chip label="Times a week" active={!!draft.range} color={C.green} onPress={() => setRange(true)} />
@@ -194,4 +221,6 @@ const styles = StyleSheet.create({
   link: { color: C.red, fontWeight: '700', fontSize: 13 },
   form: { gap: 10, backgroundColor: C.card2, borderRadius: 12, padding: 12 },
   emoji: { width: 40, height: 40, borderRadius: 10, borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  mini: { borderWidth: 1, borderColor: C.green, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
+  miniText: { color: C.green, fontSize: 11, fontWeight: '700' },
 });

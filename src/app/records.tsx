@@ -9,6 +9,9 @@ import { MEDAL_EMOJI, medalTotals } from '@/lib/medals';
 import { hallOfFame, type Rec } from '@/lib/records';
 import { useStore } from '@/lib/store';
 import { BADGE_NOTE, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
+// step 8 game: the month's calls and the contract ledger
+import { ContractLedgerCard } from '@/components/contract-ledger';
+import { CallsCard } from '@/components/shot-call';
 
 export default function RecordsScreen() {
   const { state } = useStore();
@@ -48,6 +51,9 @@ export default function RecordsScreen() {
           </T>
         </Card>
       ) : null}
+
+      <CallsCard />
+      <ContractLedgerCard />
 
       <Card accent={C.purple}>
         <H right={<T dim small>{`${Object.keys(state.secrets).length}/${SECRET_ACHIEVEMENTS.length}`}</T>}>🔓 Secret achievements</H>

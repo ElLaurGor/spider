@@ -6,6 +6,7 @@ import { countedDay, firstDataDay, roughDay, usedOn } from './day-filters';
 import { medalTotals } from './medals';
 import { emotionEmoji, moodInfo } from './mood';
 import { BOSSES, FINAL_BOSS } from './quests';
+import { chaptersBetween } from './chapters';
 import { dayScoreFor, gradeOf, type Grade } from './report';
 import { avgMood, coffeeOf, dayOf, effectiveSavage, gamingUsedMs, moodsOf, trainedOn, trainMinutes, waterGoalFor, waterMl } from './selectors';
 import { monthName, silkStatus } from './silk-track';
@@ -235,6 +236,20 @@ export function yearWrapped(s: State, year: number, now = new Date()) {
       sub: `line${retired === 1 ? '' : 's'} you called too far`,
       quip: `${retired}. I've grown.`,
       color: 'green',
+    });
+  }
+
+  // step 8 game: the year's fresh-start chapters, by name (chapters.ts). Never a "days since".
+  const chapters = chaptersBetween(s, `${year}-01-01`, `${year}-12-31`);
+  if (chapters.length) {
+    slides.push({
+      id: 'chapters',
+      emoji: '📖',
+      title: chapters.length > 1 ? 'Your chapters' : 'A new chapter',
+      big: chapters.length > 1 ? plural(chapters.length, 'chapter') : chapters[0].title,
+      sub: chapters.map((c) => `${c.n}. ${c.title}`).join(' · '),
+      quip: pick('Every one began on purpose. Some even stuck to the plot.', 'Every one of them began on purpose.'),
+      color: 'cyan',
     });
   }
 

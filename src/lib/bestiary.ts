@@ -1,7 +1,7 @@
 // Every boss you've met: how often it showed up, how often it fell, your fastest kill, and its
 // Lazy Syndicate file once you've beaten it. Bosses come back every 8 weeks, a rank stronger.
 import { addDays, dayKey, fmtTime, startOfWeek, WEEKDAYS_LONG } from './dates';
-import { BOSSES, FINAL_BOSS, firstXpDay, kingWeeksOf, WEAKNESS, type BossId } from './quests';
+import { BOSSES, FINAL_BOSS, firstXpDay, kingWeeksOf, WEAKNESS, weekBossOf, type BossId } from './quests';
 import type { State } from './types';
 
 /** Each boss's file in the Lazy Syndicate dossier, unlocked by beating it once. */
@@ -52,8 +52,9 @@ export function bestiary(s: State, now = new Date()): BeastRow[] {
     for (let m = startOfWeek(new Date(`${first}T12:00`)); m <= now; m = addDays(m, 7)) mondays.push(m);
   }
   const kings = kingWeeksOf(s);
-  const rows: BeastRow[] = BOSSES.map((b, i) => {
-    const fights = mondays.filter((m) => weekIndexOf(m) % BOSSES.length === i && !kings.includes(dayKey(m))).length;
+  const rows: BeastRow[] = BOSSES.map((b) => {
+    // The rotation's week, or a week it was picked for (step 8, boss-pick.ts).
+    const fights = mondays.filter((m) => weekBossOf(s, m).id === b.id && !kings.includes(dayKey(m))).length;
     const wins = winsOf(s, b.id);
     return {
       id: b.id,

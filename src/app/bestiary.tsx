@@ -64,7 +64,7 @@ export default function BestiaryScreen() {
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={styles.name}>{now ? current.name : r.name}</Text>
                 <Text style={styles.mono}>
-                  {now ? 'THIS WEEK' : back != null ? `back in ${back} week${back === 1 ? '' : 's'}` : 'final boss'} · weak to {r.weakness}
+                  {now ? 'THIS WEEK' : back != null ? `back in ${back || 8} week${(back || 8) === 1 ? '' : 's'}${back === 0 ? ' (passed over this week)' : ''}` : 'final boss'} · weak to {r.weakness}
                 </Text>
               </View>
             </Row>

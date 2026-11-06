@@ -2308,6 +2308,86 @@ export const LINES = {
     mild: ['About {time} a day this week. The phone knows its place.', '{time} a day of phone this week. Calm and steady.'],
     savage: ['Just {time} a day. The phone is starting to feel ignored.', '{time} a day this week. The feed misses you. Good.'],
   },
+  // ---- step 8 game ----
+  // Call your shot (prediction.ts). {title}: the call ("lock", "coin flip"), {goal}: "the gym" or "all quests",
+  // {score}: how often that call came true (a percentage), or the month's Brier score.
+  shotCalled: {
+    mild: ['Called it: {title} on {goal}. We will see tonight.', 'Noted: {title} on {goal}. The day decides.'],
+    savage: ['{title} on {goal}. Noted, timestamped, and I will be checking.', 'You called {title} on {goal}. I have saved the receipt.'],
+  },
+  shotHistory: {
+    mild: ['Called it: {title} on {goal}. Your {title} calls have landed {score} % of the time.', 'Noted: {title}. So far, {title} has come true {score} % of the time.'],
+    savage: [
+      'You said {title}. History says {score} %.',
+      '{title}, again. Your record on {title} calls: {score} %. Just so you know.',
+      'A {title} call. Past ones landed {score} % of the time. Prove the number wrong.',
+    ],
+  },
+  shotHit: {
+    mild: ['Yesterday you called {title} on {goal}, and it happened. Nice read.', 'Your call on {goal} came true yesterday. Good read on yourself.'],
+    savage: ['Yesterday: {title} on {goal}. Called it, did it. Annoyingly accurate.', 'You called {title} on {goal} and delivered. I had a roast ready. Wasted.'],
+  },
+  shotMiss: {
+    mild: ['Yesterday you called {title} on {goal}. It went the other way. Today is a new call.', 'Your call on {goal} missed yesterday. That is what calibration is for.'],
+    savage: ['You said {title} on {goal}. The day said no. Adjust the dial.', 'Yesterday: {title} on {goal}. Reality had other plans. Calibrate.'],
+  },
+  shotMonth: {
+    mild: ['{month}: {n} calls, Brier score {score}. Title: {title}. +{coins} 🪙.', '{month} in calls: {n} of them, Brier {score}. Your title: {title}. +{coins} 🪙.'],
+    savage: ['{month}: {n} calls, Brier {score}. The verdict: {title}. +{coins} 🪙.', '{month} scored: {n} calls, Brier {score}. Title: {title}. +{coins} 🪙. Wear it.'],
+  },
+  shotMonthFew: {
+    mild: ['{month}: {n} calls, Brier {score}. Too few for a title yet. +{coins} 🪙.'],
+    savage: ['{month}: {n} calls. Brier {score}. Not enough calls for a title. +{coins} 🪙 anyway.'],
+  },
+  // Obstacle scouting at contract signing (woop.ts): situations, never the body.
+  woopScouted: {
+    mild: ['Obstacle scouted. Your plan: {plan}.', 'Plan ready for the week: {plan}.'],
+    savage: ['Obstacle spotted before it spotted you. Plan: {plan}.', 'You know what will get in the way. Plan: {plan}. Now it can try.'],
+  },
+  woopRecap: {
+    mild: ['Your obstacle showed up {n}×, your plan fired {count}×.', 'This week the obstacle turned up {n}×, and your plan fired {count}× of those.'],
+    savage: ['Your obstacle showed up {n}×, your plan fired {count}×. Scouting works.', 'The obstacle came {n}×. Your plan answered {count}×. Noted for next week.'],
+  },
+  woopNoShow: {
+    mild: ['Your obstacle never showed up this week. The plan stayed ready.'],
+    savage: ['Your obstacle stayed away all week. Scared of the plan, probably.'],
+  },
+  // Mini versions and the 10-minute salvage (mini.ts): showing up counts. Never roasted for being small.
+  habitMini: {
+    mild: ['{habit}, mini version. You showed up, and that counts. +{xp} XP.', '{habit}: the mini counts. Showing up is the habit. +{xp} XP.'],
+    savage: ['{habit}, mini edition. Small, but on the board. +{xp} XP.', 'Mini {habit} logged. Not glorious, but present. +{xp} XP.'],
+  },
+  salvageDone: {
+    mild: ['{minutes} minutes salvaged. The day still has a workout in it.', 'Salvage done: {minutes} minutes. That counts as showing up.'],
+    savage: ['{minutes}-minute salvage. Not the plan, but not a zero either.', 'Salvaged: {minutes} minutes. The workout lives to fight another day.'],
+  },
+  // Fresh-start chapters (chapters.ts). {title}: the new chapter's name.
+  chapterSealed: {
+    mild: ['Chapter {n} begins: {title}. The last one is sealed and kept.', 'The old chapter is closed. Chapter {n}, {title}, starts now.'],
+    savage: ['Chapter {n}: {title}. The last chapter is sealed. What happened in there stays in there.', 'Old chapter: sealed, stamped, shelved. Chapter {n}, {title}. Make it a good read.'],
+  },
+  chapterFirst: {
+    mild: ['Chapter {n} begins: {title}. Everything before it was the prologue.'],
+    savage: ['Chapter {n}: {title}. Everything until now was the prologue. Long prologue.'],
+  },
+  // Picking next week's boss (boss-pick.ts).
+  bossPicked: {
+    mild: ["{boss} it is. Its weakness, {weakness}, is the week's focus.", 'Picked: {boss}. Weak to {weakness}. That is the plan.'],
+    savage: ['You picked {boss}. Weak to {weakness}. Bring it.', '{boss} accepted the challenge. Weakness: {weakness}. Use it.'],
+  },
+  // The sealed quest card flips (sealed-card.ts).
+  sealedDouble: {
+    mild: ['The sealed card flips: ×2. {quest} paid +{xp} XP.'],
+    savage: ['Sealed card: ×2! {quest} paid +{xp} XP. The house loses this round.'],
+  },
+  sealedHalf: {
+    mild: ['The sealed card flips: ×0.5. {quest} paid +{xp} XP. Done is done.'],
+    savage: ['Sealed card: ×0.5. {quest} paid +{xp} XP. The house wins this one.'],
+  },
+  sealedEven: {
+    mild: ['The sealed card flips: ×1. {quest} paid its usual +{xp} XP.'],
+    savage: ['Sealed card: ×1. Exactly +{xp} XP for {quest}. Perfectly average luck.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

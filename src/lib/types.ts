@@ -88,6 +88,8 @@ export type Settings = {
   sweden?: SwedenPrefs; // the Swedish calendar's extras (name days, people days, fika, Hesa Fredrik, deklaration); unset = the defaults
   // step 8 stockholm
   sthlmEvents?: string[]; // Visit Stockholm categories for HQ's weekend card (lib/sthlm-events.ts); unset or empty = no card
+  // step 8 game
+  birthday?: string | null; // 'MM-DD': a fresh-start landmark (lib/chapters.ts); unset = none
 };
 
 /** A one-tap food on Fuel's quick-add row. */
@@ -238,6 +240,10 @@ export type DayLog = {
   comeback?: string; // the missed planned gym day this day's first workout came back from (comeback.ts), so undoing it takes the bonus back
   // step 8 days
   gymAt?: { hour: number; minute: number }; // that day's gym time, moved to a free slot on Plan (plan-slots.ts gymTimeOn): the gym reminders, the shame slot and the slip time follow it
+  // step 8 game
+  shot?: Shot; // the morning's call (lib/prediction.ts), settled at the day's rollover
+  habitsMini?: string[]; // habits done as their mini version that day (also in `habits`; lib/mini.ts)
+  salvage?: string; // the 10-minute salvage's activity id (lib/mini.ts): once a day, kept if the activity is deleted
 };
 
 /** A finished day's goals: settings, plan and habits as they were that day. */
@@ -266,6 +272,7 @@ export type Contract = {
   status: 'open' | 'won' | 'lost' | 'voided';
   difficulty?: 'easy' | 'normal' | 'hard'; // cluster B; older contracts are normal
   before?: ContractGoal[]; // a follow-up: the goals of this week's earlier contracts, all won (contracts.ts signOptions)
+  woop?: Woop; // step 8 game: the outcome, the obstacle scouted at signing and its if-then plan (lib/woop.ts)
 };
 
 export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number; firstDoneAt?: number }; // firstDoneAt: re-checking later counts for that day
@@ -302,6 +309,7 @@ export type Habit = {
   createdAt: number;
   plan?: IfThen | null; // step 4: an if-then plan (if-then.ts)
   perWeek?: { min: number; max: number } | null; // step 4: a weekly range ("2–4× this week, any days"); `days` is ignored then
+  mini?: string | null; // step 8 game: the mini version ("shoes on, 2 minutes"), done in its place on a hard day (lib/mini.ts)
 };
 
 export type State = {
@@ -408,6 +416,11 @@ export type State = {
   slotPlans?: SlotPlan[]; // free slots on Plan given a job: a focus block or a task, each with its reminder (plan-slots.ts)
   pastYou?: PastYou; // notes from past you (past-you.ts): lines for the you who's about to skip, and the debrief's wins
   focusSide?: FocusSide | null; // the Web Focus session's spotter and task, running or just finished (spotter.ts)
+  // step 8 game
+  shotsPaid?: string; // 'YYYY-MM': the last month whose calls were scored and paid (lib/prediction.ts)
+  bossPicks?: Record<string, string>; // week key (its Monday) -> the boss picked for that week (lib/boss-pick.ts)
+  chapters?: Chapter[]; // fresh-start chapters, oldest first (lib/chapters.ts)
+  contractLog?: ContractEntry[]; // settled contracts, oldest first, the newest 52 (lib/contract-log.ts)
 };
 
 // step 8 days
@@ -512,3 +525,25 @@ export type Outing = { id: string; day: string; title: string; task: string; at:
 export type NewRecord = { day: string; kind: 'warm' | 'cold' | 'hi' | 'lo'; v: number };
 /** Stockholm weather trivia (sthlm-climate.ts): the day yesterday's readings came in, the last day checked for records, month means, new records, the day whose record was toasted. */
 export type SthlmClimate = { fetchedDay?: string; checked?: string; months?: Record<string, number>; records?: NewRecord[]; toasted?: string };
+// step 8 game
+/** A call made in the morning (prediction.ts): `p` is the chance it gave, `result` is set when the day rolls over. */
+export type ShotCall = 'no' | 'flip' | 'probably' | 'lock';
+export type Shot = { q: 'gym' | 'quests'; call: ShotCall; p: number; at: number; result?: 'hit' | 'miss' | 'void' };
+/** A situation that could wreck a contract's week (woop.ts). Situations only, never the body. */
+export type ObstacleId = 'late_meetings' | 'long_day' | 'rain' | 'gaming' | 'doomscroll';
+/** WOOP at signing: the best outcome, the obstacle, its if-then plan. `seen`: days a calendar obstacle showed up. */
+export type Woop = { outcome: string; obstacle: ObstacleId; plan: IfThen; seen?: string[] };
+/** A fresh-start chapter (chapters.ts): begun on a landmark, named by the owner, with one thing to restart. */
+export type Chapter = { n: number; title: string; from: string; landmark: string; restart?: { text: string; habitId?: string }; at: number };
+/** A settled contract (contract-log.ts). `payout`: coins paid back (the payout when won, the stake when voided). */
+export type ContractEntry = {
+  week: string;
+  goal: ContractGoal;
+  difficulty: 'easy' | 'normal' | 'hard';
+  stake: number;
+  target: number;
+  status: 'won' | 'lost' | 'voided';
+  payout: number;
+  at: number;
+  woop?: { obstacle: ObstacleId; showed: number; fired: number };
+};

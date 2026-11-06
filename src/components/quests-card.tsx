@@ -15,6 +15,10 @@ import { BONUS_MIN, XP } from '@/lib/xp';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { WEAK_SPOT_LABEL, type WeakSpot } from '@/lib/weak-spot';
+// step 8 game: the morning call, the sealed card, picking the boss
+import { BossPick } from '@/components/boss-pick';
+import { ShotCallPanel } from '@/components/shot-call';
+import { isSealed, revealedMult, sealedXp } from '@/lib/sealed-card';
 
 const num = (n: number) => (n >= 1000 ? n.toLocaleString('sv-SE') : String(n));
 
@@ -44,6 +48,8 @@ export function QuestsCard({ boss = true }: { boss?: boolean }) {
       {drafting ? null : quests.map((q) => {
         const complete = done.includes(q.id);
         const canSwap = !complete && rerollFor(state, q.id) != null;
+        const sealed = isSealed(state, q.id, dayKey(at)); // step 8 game: face down until it's done
+        const mult = revealedMult(state, q.id, dayKey(at));
         return (
           <View key={q.id} style={{ gap: 4 }}>
             <Row>
@@ -54,8 +60,9 @@ export function QuestsCard({ boss = true }: { boss?: boolean }) {
                   <Text style={styles.swapText}>⟳ {QUEST_REROLL_COST}🪙</Text>
                 </Pressable>
               ) : null}
-              <Text style={styles.xp}>+{q.xp}</Text>
+              <Text style={styles.xp}>{sealed ? (mult != null ? `+${sealedXp(state, dayKey(at), q.id, q.xp)} ×${mult}` : '🂠 +?') : `+${q.xp}`}</Text>
             </Row>
+            {sealed && mult == null ? <Text style={[styles.progress, { paddingLeft: 30, color: C.yellow }]}>SEALED · ×0.5, ×1 or ×2, revealed when done</Text> : null}
             {focus?.id === q.id && !complete ? (
               <Text style={[styles.progress, { paddingLeft: 30, color: C.purple }]}>
                 WEAK SPOT · aimed at your {WEAK_SPOT_LABEL[focus.spot as WeakSpot] ?? focus.spot} this week
@@ -74,6 +81,7 @@ export function QuestsCard({ boss = true }: { boss?: boolean }) {
           </View>
         );
       })}
+      <ShotCallPanel at={at} />
       <T dim small>
         All done = +{XP.questsAll} XP, +{BONUS_MIN.questsAll} min gaming and a loot chest. New quests every day.
         {!today.questRerolled ? ` One quest a day can be swapped for ${QUEST_REROLL_COST} 🪙 before you start it.` : ''}
@@ -128,6 +136,7 @@ export function BossPanel({ at }: { at: number }) {
         {!boss.defeated && boss.paused > 0 ? ` 🛌 ${boss.paused} sick/away day${boss.paused === 1 ? '' : 's'} this week: it has less HP.` : ''}
       </T>
       <FinisherLine at={at} />
+      <BossPick at={at} />
       {!boss.defeated ? (
         <T small style={{ color: C.yellow }}>
           🎯 Weakness: {boss.weakness}. Those days&apos; XP hits 50% harder.
@@ -208,6 +217,7 @@ function QuestDraft({ at }: { at: number }) {
         if (!q) return null;
         const on = picks.includes(id);
         const can = draftPickable(state, id, now) && !done.includes(id);
+        const sealed = isSealed(state, id, dayKey(now)); // step 8 game: face down, its multiplier revealed when done
         const note = done.includes(id) ? 'done today, it stays' : !draftPickable(state, id, now) ? 'already met today' : d.questFocus?.id === id ? 'aimed at your weak spot' : null;
         return (
           <Pressable
@@ -220,8 +230,9 @@ function QuestDraft({ at }: { at: number }) {
             <Row>
               <Icon name={on ? 'check_circle' : 'radio_button_unchecked'} size={20} color={on ? C.purple : C.dim} />
               <T style={{ flex: 1 }}>{q.title}</T>
-              <Text style={styles.xp}>+{q.xp}</Text>
+              <Text style={styles.xp}>{sealed ? '🂠 +?' : `+${q.xp}`}</Text>
             </Row>
+            {sealed ? <Text style={[styles.progress, { paddingLeft: 30, color: C.yellow }]}>SEALED CARD · ×0.5, ×1 or ×2 of {q.xp} XP, revealed when done</Text> : null}
             {note ? <Text style={[styles.progress, { paddingLeft: 30 }]}>{note}</Text> : null}
           </Pressable>
         );

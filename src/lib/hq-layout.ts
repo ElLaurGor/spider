@@ -13,6 +13,7 @@ export const HQ_SECTIONS = [
   { id: 'weather', label: 'Weather' },
   { id: 'commute', label: 'SL departures (once a stop is set)' },
   { id: 'weekend', label: 'This weekend in Stockholm (Thu–Sat, once event types are picked)' },
+  { id: 'chapter', label: 'New chapter (on a fresh-start day: birthday, payday, back from a break)' }, // step 8 game
   { id: 'sleep', label: 'Sleep & energy check-in' },
   { id: 'tiles', label: 'Tiles' },
   { id: 'buttons', label: 'Water & gaming buttons' },

@@ -478,13 +478,30 @@ export const firstXpDay = (s: State) =>
     .filter((k) => (s.days[k].xpEarned ?? 0) > 0)
     .sort()[0] as string | undefined;
 
-/** How many times this week's boss has shown up since you started, this week included. Bosses return every 8 weeks. */
+/** The boss the rotation brings in a week: each of the 8 every 8 weeks. */
+export const rotationBossOf = (date: Date | number) => BOSSES[weekIndexOf(startOfWeek(date)) % BOSSES.length];
+
+/** A week's ordinary boss: the one picked for it (step 8, boss-pick.ts), else the rotation's. Couch King weeks aside. */
+export function weekBossOf(s: State, date: Date | number) {
+  const picked = s.bossPicks?.[dayKey(startOfWeek(date))];
+  return BOSSES.find((b) => b.id === picked) ?? rotationBossOf(date);
+}
+
+/**
+ * How many times this week's boss has shown up since you started, this week included. Bosses return every 8 weeks
+ * (or when picked): the weeks it was the boss are counted, a pick included.
+ */
 export function bossRank(s: State, date: Date | number = new Date()) {
   const first = firstXpDay(s);
   if (!first) return 1;
   const now = weekIndexOf(startOfWeek(date));
   const start = weekIndexOf(startOfWeek(new Date(`${first}T12:00`)));
-  return now < start ? 1 : 1 + Math.floor((now - start) / BOSSES.length);
+  if (now < start) return 1;
+  if (!Object.keys(s.bossPicks ?? {}).length) return 1 + Math.floor((now - start) / BOSSES.length);
+  const id = weekBossOf(s, date).id;
+  let n = 0;
+  for (let m = startOfWeek(new Date(`${first}T12:00`)); weekIndexOf(m) <= now; m = addDays(m, 7)) if (weekBossOf(s, m).id === id) n++;
+  return Math.max(1, n);
 }
 
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
@@ -588,7 +605,7 @@ export function bossFor(s: State, date: Date | number = new Date(), now: Date | 
   const key = dayKey(monday);
   const kings = kingWeeksOf(s);
   const final = kings.includes(key);
-  const base = final ? FINAL_BOSS : BOSSES[weekIndexOf(monday) % BOSSES.length];
+  const base = final ? FINAL_BOSS : weekBossOf(s, monday); // the rotation's, or the one picked for the week (step 8)
   // Halloween dresses every boss up; at nyår the boss is the Old Year itself. All week, whatever day it's asked.
   const season = final ? null : bossSeasonOf(monday);
   const skin = season === 'halloween' ? HALLOWEEN[base.id as (typeof BOSSES)[number]['id']] : season === 'nyar' ? { name: 'The Old Year', emoji: '🕰️' } : null;

@@ -22,6 +22,7 @@ import { useStore } from '@/lib/store';
 import { gentleDay, toneOn } from '@/lib/tone';
 import type { IfThen, MoveWhy, SetEntry, Weekday, WorkoutMove } from '@/lib/types';
 import { canUnmove, copingPlan, copingWeekday, movedFrom, moveDayName, moveTargets, MOVE_WHYS, pendingWhy, slipAt } from '@/lib/workout-move';
+import { SALVAGE_MIN, salvageOffered } from '@/lib/mini'; // step 8 game: the 10-minute salvage
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -286,7 +287,8 @@ function MoveCard() {
   }
   const targets = moveTargets(state, today, today);
   const plan = workoutFor(state, noonOf(today));
-  if (!targets.length || !plan) return null;
+  const salvage = salvageOffered(state, now); // step 8 game: a third option once it's slipping
+  if ((!targets.length && !salvage) || !plan) return null;
   const slip = now >= slipAt(state, today);
   if (!slip && !open) {
     return (
@@ -299,16 +301,28 @@ function MoveCard() {
   }
   return (
     <Card accent={C.blue}>
-      <H>↪ Move {plan.name}</H>
-      <T dim small>
-        {slip ? 'Today got away from you? ' : ''}Pick a free day this week. Today becomes a rest day, not a miss.
-      </T>
+      <H>{targets.length ? `↪ Move ${plan.name}` : `⏱️ Salvage ${plan.name}`}</H>
+      {targets.length ? (
+        <>
+          <T dim small>
+            {slip ? 'Today got away from you? ' : ''}Pick a free day this week. Today becomes a rest day, not a miss.
+          </T>
+          <Row gap={8} style={{ flexWrap: 'wrap' }}>
+            {targets.map((k) => (
+              <Btn key={k} small label={cap(moveDayName(k, today))} onPress={() => actions.moveWorkout(today, k)} />
+            ))}
+          </Row>
+        </>
+      ) : null}
       {slip ? <PastYouLine slot="move" /> : null}
-      <Row gap={8} style={{ flexWrap: 'wrap' }}>
-        {targets.map((k) => (
-          <Btn key={k} small label={cap(moveDayName(k, today))} onPress={() => actions.moveWorkout(today, k)} />
-        ))}
-      </Row>
+      {salvage ? (
+        <>
+          <Btn label={`⏱️ Salvage it: ${SALVAGE_MIN} minutes now`} kind="ghost" small onPress={() => actions.salvageWorkout()} />
+          <T dim small>
+            {targets.length ? 'Or keep today: ' : ''}a short session counts as showing up. Once a day.
+          </T>
+        </>
+      ) : null}
     </Card>
   );
 }

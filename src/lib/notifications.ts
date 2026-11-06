@@ -51,6 +51,7 @@ import { deklPings } from './deklaration';
 // step 8 days: booked free slots and top-3 slots, a gym time moved for the day, notes from past you
 import { pastYouTail } from './past-you';
 import { gymTimeOn, slotReminders } from './plan-slots';
+import { woopReminders } from './woop'; // step 8 game
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -76,6 +77,7 @@ const LINKS: [prefix: string, href: Href][] = [
   ['mood-', '/mood'],
   ['habit-', '/plan'],
   ['ifthen-gym-', '/gym'],
+  ['ifthen-woop-', '/'], // step 8 game: the contract's obstacle plan lives on HQ
   ['ifthen-', '/plan'],
   ['countdown-', '/plan'],
   ['report-', '/report'],
@@ -406,6 +408,13 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
           const body = r.planB ? sayOn(s, tone, 'planBRain', { time: fmtTime(atTime(date, 0, st.gymHour, st.gymMinute)), then: p.then.trim() }, key) : sayOn(s, tone, 'ifThenCue', cueVars(p), key);
           jobs.push(scheduleAt(r.id, r.at, `🏋️ ${r.gym.name} day`, body, CH.gym));
         }
+      }
+    }
+    // step 8 game: the contract's obstacle plan (woop.ts), on its clock cue (a time, the last meeting, rain at gym time).
+    if (st.notify.habits || st.notify.gym) {
+      for (const r of woopReminders(s, d, now, events, weather)) {
+        const body = r.planB ? sayOn(s, tone, 'planBRain', { time: fmtTime(atTime(date, 0, st.gymHour, st.gymMinute)), then: r.plan.then.trim() }, key) : sayOn(s, tone, 'ifThenCue', cueVars(r.plan), key);
+        jobs.push(scheduleAt(r.id, r.at, '🧭 Contract plan', body, CH.remind));
       }
     }
 

@@ -7,6 +7,7 @@ import { dayKey } from '@/lib/dates';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { Tracker } from '@/lib/types';
+import { HistorySheet } from '@/components/history-grid'; // step 8 game: a tracker's last 8 weeks
 
 const IDEAS: Omit<Tracker, 'id' | 'createdAt'>[] = [
   { name: 'Headache', emoji: '🤕', kind: 'scale' },
@@ -33,6 +34,7 @@ export function TrackersCard({ day = dayKey() }: { day?: string }) {
   const [emoji, setEmoji] = useState(EMOJIS[0]);
   const [kind, setKind] = useState<Tracker['kind']>('scale');
   const [unit, setUnit] = useState('');
+  const [history, setHistory] = useState<string | null>(null); // step 8 game: the tracker whose 8 weeks are open
   const values = dayOf(state, day).tracks ?? {};
 
   const add = () => {
@@ -71,9 +73,14 @@ export function TrackersCard({ day = dayKey() }: { day?: string }) {
           return (
             <View key={t.id} style={{ gap: 6 }}>
               <Row style={{ justifyContent: 'space-between' }}>
-                <T>
-                  {t.emoji} {t.name}
-                </T>
+                <Pressable onPress={() => setHistory(t.id)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${t.name}: the last 8 weeks`} style={{ flex: 1 }}>
+                  <Row gap={6}>
+                    <T>
+                      {t.emoji} {t.name}
+                    </T>
+                    <Icon name="history" size={16} color={C.faint} />
+                  </Row>
+                </Pressable>
                 {v != null ? (
                   <Pressable onPress={() => actions.setTrack(t.id, null, day)} hitSlop={8}>
                     <T dim small>
@@ -100,6 +107,7 @@ export function TrackersCard({ day = dayKey() }: { day?: string }) {
           );
         })}
 
+      <HistorySheet kind="tracker" id={history} onClose={() => setHistory(null)} />
       {managing ? (
         <View style={{ gap: 10 }}>
           {state.trackers.map((t) => (

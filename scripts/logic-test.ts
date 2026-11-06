@@ -198,6 +198,19 @@ import { gymTimeOn, keptWhen, slotPlansOn, slotReminders, whenLabel, whenNow, wi
 import { finishOf, knownRivals, rivalFile } from '../src/lib/rival-files';
 import { endOffer, extraRound, OFFER_MS, sideFor, spotterFor, usualFocus, withExtension } from '../src/lib/spotter';
 import { recordTask } from '../src/lib/tasks';
+// step 8 game
+import { brierOf, calibration, callHistory, CALLS, MIN_CALLS, outcomeOf, scoredShots, settleShotMonth, settleShots, SHOT_COINS, shotOpen, shotQuestion, titleFor, withShot, yesterdayShot } from '../src/lib/prediction';
+import { calendarObstacleOn, dataObstacleOn, obstacleCue, obstacleOptions, planFor, withSeen, woopCue, woopOf, woopReminders, woopTally } from '../src/lib/woop';
+import { didMini, MINI_XP, miniOffered, miniRef, salvageOffered, withMini, withoutMini } from '../src/lib/mini';
+import { chapterOn, chaptersBetween, cleanBirthday, firstAugustWorkday, landmarkOffer, landmarksOn, nextChapter, withChapter } from '../src/lib/chapters';
+import { multFor, revealedMult, SEALED_ODDS, sealedOn, sealedXp } from '../src/lib/sealed-card';
+import { bossOptions, pickedFor, pickWeek, withBossPick } from '../src/lib/boss-pick';
+import { habitHistory, trackerHistory } from '../src/lib/history';
+import { contractStats, LOG_KEEP, netOf, withLogged } from '../src/lib/contract-log';
+import { diaryChapters } from '../src/lib/diary';
+import { bossRank, rotationBossOf, weekBossOf } from '../src/lib/quests';
+import { XP } from '../src/lib/xp';
+import type { CalEvent, Contract, ContractGoal, ShotCall, Tracker } from '../src/lib/types';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -5942,6 +5955,440 @@ function step8DaysTests() {
   }
 }
 step8DaysTests();
+
+// step 8 game: calls, obstacle scouting, mini versions, chapters, the sealed card, boss picks, history, the contract ledger.
+// In a function of its own: the module body is at TypeScript's control-flow size limit.
+function step8GameTests() {
+  const at = (k: string, h = 12) => new Date(`${k}T${String(h).padStart(2, '0')}:00`);
+  const used = (): DayLog => ({ ...emptyDay(), water: [{ id: 'w', ml: 250, at: 0 }] });
+  const low = (): DayLog => ({ ...used(), moods: [{ id: 'm', level: 2, emotions: [], at: 0 }] });
+  const trained = (): DayLog => ({ ...emptyDay(), activities: [{ id: 'a', kind: 'cardio', minutes: 30, at: 0 }] });
+  const base = () => {
+    const s = defaultState();
+    s.onboarded = true;
+    return s;
+  };
+
+  // ---- 13. call your shot: one morning call, settled at rollover, void on uncounted days, Brier-scored monthly for coins ----
+  {
+    const s = base();
+    const mon = at('2027-03-01', 9); // a Monday: Push day
+    assert.equal(shotQuestion(s, mon), 'gym');
+    assert.equal(shotQuestion(s, at('2027-03-03', 9)), 'quests'); // Wednesday: a rest day
+    assert.ok(shotOpen(s, mon));
+    assert.ok(!shotOpen(s, at('2027-03-01', 12)), 'mornings only');
+    assert.ok(!shotOpen({ ...s, onboarded: false }, mon));
+    assert.ok(!shotOpen(s, at('2027-03-03', 9)), "a quest call needs the day's quests");
+    assert.ok(shotOpen({ ...s, days: { '2027-03-03': { ...emptyDay(), quests: ['meals', 'mood', 'water_goal'] } } }, at('2027-03-03', 9)));
+    assert.ok(!shotOpen({ ...s, days: { '2027-03-01': low() } }, mon), 'not on a rough day');
+    assert.ok(!shotOpen({ ...s, pauses: [{ from: '2027-03-01', to: '2027-03-01', kind: 'sick' }] }, mon), 'not paused');
+    assert.ok(!shotOpen({ ...s, days: { '2027-03-01': { ...emptyDay(), energy: 2 } } }, mon), 'not on a reduced day');
+    assert.ok(!shotOpen({ ...s, days: { '2027-03-01': trained() } }, mon), 'not once the answer is known');
+    const called = withShot(s, 'lock', mon);
+    const shot = called.days['2027-03-01'].shot!;
+    assert.deepEqual([shot.q, shot.call, shot.p], ['gym', 'lock', 0.95]);
+    assert.equal(withShot(called, 'no', mon), called, 'one call a day');
+    assert.deepEqual(CALLS.map((c) => c.p), [0.1, 0.5, 0.75, 0.95]);
+    // outcomes: a hit, a miss, void when the day isn't counted (nothing logged, a rough day) or the workout moved
+    const day = (d: DayLog) => ({ ...s, days: { '2027-03-01': { ...d, shot } } });
+    assert.equal(outcomeOf(day(trained()), '2027-03-01', shot), 'hit');
+    assert.equal(outcomeOf(day(used()), '2027-03-01', shot), 'miss');
+    assert.equal(outcomeOf(day(emptyDay()), '2027-03-01', shot), 'void', 'nothing logged');
+    assert.equal(outcomeOf(day({ ...trained(), moods: [{ id: 'm', level: 1, emotions: [], at: 0 }] }), '2027-03-01', shot), 'void', 'a low-mood day is rest');
+    assert.equal(outcomeOf(day({ ...used(), period: { flow: 'medium', symptoms: [] } }), '2027-03-01', shot), 'void', 'a period day is rest');
+    const moved = { ...day(used()), workoutMoves: [{ from: '2027-03-01', to: '2027-03-03', name: 'Push', at: 0 }] };
+    assert.equal(outcomeOf(moved, '2027-03-01', shot), 'void', 'moving a workout is never a missed call');
+    const quests = { ...shot, q: 'quests' as const };
+    assert.equal(outcomeOf({ ...s, days: { '2027-03-03': { ...used(), questsAllDone: true, shot: quests } } }, '2027-03-03', quests), 'hit');
+    assert.equal(outcomeOf({ ...s, days: { '2027-03-03': { ...used(), questReduced: 'sip', shot: quests } } }, '2027-03-03', quests), 'void');
+    // settled once at rollover, yesterday's gets a word unless void
+    const r = settleShots(day(trained()), '2027-03-02');
+    assert.equal(r.state.days['2027-03-01'].shot?.result, 'hit');
+    assert.equal(r.settled.length, 1);
+    assert.equal(yesterdayShot(r.settled, '2027-03-02')?.result, 'hit');
+    assert.equal(settleShots(r.state, '2027-03-02').state, r.state, 'settled once');
+    assert.equal(settleShots(day(trained()), '2027-03-01').settled.length, 0, "today's call waits for midnight");
+    assert.equal(yesterdayShot(settleShots(day(emptyDay()), '2027-03-02').settled, '2027-03-02'), null);
+
+    // a month of calls: Brier score, the title and the coins (an affine Brier payout: a proper scoring rule)
+    const month = (calls: [ShotCall, boolean][]) => {
+      const m = base();
+      calls.forEach(([call, hit], i) => {
+        const k = dayKey(addDays(at('2027-02-01'), i));
+        m.days[k] = { ...used(), shot: { q: 'gym', call, p: CALLS.find((c) => c.id === call)!.p, at: 0, result: hit ? 'hit' : 'miss' } };
+      });
+      m.days['2027-02-27'] = { ...used(), shot: { q: 'gym', call: 'lock', p: 0.95, at: 0, result: 'void' } }; // never scored
+      return m;
+    };
+    const rep = <T,>(n: number, x: T) => Array.from({ length: n }, () => x);
+    assert.equal(calibration(month([...rep(5, ['lock', true] as [ShotCall, boolean])]), '2027-02').title, 'Dead-Eye Oracle');
+    const over = calibration(month([...rep(3, ['lock', true] as [ShotCall, boolean]), ...rep(2, ['lock', false] as [ShotCall, boolean])]), '2027-02');
+    assert.equal(over.n, 5, 'void calls are left out');
+    assert.equal(over.title, 'Overconfident Oracle');
+    assert.ok(Math.abs((over.brier ?? 0) - (3 * 0.05 ** 2 + 2 * 0.95 ** 2) / 5) < 1e-9);
+    assert.equal(calibration(month(rep(5, ['no', true] as [ShotCall, boolean])), '2027-02').title, 'Sandbagger');
+    assert.equal(calibration(month([...rep(6, ['probably', true] as [ShotCall, boolean]), ...rep(2, ['probably', false] as [ShotCall, boolean])]), '2027-02').title, 'Calibrated');
+    assert.equal(calibration(month([...rep(3, ['flip', true] as [ShotCall, boolean]), ...rep(3, ['flip', false] as [ShotCall, boolean])]), '2027-02').title, 'Coin Flipper');
+    assert.equal(calibration(month(rep(MIN_CALLS - 1, ['lock', true] as [ShotCall, boolean])), '2027-02').title, null, 'too few calls for a title');
+    assert.equal(titleFor(10, 0, 0.05), 'Dead-Eye Oracle');
+    const five = calibration(month(rep(5, ['lock', true] as [ShotCall, boolean])), '2027-02');
+    assert.equal(five.coins, Math.round(5 * SHOT_COINS * (1 - 0.05 ** 2)));
+    // sandbagging never pays: for any belief, the call closest to it has the best expected payout
+    for (const belief of CALLS) {
+      const expected = (p: number) => SHOT_COINS * (1 - (belief.p * (1 - p) ** 2 + (1 - belief.p) * p ** 2));
+      const best = [...CALLS].sort((a, b) => expected(b.p) - expected(a.p))[0];
+      assert.equal(best.id, belief.id, `believing ${belief.p}`);
+    }
+    assert.ok(brierOf({ q: 'gym', call: 'flip', p: 0.5, at: 0, result: 'miss' }) === 0.25);
+    // paid once at month start, coins only (never XP)
+    const feb = month(rep(5, ['lock', true] as [ShotCall, boolean]));
+    const paid = settleShotMonth(feb, at('2027-03-01', 8));
+    assert.equal(paid.award?.coins, five.coins);
+    assert.deepEqual([paid.state.coins, paid.state.coinsEarned, paid.state.xp, paid.state.shotsPaid], [five.coins, five.coins, 0, '2027-02']);
+    assert.equal(settleShotMonth(paid.state, at('2027-03-20')).state, paid.state, 'once a month');
+    const empty = settleShotMonth(base(), at('2027-03-01'));
+    assert.deepEqual([empty.award, empty.state.coins, empty.state.shotsPaid], [null, 0, '2027-02']);
+    // history for the savage line: "You said lock. History says 60 %."
+    const hist = month([...rep(3, ['lock', true] as [ShotCall, boolean]), ...rep(2, ['lock', false] as [ShotCall, boolean]), ['no', false]]);
+    assert.deepEqual(callHistory(hist, 'lock', '2027-03-01'), { n: 5, pct: 60 });
+    assert.deepEqual(callHistory(hist, 'flip', '2027-03-01'), { n: 0, pct: null });
+    assert.equal(scoredShots(hist, '2027-02').length, 6);
+  }
+
+  // ---- 14. obstacle scouting (WOOP) at signing: situations the app can see, a ready if-then plan, the tally ----
+  {
+    const s = base();
+    assert.deepEqual(planFor(s, 'train', 'rain'), { cue: { kind: 'rain' }, then: 'do a 20-minute home circuit instead' });
+    assert.deepEqual(obstacleCue(s, 'late_meetings'), { kind: 'calendar', match: '' });
+    assert.deepEqual(obstacleCue(s, 'gaming'), { kind: 'event', event: 'gaming' });
+    assert.deepEqual(obstacleCue(s, 'doomscroll'), { kind: 'time', hour: 21, minute: 0 }); // two hours before bedtime
+    assert.ok(planFor(s, 'water', 'doomscroll').then.startsWith('put the phone on the charger and '));
+    // ranked by what the last 4 weeks showed: the gaming timer on 5 days, the phone on 2, rain on 1
+    const now = at('2027-03-01', 9);
+    const r = base();
+    r.settings.weather = { name: 'Stockholm', lat: 59.3, lon: 18.1 };
+    for (let i = 1; i <= 10; i++) {
+      const k = dayKey(addDays(now, -i));
+      const t = at(k, 18).getTime();
+      r.days[k] = {
+        ...used(),
+        games: i <= 5 ? [{ start: t, end: t + 3 * 60 * MIN }] : [],
+        screen: i === 6 || i === 7 ? { totalMin: 300, doomMin: 200, gamesMin: 0, top: [] } : undefined,
+        weather: i === 8 ? { max: 8, min: 2, rainMm: 6, sunMin: 0, code: 61 } : undefined,
+      };
+    }
+    assert.deepEqual(obstacleOptions(r, 'train', now).map((o) => o.id), ['gaming', 'doomscroll', 'rain']);
+    assert.ok(!obstacleOptions(r, 'water', now).some((o) => o.id === 'rain'), 'rain only gets in the way of training and steps');
+    assert.ok(!obstacleOptions(r, 'gaming', now).some((o) => o.id === 'gaming'));
+    assert.ok(!obstacleOptions(r, 'train', now).some((o) => o.calendar), 'no calendar, no calendar obstacles');
+    assert.ok(!obstacleOptions(base(), 'train', now).some((o) => o.id === 'doomscroll' || o.id === 'rain'), 'only what the app can see');
+    assert.ok(dataObstacleOn(r, 'gaming', dayKey(addDays(now, -1))) && !dataObstacleOn(r, 'gaming', dayKey(addDays(now, -6))));
+    // the calendar: a meeting ending late, or 4+ hours of meetings
+    const ev = (k: string, from: number, to: number, title = 'Meeting'): CalEvent => ({ key: `${k}${from}`, title, start: at(k, from).getTime(), end: at(k, to).getTime(), allDay: false, location: null, calendarId: 'c' });
+    assert.ok(calendarObstacleOn('late_meetings', [ev('2027-03-02', 16, 18)], at('2027-03-02')));
+    assert.ok(!calendarObstacleOn('late_meetings', [ev('2027-03-02', 9, 16)], at('2027-03-02')));
+    assert.ok(calendarObstacleOn('long_day', [ev('2027-03-02', 9, 11), ev('2027-03-02', 13, 15)], at('2027-03-02')));
+    assert.ok(!calendarObstacleOn('long_day', [ev('2027-03-02', 9, 11)], at('2027-03-02')));
+    const cal = obstacleOptions(r, 'water', now, [ev('2027-03-02', 16, 18), ev('2027-03-03', 16, 18)], true);
+    assert.ok(Math.abs((cal.find((o) => o.id === 'late_meetings')?.rate ?? 0) - 2 / 7) < 1e-9);
+    // the WOOP as signed: outcome tidied, the ready plan or the owner's own "then"
+    const w = woopOf(s, 'water', '  Clear skin by Sunday  ', 'gaming');
+    assert.deepEqual(w, { outcome: 'Clear skin by Sunday', obstacle: 'gaming', plan: { cue: { kind: 'event', event: 'gaming' }, then: 'drink a full glass of water' } });
+    assert.equal(woopOf(s, 'water', '', 'gaming', 'two glasses').plan.then, 'two glasses');
+    // the tally: rough days left out; "fired" when the goal still moved on an obstacle day
+    const t = base();
+    const c: Contract = { week: '2027-03-01', from: '2027-03-01', signedAt: 0, goal: 'water', target: 5, stake: 100, status: 'open', woop: w };
+    const over = (k: string) => [{ start: at(k, 18).getTime(), end: at(k, 18).getTime() + 3 * 60 * MIN }];
+    t.days['2027-03-01'] = { ...used(), games: over('2027-03-01'), waterGoalHit: true };
+    t.days['2027-03-02'] = { ...used(), games: over('2027-03-02') };
+    t.days['2027-03-03'] = { ...low(), games: over('2027-03-03'), waterGoalHit: true }; // a rough day: out of the tally
+    t.days['2027-03-04'] = { ...used(), waterGoalHit: true };
+    t.contract = c;
+    assert.deepEqual(woopTally(t, c, at('2027-03-07')), { showed: 2, fired: 1 });
+    assert.deepEqual(woopTally(t, { ...c, woop: undefined }, at('2027-03-07')), { showed: 0, fired: 0 });
+    // a calendar obstacle is noted once the calendar shows it today
+    const lc: Contract = { ...c, woop: woopOf(s, 'water', '', 'late_meetings') };
+    const seen = withSeen({ ...t, contract: lc }, [ev('2027-03-02', 16, 18)], at('2027-03-02', 9));
+    assert.deepEqual(seen.contract?.woop?.seen, ['2027-03-02']);
+    assert.equal(withSeen(seen, [ev('2027-03-02', 16, 18)], at('2027-03-02', 10)), seen, 'once');
+    assert.equal(withSeen({ ...t, contract: lc }, [ev('2027-03-02', 9, 10)], at('2027-03-02', 9)).contract, lc);
+    assert.equal(withSeen(t, [ev('2027-03-02', 16, 18)], at('2027-03-02', 9)), t, 'a data obstacle needs no calendar');
+    assert.equal(woopTally(seen, seen.contract!, at('2027-03-07')).showed, 1);
+    // reminders on the plan's clock cue, under a planned prefix; none once won, none on a paused day
+    const rem = woopReminders({ ...t, contract: lc }, 1, at('2027-03-01', 9), [ev('2027-03-02', 16, 18)], null);
+    assert.equal(rem.length, 1);
+    assert.equal(rem[0].id, 'ifthen-woop-2027-03-02-0');
+    assert.equal(rem[0].at, at('2027-03-02', 18).getTime());
+    assert.ok(isPlanned(rem[0].id));
+    assert.deepEqual(woopReminders({ ...t, contract: { ...lc, status: 'won' } }, 1, at('2027-03-01', 9), [ev('2027-03-02', 16, 18)], null), []);
+    assert.deepEqual(woopReminders({ ...t, contract: lc, pauses: [{ from: '2027-03-02', to: '2027-03-02', kind: 'away' }] }, 1, at('2027-03-01', 9), [ev('2027-03-02', 16, 18)], null), []);
+    const long = { ...t, contract: { ...c, woop: woopOf(s, 'water', '', 'long_day') } };
+    const ld = woopReminders(long, 0, at('2027-03-02', 9), [ev('2027-03-02', 9, 11), ev('2027-03-02', 12, 14)], null);
+    assert.deepEqual(ld.map((x) => x.at), [at('2027-03-02', 17).getTime()]);
+    assert.deepEqual(woopReminders(long, 0, at('2027-03-02', 9), [ev('2027-03-02', 9, 10)], null), [], 'only on a day the calendar shows it');
+    // the in-app cue: the gaming timer stopped on a contract day prompts once
+    const playing = { ...t, activeGame: { start: at('2027-03-05', 18).getTime() } };
+    const stopped = { ...t, activeGame: null };
+    const cue = woopCue(playing, stopped, at('2027-03-05', 20));
+    assert.equal(cue.prompt?.target, 'woop');
+    assert.equal(cue.prompt?.plan.then, 'drink a full glass of water');
+    assert.ok(cue.state.days['2027-03-05'].cues?.woop != null);
+    assert.equal(woopCue(playing, cue.state, at('2027-03-05', 21)).prompt, null, 'once a day');
+    assert.equal(woopCue(playing, { ...stopped, contract: { ...c, status: 'won' } }, at('2027-03-05', 20)).prompt, null);
+  }
+
+  // ---- 15. mini versions and the 10-minute salvage ----
+  {
+    const s = base();
+    s.habits = [{ id: 'h', name: 'Run', emoji: '🏃', days: [], remindHour: null, createdAt: 0, mini: 'shoes on, 2 minutes' }];
+    const k = '2027-03-02';
+    assert.ok(miniOffered(s, s.habits[0], k));
+    const m = withMini(s, 'h', k);
+    assert.deepEqual([m.days[k].habits, m.days[k].habitsMini], [['h'], ['h']]);
+    assert.ok(didMini(m, 'h', k));
+    assert.ok(!miniOffered(m, m.habits[0], k), 'once a day');
+    assert.equal(withMini(m, 'h', k), m);
+    assert.equal(questInfo(m, 'habits', at(k))?.progress, 1, 'the mini counts as showing up');
+    const back = withoutMini(m, 'h', k);
+    assert.deepEqual([back.days[k].habits, back.days[k].habitsMini], [[], undefined]);
+    assert.ok(!miniOffered({ ...s, days: { [k]: low() } }, s.habits[0], k), 'never on a rough day');
+    assert.ok(!miniOffered({ ...s, pauses: [{ from: k, to: k, kind: 'sick' }] }, s.habits[0], k));
+    assert.ok(!miniOffered(s, { ...s.habits[0], mini: ' ' }, k), 'only with a mini version');
+    assert.ok(!miniOffered({ ...s, days: { [k]: { ...emptyDay(), habits: ['h'] } } }, s.habits[0], k), 'not once it is done in full');
+    // a third of the XP under its own ref: an undo takes back exactly that (Double XP included)
+    assert.equal(miniRef('h'), 'hm:h');
+    assert.ok(MINI_XP * 3 <= XP.habit + 1 && MINI_XP >= 1);
+    const paid = credit(m, k, MINI_XP * 2, 0, miniRef('h'));
+    assert.equal(paid.days[k].xpBy?.['hm:h'], 2);
+    const undone = unreward(paid, k, miniRef('h'), MINI_XP);
+    assert.deepEqual([undone.xp, undone.days[k].xpEarned, undone.days[k].xpBy], [0, 0, undefined]);
+    // the salvage: a slipping planned workout, once a day, never on a rough or paused day
+    const mon = '2027-03-01';
+    assert.ok(salvageOffered(s, at(mon, 20).getTime() + 30 * MIN), 'slipping from two hours after gym time');
+    assert.ok(!salvageOffered(s, at(mon, 19).getTime()), 'not before it slips');
+    assert.ok(!salvageOffered(s, at('2027-03-03', 21).getTime()), 'not on a rest day');
+    assert.ok(!salvageOffered({ ...s, days: { [mon]: trained() } }, at(mon, 21).getTime()));
+    assert.ok(!salvageOffered({ ...s, days: { [mon]: { ...emptyDay(), salvage: 'gone' } } }, at(mon, 21).getTime()), 'once a day, even after a delete');
+    assert.ok(!salvageOffered({ ...s, days: { [mon]: low() } }, at(mon, 21).getTime()));
+    assert.ok(!salvageOffered({ ...s, pauses: [{ from: mon, to: mon, kind: 'sick' }] }, at(mon, 21).getTime()));
+  }
+
+  // ---- 18. fresh-start chapters: one offer per landmark, named, sealed; never a "days since" ----
+  {
+    assert.equal(cleanBirthday('3-14'), '03-14');
+    assert.equal(cleanBirthday('02-29'), '02-29');
+    assert.equal(cleanBirthday('02-30'), null);
+    assert.equal(cleanBirthday('13-01'), null);
+    assert.equal(cleanBirthday('soon'), null);
+    const s = base();
+    s.settings.birthday = '03-14';
+    const ids = (k: string) => landmarksOn(s, at(k)).map((l) => l.id);
+    assert.deepEqual(ids('2027-03-14'), ['birthday:2027']);
+    assert.deepEqual(ids('2027-03-25'), ['payday:2027-03']); // a Thursday
+    assert.deepEqual(ids('2027-03-01'), ['season:spring:2027']);
+    assert.deepEqual(ids('2027-12-01'), ['season:winter:2027']);
+    assert.equal(dayKey(firstAugustWorkday(2027)), '2027-08-02'); // 1 August is a Sunday
+    assert.deepEqual(ids('2027-08-02'), ['august:2027']);
+    assert.deepEqual(ids('2027-03-10'), []);
+    const p = { ...s, pauses: [{ from: '2027-03-07', to: '2027-03-09', kind: 'sick' as const }] };
+    assert.deepEqual(landmarksOn(p, at('2027-03-10')).map((l) => l.id), ['back:2027-03-10']);
+    assert.deepEqual(landmarksOn({ ...s, settings: { ...s.settings, birthday: '02-29' } }, at('2027-02-28')).map((l) => l.id), ['birthday:2027']);
+    // on offer for the landmark day and the two after it; waved off, or taken, it's gone
+    assert.equal(landmarkOffer(p, at('2027-03-12'))?.id, 'back:2027-03-10');
+    assert.equal(landmarkOffer(p, at('2027-03-13')), null);
+    assert.equal(landmarkOffer(p, at('2027-03-08')), null, 'not while paused');
+    assert.equal(landmarkOffer({ ...p, onboarded: false }, at('2027-03-11')), null);
+    assert.equal(landmarkOffer({ ...p, dismissed: ['chapter:back:2027-03-10'] }, at('2027-03-11')), null);
+    const offer = landmarkOffer(p, at('2027-03-11'))!;
+    const one = withChapter(p, offer, '  The   Comeback ', { text: 'evening walks' }, at('2027-03-11'));
+    assert.deepEqual(one.chapters?.map((c) => [c.n, c.title, c.from, c.landmark, c.restart?.text]), [[1, 'The Comeback', '2027-03-11', 'back:2027-03-10', 'evening walks']]);
+    assert.equal(landmarkOffer(one, at('2027-03-12')), null, 'one chapter per landmark');
+    assert.equal(withChapter(one, offer, 'Again', null, at('2027-03-12')), one);
+    assert.equal(nextChapter(one), 2);
+    const two = withChapter(one, landmarkOffer(one, at('2027-03-14'))!, '', null, at('2027-03-14'));
+    assert.deepEqual(two.chapters?.map((c) => [c.n, c.title, c.restart]), [
+      [1, 'The Comeback', { text: 'evening walks' }],
+      [2, 'Chapter 2', undefined],
+    ]);
+    assert.equal(chapterOn(two, '2027-03-12')?.n, 1);
+    assert.equal(chapterOn(two, '2027-03-20')?.n, 2);
+    assert.equal(chapterOn(two, '2027-03-01'), null);
+    assert.equal(chaptersBetween(two, '2027-03-01', '2027-03-31').length, 2);
+    // the diary groups its pages by chapter; Wrapped shows the month's chapter by name
+    const d = { ...two, diary: [{ n: 1, at: 0, day: '2027-03-05', text: 'a' }, { n: 2, at: 0, day: '2027-03-12', text: 'b' }, { n: 3, at: 0, day: '2027-03-13', text: 'c' }] };
+    assert.deepEqual(diaryChapters(d).map((g) => [g.chapter?.n ?? 0, g.pages.map((x) => x.n)]), [[1, [3, 2]], [0, [1]]]);
+    const slide = monthWrapped(two, 2027, 2, at('2027-03-31')).slides.find((x) => x.id === 'chapter');
+    assert.equal(slide?.big, 'Chapter 2');
+    assert.ok(slide && !/days? since|in a row/i.test(`${slide.sub} ${slide.quip}`));
+    assert.ok(!monthWrapped(two, 2027, 1, at('2027-03-31')).slides.some((x) => x.id === 'chapter'));
+    assert.equal(yearWrapped(two, 2027, at('2027-12-31')).slides.find((x) => x.id === 'chapters')?.sub, '1. The Comeback · 2. Chapter 2');
+  }
+
+  // ---- 19. the sealed quest card: one draft card face down, ×0.5/×1/×2 on average exactly ×1, seeded by the day ----
+  {
+    assert.ok(Math.abs(SEALED_ODDS.reduce((a, o) => a + o.p * o.mult, 0) - 1) < 1e-9, 'expected value ×1');
+    assert.ok(Math.abs(SEALED_ODDS.reduce((a, o) => a + o.p, 0) - 1) < 1e-9);
+    assert.deepEqual([0, 0.39, 0.4, 0.79, 0.8, 0.999].map(multFor), [0.5, 0.5, 1, 1, 2, 2]);
+    const s = base();
+    const counts: Record<number, number> = { 0.5: 0, 1: 0, 2: 0 };
+    for (let i = 0; i < 3000; i++) {
+      const k = dayKey(addDays(at('2027-01-01'), i));
+      const x = sealedOn({ ...s, days: { [k]: { ...emptyDay(), questDraft: { candidates: ['a', 'b', 'c', 'd', 'e'], locked: false } } } }, k)!;
+      counts[x.mult]++;
+    }
+    assert.ok(Math.abs(counts[0.5] / 3000 - 0.4) < 0.04 && Math.abs(counts[1] / 3000 - 0.4) < 0.04 && Math.abs(counts[2] / 3000 - 0.2) < 0.04, JSON.stringify(counts));
+    const k = '2027-03-02';
+    const draft = draftFor(s, at(k, 9));
+    const q = { ...s, days: { [k]: { ...emptyDay(), quests: draft.defaults, questDraft: { candidates: draft.candidates, locked: false } } } };
+    const sealed = sealedOn(q, k)!;
+    assert.ok(draft.candidates.includes(sealed.id));
+    assert.deepEqual(sealedOn(q, k), sealed, 'the same all day');
+    assert.equal(sealedOn(s, k), null, 'no draft, no sealed card');
+    assert.equal(sealedOn({ ...q, days: { [k]: { ...q.days[k], questReduced: 'sip' } } }, k), null, 'not on a reduced day');
+    const xp = questInfo(q, sealed.id, at(k))!.xp;
+    assert.equal(sealedXp(q, k, sealed.id, xp), Math.max(1, Math.round(xp * sealed.mult)));
+    const other = draft.candidates.find((id) => id !== sealed.id)!;
+    assert.equal(sealedXp(q, k, other, 10), 10);
+    // a reroll or a re-pick doesn't roll it again
+    const swapped = { ...q, days: { [k]: { ...q.days[k], quests: [...draft.candidates].reverse().slice(0, 3), questRerolled: true } } };
+    assert.deepEqual(sealedOn(swapped, k), sealed);
+    // face down until done
+    assert.equal(revealedMult(q, sealed.id, k), null);
+    assert.equal(revealedMult({ ...q, days: { [k]: { ...q.days[k], questsDone: [sealed.id] } } }, sealed.id, k), sealed.mult);
+    // paid through the ledger: an undo takes back what it paid, not the plain XP
+    const pay = sealedXp(q, k, sealed.id, xp);
+    const credited = credit(q, k, pay, 0, `q:${sealed.id}`);
+    const reopened = unreward(credited, k, `q:${sealed.id}`, xp);
+    assert.deepEqual([reopened.xp, reopened.days[k].xpEarned], [0, 0]);
+  }
+
+  // ---- 21. pick next week's boss: Sunday (and Monday until it takes damage), weakness as focus, ranks stay right ----
+  {
+    const s = base();
+    const sun = at('2027-03-07', 10);
+    assert.equal(pickWeek(s, sun), '2027-03-08');
+    assert.equal(pickWeek(s, at('2027-03-06')), null, 'Saturday: not yet');
+    assert.equal(pickWeek(s, at('2027-03-09')), null, 'Tuesday: too late');
+    assert.equal(pickWeek(s, at('2027-03-08', 9)), '2027-03-08', 'Monday, before any damage');
+    assert.equal(pickWeek({ ...s, days: { '2027-03-08': { ...used(), xpEarned: 5 } } }, at('2027-03-08', 9)), null, 'not once it took a hit');
+    assert.equal(pickWeek({ ...s, kingWeeks: ['2027-03-08'] }, sun), null, 'never for a Couch King week');
+    const options = bossOptions(s, '2027-03-08');
+    assert.equal(options.length, 3);
+    assert.equal(new Set(options).size, 3);
+    assert.equal(options[0], rotationBossOf(at('2027-03-08')).id, 'the rota first');
+    assert.deepEqual(bossOptions(s, '2027-03-08'), options, 'the same all day');
+    const lastWeek: string = bossFor(s, at('2027-03-01')).id;
+    assert.ok(!(options as string[]).includes(lastWeek) || options[0] === lastWeek, "not last week's boss again");
+    const picked = withBossPick(s, options[1], sun);
+    assert.equal(picked.bossPicks?.['2027-03-08'], options[1]);
+    assert.equal(pickedFor(picked, '2027-03-08'), options[1]);
+    assert.equal(withBossPick(s, 'couch_king', sun), s, 'only bosses on offer');
+    assert.equal(withBossPick(s, options[1], at('2027-03-10')), s, 'only while a pick is open');
+    const b = bossFor(picked, at('2027-03-10'), at('2027-03-10'));
+    assert.equal(b.id, options[1]);
+    assert.equal(b.weakness, WEAKNESS[options[1]].label); // the pick's weakness is the week's
+    assert.equal(b.maxHp, bossFor(s, at('2027-03-10'), at('2027-03-10')).maxHp, 'HP sizing unchanged');
+    assert.equal(weekBossOf(picked, at('2027-03-15')).id, rotationBossOf(at('2027-03-15')).id, 'a pick is for one week');
+    // a Couch King week ignores a pick; Halloween still dresses up the picked boss
+    assert.ok(bossFor({ ...picked, kingWeeks: ['2027-03-08'] }, at('2027-03-10')).final);
+    const hw = withBossPick(s, bossOptions(s, '2027-10-25')[2], at('2027-10-24'));
+    const hb = bossFor(hw, at('2027-10-27'));
+    assert.equal(hb.id, bossOptions(s, '2027-10-25')[2]);
+    assert.notEqual(hb.name, BOSSES.find((x) => x.id === hb.id)?.name, 'in costume');
+    // ranks and the bestiary count the weeks a boss really was the boss
+    const r = base();
+    r.days['2027-01-04'] = { ...used(), xpEarned: 50 };
+    const first = rotationBossOf(at('2027-01-04')).id;
+    const third = rotationBossOf(at('2027-01-18')).id;
+    assert.equal(bossRank(r, at('2027-01-18')), 1);
+    const again = { ...r, bossPicks: { '2027-01-18': first } };
+    assert.equal(bossFor(again, at('2027-01-19')).id, first);
+    assert.equal(bossRank(again, at('2027-01-19')), 2, 'its second week');
+    assert.ok(bossFor(again, at('2027-01-19')).name.endsWith(' II'));
+    const rows = bestiary(again, at('2027-01-20'));
+    assert.equal(rows.find((x) => x.id === first)?.fights, 2);
+    assert.equal(rows.find((x) => x.id === third)?.fights, 0);
+    assert.equal(bossRank(r, at('2027-03-01')), 2, 'no picks: every 8 weeks, as before');
+    assert.equal(bossRank({ ...r, bossPicks: {} }, at('2027-03-01')), 2);
+  }
+
+  // ---- 25. tracker and habit history: 8 weeks, totals per week, rough days as rest, never a run ----
+  {
+    const s = base();
+    s.habits = [{ id: 'h', name: 'Read', emoji: '📖', days: [], remindHour: null, createdAt: at('2027-02-22', 8).getTime() }];
+    s.days['2027-02-22'] = { ...emptyDay(), habits: ['h'] };
+    s.days['2027-02-24'] = low();
+    s.days['2027-03-01'] = { ...emptyDay(), habits: ['h'] };
+    s.days['2027-03-02'] = { ...emptyDay(), habits: ['h'], habitsMini: ['h'] };
+    const weeks = habitHistory(s, s.habits[0], at('2027-03-03'));
+    assert.equal(weeks.length, 8);
+    assert.equal(weeks[7].week, '2027-03-01');
+    assert.equal(weeks[0].week, '2027-01-11');
+    assert.equal(weeks[0].summary, '–', 'before it existed');
+    assert.deepEqual(weeks[7].cells.map((c) => c.kind), ['done', 'mini', 'open', 'none', 'none', 'none', 'none']);
+    assert.equal(weeks[7].summary, 'Done on 2 of 3 · 1 mini');
+    assert.deepEqual(weeks[6].cells.map((c) => c.kind), ['done', 'miss', 'rest', 'miss', 'miss', 'miss', 'miss']);
+    assert.equal(weeks[6].summary, 'Done on 1 of 6 · 1 rest', 'a rough day is rest, never a miss');
+    for (const w of weeks) assert.ok(!/in a row|streak|since/i.test(w.summary), w.summary);
+    const range = { ...s.habits[0], perWeek: { min: 2, max: 4 } };
+    assert.equal(habitHistory({ ...s, habits: [range] }, range, at('2027-03-03'))[7].summary, '2× · goal 2–4 · 1 mini');
+    // trackers: yes/no counts, averages, a rough day's value drawn as rest
+    const check: Tracker = { id: 't', name: 'Meditation', emoji: '🧘', kind: 'check', createdAt: 0 };
+    const t = base();
+    t.trackers = [check];
+    t.days['2027-03-01'] = { ...emptyDay(), tracks: { t: 1 } };
+    t.days['2027-03-02'] = { ...emptyDay(), tracks: { t: 0 } };
+    t.days['2027-03-03'] = { ...low(), tracks: { t: 1 } };
+    t.days['2027-03-04'] = { ...low(), tracks: { t: 0 } };
+    const tw = trackerHistory(t, check, at('2027-03-05'))[7];
+    assert.deepEqual(tw.cells.map((c) => c.kind), ['yes', 'no', 'rest', 'rest', 'empty', 'none', 'none']);
+    assert.equal(tw.summary, 'Yes on 2 of 3');
+    const num: Tracker = { id: 'n', name: 'Alcohol', emoji: '🍷', kind: 'number', unit: 'drinks', createdAt: 0 };
+    const n = base();
+    n.days['2027-03-01'] = { ...emptyDay(), tracks: { n: 1 } };
+    n.days['2027-03-02'] = { ...low(), tracks: { n: 2 } };
+    assert.equal(trackerHistory(n, num, at('2027-03-05'))[7].summary, 'avg 1.5 drinks · 3 drinks in all');
+    const scale: Tracker = { id: 'n', name: 'Stress', emoji: '😣', kind: 'scale', createdAt: 0 };
+    assert.equal(trackerHistory(n, scale, at('2027-03-05'))[7].summary, 'avg 1.5 · 2 logged');
+    assert.equal(trackerHistory(n, scale, at('2027-03-05'))[6].summary, 'Nothing logged');
+  }
+
+  // ---- 28. the contract ledger: settled contracts, totals, net coins; a rough week is rest, never a loss ----
+  {
+    let s = base();
+    const c = (week: string, goal: ContractGoal, difficulty: 'easy' | 'normal' | 'hard', stake: number, target: number): Contract => ({ week, from: week, goal, target, stake, status: 'open', difficulty });
+    s = withLogged(s, c('2027-01-04', 'train', 'normal', 100, 3), 'won', 200);
+    s = withLogged(s, c('2027-01-11', 'train', 'hard', 100, 5), 'won', 300, { showed: 2, fired: 1 });
+    s = withLogged(s, c('2027-01-18', 'water', 'normal', 250, 5), 'lost', 0);
+    s = withLogged(s, c('2027-01-25', 'steps', 'easy', 100, 3), 'voided', 100);
+    const st = contractStats(s);
+    assert.deepEqual([st.n, st.won, st.lost, st.rest, st.net], [4, 2, 1, 1, 100 + 200 - 250]);
+    assert.deepEqual(st.favourite, { goal: 'train', n: 2 });
+    assert.equal(st.hardest?.week, '2027-01-11');
+    assert.equal(netOf(s.contractLog![3]), 0, 'voided nets zero');
+    assert.equal(s.contractLog![1].woop, undefined, 'a tally only with a WOOP');
+    const wl = withLogged(base(), { ...c('2027-02-01', 'water', 'normal', 100, 5), woop: woopOf(base(), 'water', '', 'gaming') }, 'won', 200, { showed: 2, fired: 1 });
+    assert.deepEqual(wl.contractLog![0].woop, { obstacle: 'gaming', showed: 2, fired: 1 });
+    // one entry per week and goal; the newest 52 kept
+    assert.equal(withLogged(s, c('2027-01-18', 'water', 'normal', 250, 5), 'lost', 0).contractLog!.length, 4);
+    let many = base();
+    for (let i = 0; i < 60; i++) many = withLogged(many, c(dayKey(addDays(at('2026-01-05'), 7 * i)), 'train', 'normal', 100, 3), 'won', 200);
+    assert.equal(many.contractLog!.length, LOG_KEEP);
+    assert.equal(contractStats(base()).n, 0);
+    assert.equal(contractStats(base()).favourite, null);
+  }
+
+  // the new lines: both pools filled, none of the phrases other pools keep for themselves
+  for (const k of ['shotCalled', 'shotHistory', 'shotHit', 'shotMiss', 'shotMonth', 'shotMonthFew', 'woopScouted', 'woopRecap', 'woopNoShow', 'habitMini', 'salvageDone', 'chapterSealed', 'chapterFirst', 'bossPicked', 'sealedDouble', 'sealedHalf', 'sealedEven'] as const) {
+    const pool = LINES[k];
+    assert.ok(pool.mild.length > 0 && pool.savage.length > 0, k);
+    for (const t of [...pool.mild, ...pool.savage]) {
+      assert.ok(!/\b(bold|excuse|suspicious|houseplant|couch|draft)|look at you|missing person|painfully mid|fil(ed|ing) a\b|who are you|who replaced you/i.test(t), `${k}: ${t}`);
+      assert.ok(!/in a row|streak/i.test(t), `${k}: ${t}`);
+    }
+  }
+}
+step8GameTests();
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.
 console.log('synchronous logic tests passed');

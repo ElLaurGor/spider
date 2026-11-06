@@ -7,6 +7,7 @@ import { ContractCard } from '@/components/contract-card';
 import { useNemesis } from '@/components/hq-extras';
 import { MedalRows } from '@/components/medals-card';
 import { BossPanel, FinisherLine } from '@/components/quests-card';
+import { BossPick } from '@/components/boss-pick'; // step 8 game
 import { Bar, Card, H, Icon, T, useNow } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
@@ -77,7 +78,14 @@ export function WeekCard() {
         open={open === 'boss'}
         onPress={() => toggle('boss')}
       />
-      {open === 'boss' ? <BossPanel at={at} /> : <FinisherLine at={at} />}
+      {open === 'boss' ? (
+        <BossPanel at={at} />
+      ) : (
+        <>
+          <FinisherLine at={at} />
+          <BossPick at={at} />
+        </>
+      )}
 
       {tier ? (
         <Line
