@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 import * as THREE from 'three';
 
-import { useAwake } from '@/components/use-awake';
+import { useScreenState } from '@/components/use-awake';
 import { C } from '@/constants/theme';
 import { worn } from '@/lib/cosmetics';
+import { glLive } from '@/lib/gl-guard';
 import { lairPieces, nextPiece } from '@/lib/lair';
 import { useStore } from '@/lib/store';
 import { createWorld, type World } from '@/lib/terrarium-3d';
@@ -14,20 +15,38 @@ const HEIGHT = 210;
 
 type Gfx = {
   world: World | null;
-  renderer: THREE.WebGLRenderer | null;
   draw: (() => void) | null;
   yaw: number;
   from: number; // the yaw when a drag began
   touch: { x: number; y: number }; // where it began
-  running: boolean;
+  running: boolean; // the frame loop is on
+  visible: boolean; // the screen is showing with the app in front
+  dirty: boolean; // something changed while hidden: draw once it shows again
   w: number;
   h: number;
 };
 
 /**
+ * Draws a frame, but only while the view is on screen. GL on a hidden screen's view (HQ under the shop, say)
+ * can crash the app natively, so a change made then waits for the view to show again.
+ */
+function paint(x: Gfx, onFail: () => void) {
+  if (!x.visible) {
+    x.dirty = true;
+    return;
+  }
+  try {
+    x.draw?.();
+  } catch {
+    onFail();
+  }
+}
+
+/**
  * The terrarium in 3D (lib/terrarium-3d.ts) through expo-gl: the spider lives in it on its own, and a sideways drag
- * turns the tank round. It only animates while the screen is showing, the app is in front and motion isn't reduced;
- * otherwise it holds still (a drag still turns it). `onFail`: the GL context or three.js couldn't start.
+ * turns the tank round. It only draws while its screen is showing with the app in front, and only animates when
+ * motion isn't reduced either (a drag still turns it). While it draws, lib/gl-guard.ts keeps a flag up, so a
+ * native crash sends the next session to the flat terrarium. `onFail`: GL, three.js or a shader gave up.
  */
 export function Terrarium3D({ onFail }: { onFail: () => void }) {
   const { state } = useStore();
@@ -36,8 +55,9 @@ export function Terrarium3D({ onFail }: { onFail: () => void }) {
     .join(',');
   const next = nextPiece(state)?.id ?? null;
   const marking = worn(state).aura?.ring ?? C.red;
-  const awake = useAwake();
-  const gfx = useRef<Gfx>({ world: null, renderer: null, draw: null, yaw: 0, from: 0, touch: { x: 0, y: 0 }, running: false, w: 0, h: 0 });
+  const { visible, still } = useScreenState();
+  const awake = visible && !still;
+  const gfx = useRef<Gfx>({ world: null, draw: null, yaw: 0, from: 0, touch: { x: 0, y: 0 }, running: false, visible: false, dirty: false, w: 0, h: 0 });
   const [ready, setReady] = useState(false);
   const [act, setAct] = useState<string | null>(null);
   const [anchor] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
@@ -58,7 +78,7 @@ export function Terrarium3D({ onFail }: { onFail: () => void }) {
   const drag = (e: GestureResponderEvent) => {
     const x = gfx.current;
     x.yaw = x.from - (e.nativeEvent.pageX - x.touch.x) * 0.012;
-    if (!x.running) x.draw?.();
+    if (!x.running) paint(x, onFail);
   };
 
   const onContextCreate = (gl: ExpoWebGLRenderingContext) => {
@@ -77,7 +97,7 @@ export function Terrarium3D({ onFail }: { onFail: () => void }) {
         getContext: () => gl,
       } as unknown as HTMLCanvasElement;
       const renderer = new THREE.WebGLRenderer({ canvas, context: gl as unknown as WebGL2RenderingContext, antialias: false });
-      // A shader this phone's GL can't compile would leave an empty box: fall back to the flat terrarium instead.
+      // A shader this phone's GL can't compile would leave an empty box: the next draw throws, and the flat terrarium takes over.
       let shaderError = false;
       renderer.debug.onShaderError = () => {
         shaderError = true;
@@ -88,35 +108,52 @@ export function Terrarium3D({ onFail }: { onFail: () => void }) {
       world.setSize(w, h);
       const x = gfx.current;
       x.world = world;
-      x.renderer = renderer;
       x.draw = () => {
         world.setYaw(x.yaw);
         renderer.render(world.scene, world.camera);
         gl.endFrameEXP();
+        if (shaderError) throw new Error('three.js shader error');
       };
       world.step(0);
-      x.draw();
-      if (shaderError) throw new Error('three.js shader error');
+      x.dirty = true; // the first frame comes from the visibility effect, once ready
       setReady(true);
     } catch {
       onFail();
     }
   };
 
+  // On screen: draw whatever changed while hidden, and hold the crash guard's flag up while drawing is possible.
+  useEffect(() => {
+    const x = gfx.current;
+    x.visible = visible;
+    if (!ready || !visible) return;
+    glLive(true);
+    if (x.dirty) {
+      x.dirty = false;
+      paint(x, onFail);
+    }
+    return () => glLive(false);
+  }, [ready, visible, onFail]);
+
   // What's in the tank and the spider's markings follow the store.
   useEffect(() => {
     const x = gfx.current;
     if (!ready || !x.world) return;
-    x.world.setPieces(ids ? ids.split(',') : [], next);
-    x.world.step(0);
-    x.draw?.();
-  }, [ready, ids, next]);
+    try {
+      x.world.setPieces(ids ? ids.split(',') : [], next);
+      x.world.step(0);
+    } catch {
+      onFail();
+      return;
+    }
+    paint(x, onFail);
+  }, [ready, ids, next, onFail]);
   useEffect(() => {
     const x = gfx.current;
     if (!ready || !x.world) return;
     x.world.setMarking(marking);
-    x.draw?.();
-  }, [ready, marking]);
+    paint(x, onFail);
+  }, [ready, marking, onFail]);
 
   // The spider's life: one frame per screen refresh while awake.
   useEffect(() => {
@@ -154,13 +191,11 @@ export function Terrarium3D({ onFail }: { onFail: () => void }) {
     };
   }, [ready, awake, anchor, onFail]);
 
+  // Gone: drop the scene. No GL calls here (no dispose): the context may already be torn down with the view.
   useEffect(() => {
     const x = gfx.current;
     return () => {
-      x.world?.dispose();
-      x.renderer?.dispose();
       x.world = null;
-      x.renderer = null;
       x.draw = null;
     };
   }, []);
