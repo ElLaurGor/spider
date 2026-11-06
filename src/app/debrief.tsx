@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BigDayCard } from '@/components/big-day-card'; // step 9 story
 import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtTime } from '@/lib/dates';
@@ -86,6 +87,8 @@ export default function Debrief() {
           </Row>
         )}
       </Card>
+
+      <BigDayCard day={key} />
 
       <Card>
         <H>2 · Loose ends</H>

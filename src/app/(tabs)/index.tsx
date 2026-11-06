@@ -31,6 +31,7 @@ import { SlCard } from '@/components/sl-card';
 import { SthlmClimateSync } from '@/components/sthlm-climate-sync';
 import { WeekendCard } from '@/components/weekend-card';
 import { WeekCard } from '@/components/week-card';
+import { MailBanner } from '@/components/mail-banner'; // step 9 story
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { bedtimeOn, lastCallOn } from '@/lib/caffeine';
@@ -477,6 +478,7 @@ export default function HQ() {
       ) : null}
 
       <FikaBanner />
+      <MailBanner /> {/* step 9 story: an unread letter */}
       <PrizesCard />
       <JulfridCard />
       <AdventCard />

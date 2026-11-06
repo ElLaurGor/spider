@@ -48,6 +48,7 @@ export async function loadEvents(cals: CalInfo[], start: Date, end: Date): Promi
         location: e.location || null,
         calendarId: e.calendarId,
         color: colors.get(e.calendarId),
+        recurring: !!e.recurrenceRule, // step 9 story: big days are one-off events only
       };
     })
     .sort((a, b) => a.start - b.start);

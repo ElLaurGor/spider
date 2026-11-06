@@ -163,6 +163,14 @@ import { landmarkOffer, withChapter } from './chapters';
 import { revealedMult, sealedXp } from './sealed-card';
 import { pickInfo, withBossPick } from './boss-pick';
 import { withLogged } from './contract-log';
+// step 9 story: once-only remarks, the mailbox, big days, intercepted memos, the other timeline
+import { checkStory } from './story';
+import { withRead } from './mail';
+import { withBigAnswer, type BigAnswer, type BigDay } from './big-days';
+import { accuse, memoFound, withMemo, type MemoPlace } from './cipher';
+import { withOpen, withRestore, withThemeSwitch } from './meta-winks';
+import { installId } from './install-id';
+import { roughPatch, showRoughPatch } from './rough-patch';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -1182,7 +1190,7 @@ function useStoreValue() {
       const result = from === 'file' ? await readBackupFromFile() : await readBackup();
       if (!result) return false;
       await cancelEverything();
-      adopt(restored(result.state));
+      adopt(withRestore(restored(result.state), await installId())); // step 9 story: a restore (or a new phone) gets its wink
       return true;
     },
     async loadOlder() {
@@ -1209,6 +1217,9 @@ function useStoreValue() {
     if (events.length) setTankEvents((q) => withTankEvents(q, events));
   }, []);
   const takeTank = useCallback((ids: string[]) => setTankEvents((q) => q.filter((e) => !ids.includes(e.id))), []);
+
+  /** step 9 story: the rough-patch card would show now (rough-patch.ts), so Mamma Spindel may send a care package (mail.ts). */
+  const storyRough = useRef(false);
 
   /** Apply a change, award achievements, save, and show S.P.I.D.E.R.'s reactions. */
   const run = useCallback(
@@ -1246,7 +1257,8 @@ function useStoreValue() {
       // The hour's running XP total is noted too, for the ghost of last week (xp-timeline.ts).
       // step 8 days: a good moment (workout, won contract, good check-in) asks for a note from past you, once a week (past-you.ts).
       // step 8 terrarium: egg sacs dropped by a gold chest or a boss kill, and hatched by walking (egg-sacs.ts).
-      const next = checkEggs(prev, withPastYouAsk(prev, withXpHour(quiet ? checkDiary(woop.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(woop.state, msgs), msgs), msgs), msgs), msgs))), msgs);
+      const eggs = checkEggs(prev, withPastYouAsk(prev, withXpHour(quiet ? checkDiary(woop.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(woop.state, msgs), msgs), msgs), msgs), msgs))), msgs);
+      const next = checkStory(prev, eggs, msgs, { quiet, rough: storyRough.current }); // step 9 story: remarks, winks, memos, the day's letter
       commit(next);
       if (!quiet) queueTank(prev, next); // the terrarium acts out what was just logged
       msgs.forEach((m) => say(m.text, m.tone, m.action));
@@ -1763,6 +1775,39 @@ function useStoreValue() {
       if (notifReady && stateRef.current.onboarded) await replanNotifications(stateRef.current, events, weather, air);
     };
   }, [notifReady, events, weather, air]);
+
+  // ----- step 9 story: app opens and this install (meta-winks.ts), the 13:37 memo (cipher.ts), care packages (mail.ts) -----
+  useEffect(() => {
+    if (!ready) return;
+    void installId().then((id) => {
+      if (id && loaded.current && stateRef.current.install !== id) commit({ ...stateRef.current, install: id });
+    });
+  }, [ready, commit]);
+  useEffect(() => {
+    // Every launch and every return to the app (after the queued taps, which tick waits for).
+    if (!ready || !state.onboarded) return;
+    const t = setTimeout(() => run((s) => withOpen(s)), 0);
+    return () => clearTimeout(t);
+  }, [ready, state.onboarded, tick, run]);
+  useEffect(() => {
+    if (!ready || !state.onboarded) return;
+    const every = setInterval(() => {
+      const now = new Date();
+      if (AppState.currentState === 'active' && now.getHours() === 13 && now.getMinutes() === 37 && !memoFound(stateRef.current, 'leet')) run((s) => s);
+    }, 15_000);
+    return () => clearInterval(every);
+  }, [ready, state.onboarded, run]);
+  useEffect(() => {
+    if (!ready || !state.onboarded) return;
+    const s = stateRef.current;
+    const rough = !!roughPatch(s, health?.restingDays ?? []) && showRoughPatch(s);
+    const was = storyRough.current;
+    storyRough.current = rough;
+    if (rough && !was) {
+      const t = setTimeout(() => run((x) => x), 0); // the care package comes now, not with the next tap
+      return () => clearTimeout(t);
+    }
+  }, [ready, state.onboarded, health, tick, run]);
 
   // ----- actions -----
   const actions = useMemo(
@@ -3134,10 +3179,11 @@ function useStoreValue() {
         if (!result) return false;
         await cancelEverything();
         disk.current.allowShrink = true; // a backup may hold fewer days than the phone
-        const back = restored(result.state, stateRef.current);
+        const back = withRestore(restored(result.state, stateRef.current), await installId()); // step 9 story: the wink waits for the next run
         setLineMemory(back.lineMemory);
         commit(back);
         say(`Restored backup from ${new Date(result.createdAt).toLocaleString('sv-SE').slice(0, 16)} (${result.photos} photos). Welcome back.`, 'epic');
+        run((x) => x); // step 9 story: tells the restore's wink (meta-winks.ts)
         return true;
       },
 
@@ -3427,6 +3473,56 @@ function useStoreValue() {
           msgs.push({ text: `${b.emoji} ${L(next, 'bossPicked', { boss: b.name, weakness: b.weakness })}`, tone: 'info' });
           return next;
         });
+      },
+
+      // --- step 9 story ---
+      /** A letter opened in the mailbox (or all of them): read. No toast, nothing counted. */
+      readLetter(id?: string) {
+        const s = stateRef.current;
+        const next = withRead(s, id);
+        if ((next.mail ?? []).some((l, i) => l !== s.mail?.[i])) commit(next);
+      },
+
+      /**
+       * How a big day went (big-days.ts), from the evening debrief. Kept by kind only. "Rough" gets a kind reply and
+       * nothing else: a quiet run, so no golden line, rival remark or remark rides along with it.
+       */
+      answerBigDay(b: Pick<BigDay, 'id' | 'kind'>, day: string, answer: BigAnswer) {
+        if (!isDayKey(day)) return;
+        run(
+          (s, msgs) => {
+            const key = answer === 'nailed' ? 'bigDayNailed' : answer === 'survived' ? 'bigDaySurvived' : 'bigDayRough';
+            msgs.push({ text: L(s, key), tone: answer === 'rough' ? 'info' : 'good' });
+            return withBigAnswer(s, b, day, answer);
+          },
+          { quiet: answer === 'rough' },
+        );
+      },
+
+      /** A memo found in one of its hiding places (cipher.ts): the back of a trek postcard, the version in Settings. */
+      interceptMemo(place: MemoPlace) {
+        run((s, msgs) => {
+          if (memoFound(s, place)) return s;
+          const next = withMemo(s, place);
+          msgs.push({ text: L(next, 'memoIntercepted', { n: next.cipher?.found.length ?? 1 }), tone: 'epic' });
+          return next;
+        });
+      },
+
+      /** Names a rival (roster name) as the Syndicate mole (cipher.ts). Right: a cosmetic, never XP. Wrong: crossed off. */
+      accuseMole(name: string) {
+        run((s, msgs) => {
+          const r = accuse(s, name);
+          if (!r) return s;
+          const shown = s.rivalNames?.[name] ?? name;
+          msgs.push({ text: L(r.state, r.right ? 'moleCaught' : 'moleWrong', { rival: shown }), tone: r.right ? 'epic' : 'info' });
+          return r.state;
+        });
+      },
+
+      /** A theme switch, just before the reload: the third in a day leaves a wink for after it (meta-winks.ts). */
+      noteThemeSwitch() {
+        commit(withThemeSwitch(stateRef.current));
       },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],

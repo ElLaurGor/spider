@@ -312,6 +312,27 @@ export default function RootLayout() {
                   headerShadowVisible: false,
                 }}
               />
+              {/* step 9 story */}
+              <Stack.Screen
+                name="mail"
+                options={{
+                  headerShown: true,
+                  title: "Mailbox",
+                  headerStyle: { backgroundColor: C.bg },
+                  headerTintColor: C.text,
+                  headerShadowVisible: false,
+                }}
+              />
+              <Stack.Screen
+                name="noticed"
+                options={{
+                  headerShown: true,
+                  title: "Things I've noticed",
+                  headerStyle: { backgroundColor: C.bg },
+                  headerTintColor: C.text,
+                  headerShadowVisible: false,
+                }}
+              />
               <Stack.Screen
                 name="onboarding"
                 options={{ gestureEnabled: false, animation: "fade" }}

@@ -1,10 +1,12 @@
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Bar, Btn, Card, H, Row, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { useStore } from '@/lib/store';
 import { lengthOf, ROUTES, TREK_ORDER, trekStatus, trekTable } from '@/lib/trek';
 import type { TrekRoute } from '@/lib/types';
+import { memoLine, memosFound, POSTCARD_MEMO } from '@/lib/cipher'; // step 9 story: a memo on the back of a postcard
 
 const fmtKm = (km: number) => (km < 100 ? km.toFixed(1) : String(Math.round(km)));
 
@@ -88,6 +90,7 @@ export default function TrekScreen() {
                     {w.card}
                   </T>
                 ) : null}
+                {i <= trek.reached ? <PostcardBack memo={i === POSTCARD_MEMO} /> : null}
               </View>
             ))}
             <T dim small>
@@ -130,7 +133,35 @@ export default function TrekScreen() {
   );
 }
 
+/** step 9 story: a postcard turned over. Most have a stamp on the back; one has an intercepted memo (cipher.ts). */
+function PostcardBack({ memo }: { memo: boolean }) {
+  const { state, actions } = useStore();
+  const [back, setBack] = useState(false);
+  const found = memosFound(state).find((m) => m.place === 'postcard');
+  const turn = () => {
+    setBack(!back);
+    if (memo && !found) actions.interceptMemo('postcard');
+  };
+  return (
+    <View style={{ marginLeft: 32, gap: 2 }}>
+      <Pressable onPress={turn} hitSlop={6} accessibilityRole="button" accessibilityLabel="Turn the postcard over">
+        <T dim small>{back ? '↺ turn it back' : '↻ turn it over'}</T>
+      </Pressable>
+      {back ? (
+        memo && found ? (
+          <Text style={styles.memo}>{memoLine(state, found.text)}</Text>
+        ) : (
+          <T dim small>
+            Just a stamp and a smudge. Nothing to see.
+          </T>
+        )
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  memo: { color: C.yellow, fontFamily: MONO, fontSize: 13, lineHeight: 20, letterSpacing: 1 },
   big: { color: C.text, fontSize: 32, fontWeight: '900', fontFamily: MONO },
   of: { color: C.dim, fontSize: 16, fontWeight: '700' },
   row: { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 10 },

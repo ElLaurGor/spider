@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { basename } from 'node:path'; // step 9 story
 
 import { addDays, atTime, dayKey, fmtClock, fmtDuration, isDayKey, isoWeek, MIN, startOfWeek } from '../src/lib/dates';
 import { foodWeek } from '../src/lib/food-week';
@@ -222,6 +223,14 @@ import { EGG_CHANCE, EGG_COINS, EGG_KMS, eggDrops, eggKm, hatchEggs, MAX_EGGS } 
 import { asleepAt, daylightAt, DEW_DROPS, dressingFor, grewSince, growthOf, hatShape, IDLE_LIFE, lighting, MOLT_GROWTH_MAX, moltState, NO_WEATHER, PET_MOTION, plantGrowth, sizeAfter, SPROUT, sunTimes } from '../src/lib/tank-life';
 import { TANK_EVENT_MS, TANK_QUEUE, tankEventsOf, tankLifeOf, tankMode, tankSnapsFor, tankWeather, webFor, withMolt, withTankEvents, type TankLife } from '../src/lib/tank-life';
 import type { DayForecast } from '../src/lib/weather';
+// step 9 story
+import { factsOf, remarkOf, REMARKS, remarksEarned } from '../src/lib/remarks';
+import { checkStory, remarksNow } from '../src/lib/story';
+import { CARE_COINS, KNITS, MAIL_KEEP, killedText, mailBanner, mailBannerKey, withMail, withRead } from '../src/lib/mail';
+import { bigDaysOn, bigKindOf, briefParts, withBigAnswer } from '../src/lib/big-days';
+import { accuse, cluesOf, guessesLeft, lettersKnown, memoFound, memoLine, memosFound, memoTexts, MOLE_PRIZE, moleOf, RUNES, runeMap, withMemo } from '../src/lib/cipher';
+import { metaEvents, OPENS_WINK, saidThisWeek, THEMES_WINK, withOpen, withRestore, withThemeSwitch } from '../src/lib/meta-winks';
+import { ROSTER_LIST } from '../src/lib/league';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -6790,5 +6799,322 @@ function step8FixTests() {
   assert.ok(eventsUrl(['music'], ['2026-11-06', '2026-11-07', '2026-11-08'], 1, '2026-11-07').includes('date_from=2026-11-07&date_to=2026-11-08'));
 }
 step8FixTests();
+
+// step 9 story: once-only remarks, the mailbox, big days, intercepted memos, the other timeline
+function step9StoryTests() {
+  const base = (): SweState => ({ ...defaultState(), onboarded: true, settings: { ...defaultState().settings, userName: 'Elena' } });
+  const at9 = new Date(2026, 10, 9, 10); // Monday 9 Nov 2026
+  const glasses = (n: number, day = '2026-11-02') => Array.from({ length: n }, (_, i) => ({ id: `w${day}${i}`, ml: 250, at: new Date(`${day}T12:00`).getTime() + i }));
+
+  // ---- remarks: 100+, unique, house rules ----
+  assert.ok(REMARKS.length >= 100, `${REMARKS.length} remarks`);
+  assert.equal(new Set(REMARKS.map((r) => r.id)).size, REMARKS.length, 'remark ids are unique');
+  const texts = REMARKS.flatMap((r) => [r.text, ...(r.kind ? [r.kind] : [])]);
+  assert.equal(new Set(texts).size, texts.length, 'remark texts are unique');
+  const linesSaid = new Set(Object.values(LINES).flatMap((p) => [...p.mild, ...p.savage]));
+  for (const t of texts) {
+    assert.ok(!linesSaid.has(t), `remark repeats a line: ${t}`);
+    assert.ok(!/\b(bold|excuse|suspicious|houseplant|draft|streak)|\bcouch\b|look at you|missing person|painfully mid|fil(ed|ing) a\b|who are you|who replaced you|in a row/i.test(t), `house words: ${t}`);
+    assert.ok(!/\b(weight|kg|kcal|calorie|protein|diet|body|mood|period|sleep)\b/i.test(t), `body, food or mood in a remark: ${t}`);
+    for (const m of t.matchAll(/\{(\w+)\}/g)) assert.equal(m[1], 'name', `${t}: only {name}`);
+  }
+  for (const r of REMARKS) for (const k of r.replaces ?? []) assert.ok(k in LINES, `${r.id} replaces ${k}`);
+  // no condition counts consecutive days: the module never walks from one day to the next
+  const remarkSrc = readFileSync(join(process.cwd(), 'src/lib/remarks.ts'), 'utf8');
+  assert.ok(!/streak|consecutive|in a row|inarow|addDays|-\s*1\s*\)/i.test(remarkSrc), 'remarks.ts looks at days one by one, never in sequence');
+  // ...and no condition reads the body log, photos, food, mood, periods or check-ins: factsOf runs on a state that records every field it touches
+  const touched = new Set<string>();
+  const watch = <T,>(o: T): T =>
+    o && typeof o === 'object'
+      ? (new Proxy(o as object, {
+          get(t, k, r) {
+            if (typeof k === 'string') touched.add(k);
+            return watch(Reflect.get(t, k, r));
+          },
+        }) as T)
+      : o;
+  const rich = base();
+  rich.bodyLog = [{ id: 'b', at: 1, weight: 70, waist: 80 }];
+  rich.progressPhotos = [{ id: 'p', uri: 'x', at: 1 }];
+  rich.tasks = [{ id: 't', title: 'Taxes', done: true, createdAt: 0, doneAt: 5e9, firstDoneAt: 5e9 }, { id: 'u', title: 'Open', done: false, createdAt: 0 }];
+  rich.days['2026-11-02'] = {
+    ...emptyDay(),
+    water: glasses(3),
+    food: [{ id: 'f', name: 'Bun', kcal: 300, protein: 5, at: 1 }],
+    moods: [{ id: 'm', level: 2, emotions: ['tired'], note: 'meh', at: 1 }],
+    period: { flow: 'light', symptoms: [] },
+    sleepRating: 2,
+    energy: 2,
+    sets: [{ id: 's', exercise: 'Squat', weight: 60, reps: 5, at: new Date('2026-11-02T21:30').getTime() }],
+    coffee: [{ id: 'c', mg: 90, at: 1 }],
+    activities: [{ id: 'a', kind: 'cardio', minutes: 30, at: 1 }],
+    focus: [{ id: 'x', start: 0, end: 1, minutes: 40 }],
+    games: [{ start: 0, end: 3_600_000 }],
+    workoutCounted: true,
+    weather: { max: -8, min: -12, rainMm: 0, sunMin: 0, code: 73 },
+    doneTasks: [{ id: 't', at: 5e9, since: 0 }],
+    shot: { q: 'gym', call: 'no', p: 0.1, at: 1, result: 'hit' },
+    chest: { kind: 'coins', amount: 5, text: '', gold: true },
+    habits: ['h'],
+    steps: 21000,
+  };
+  rich.bossesDefeated = { '2026-11-02': 'snooze' };
+  rich.bossKilledAt = { '2026-11-02': new Date('2026-11-03T10:00').getTime() };
+  rich.bossNames = { '2026-09-07': 'Bob' };
+  rich.lastRollover = '2026-11-02';
+  rich.flies = { house_fly: { firstAt: 1, count: 3 } };
+  const facts = factsOf(watch(rich));
+  for (const k of ['bodyLog', 'progressPhotos', 'food', 'moods', 'period', 'sleepRating', 'energy', 'emotions', 'note', 'kcal', 'protein', 'kcalGoal', 'proteinGoal', 'proteinGoalHit']) {
+    assert.ok(!touched.has(k), `a remark condition read ${k}`);
+  }
+  assert.equal(facts.glasses, 3);
+  assert.equal(facts.coldTrain, 1);
+  assert.equal(facts.snowTrain, 1);
+  assert.equal(facts.noChanceHits, 1);
+  assert.equal(facts.goldChests, 1);
+  assert.ok(facts.oldestDone >= 57, 'a task done 57 days after it was added');
+  assert.ok(facts.fastestKillH < 48 && facts.fastestKillH > 24);
+  assert.equal(facts.maxSteps, 21000);
+
+  // fires once, at its moment: the 500th glass, never on an update that finds 600 already
+  const g499 = base();
+  g499.days['2026-11-02'] = { ...emptyDay(), water: glasses(499) };
+  const g500 = { ...g499, days: { ...g499.days, '2026-11-09': { ...emptyDay(), water: glasses(1, '2026-11-09') } } };
+  assert.deepEqual(remarksEarned(g499, g500).map((r) => r.id), ['w500']);
+  assert.deepEqual(remarksEarned(g500, { ...g500 }).map((r) => r.id), [], 'nothing new, nothing said');
+  assert.deepEqual(remarksEarned(g499, { ...g500, remarks: { w500: { at: 1 } } }).map((r) => r.id), [], 'never twice');
+  // ...and it takes the place of the usual line in that toast
+  const msgs: { text: string; tone: 'info' | 'good' | 'bad' | 'epic' }[] = [];
+  const usual = freshLine('waterLogged', 10, { ml: 250, left: 2250, name: 'Elena' });
+  msgs.push({ text: `${usual}`, tone: 'good' });
+  const told = checkStory(g499, g500, msgs, { now: at9 });
+  assert.ok(msgs[0].text.includes(remarkOf('w500')!.text) && !msgs[0].text.includes(usual), msgs[0].text);
+  assert.ok(told.remarks?.w500 && !told.remarks.w500.wait);
+  assert.equal(told.xp, g500.xp, 'no XP');
+  // on a quiet day the kind version is said, or the remark waits for a day that isn't quiet
+  const sick = (s: SweState): SweState => ({ ...s, pauses: [{ from: '2026-11-09', to: '2026-11-09', kind: 'sick' }] });
+  const kind = remarksNow(sick(g499), sick(g500), true, at9);
+  assert.equal(kind.told?.text, remarkOf('w500')!.kind);
+  assert.deepEqual(kind.state.remarks?.w500, { at: at9.getTime(), kind: true });
+  const c99 = base();
+  c99.days['2026-11-02'] = { ...emptyDay(), coffee: Array.from({ length: 99 }, (_, i) => ({ id: `c${i}`, mg: 90, at: i })) };
+  const c100 = { ...c99, days: { ...c99.days, '2026-11-09': { ...emptyDay(), coffee: [{ id: 'cx', mg: 90, at: at9.getTime() }] } } };
+  const waits = remarksNow(sick(c99), sick(c100), true, at9);
+  assert.equal(waits.told, null);
+  assert.deepEqual(waits.state.remarks?.c100, { at: at9.getTime(), wait: true });
+  const later = remarksNow(waits.state, { ...waits.state, pauses: [] }, false, new Date(2026, 10, 10, 10));
+  assert.equal(later.told?.r.id, 'c100', 'told on the next day that is not quiet');
+  assert.ok(!later.state.remarks?.c100?.wait);
+  // a quiet run (body logging) says nothing, but keeps what it earned for later
+  const silent = remarksNow(g499, g500, false, at9, true);
+  assert.equal(silent.told, null);
+  assert.ok(silent.state.remarks?.w500?.wait);
+  // dates come from the save's own day start: an anniversary, a renamed boss coming back
+  const first = base();
+  first.days['2025-11-07'] = { ...emptyDay(), water: glasses(1, '2025-11-07') };
+  assert.equal(factsOf({ ...first, lastRollover: '2026-11-06' }).yearsSince, 0);
+  assert.equal(factsOf({ ...first, lastRollover: '2026-11-08' }).yearsSince, 1);
+  const named = { ...base(), bossNames: { '2026-09-14': 'Bob' } };
+  assert.equal(factsOf({ ...named, lastRollover: '2026-11-08' }).renamedBack, 0);
+  assert.equal(factsOf({ ...named, lastRollover: '2026-11-09' }).renamedBack, 1, 'eight weeks on, the same boss is back');
+
+  // ---- the mailbox ----
+  const mamma = withMail(base(), at9);
+  assert.equal(mamma.letter?.from, 'mamma');
+  assert.equal(mamma.letter?.ref, 'mamma:2026-11');
+  assert.equal(withMail(mamma.state, new Date(2026, 10, 9, 18)).letter, null, 'one letter a day');
+  assert.equal(withMail(mamma.state, new Date(2026, 10, 10, 9)).letter, null, 'Mamma writes once a month');
+  assert.equal(withMail(mamma.state, new Date(2026, 11, 1, 9)).letter?.ref, 'mamma:2026-12');
+  // a beaten boss resigns, citing the real kill time, before Mamma's letter
+  const kill = { ...base(), bossesDefeated: { '2026-11-09': 'snooze' }, bossKilledAt: { '2026-11-09': new Date(2026, 10, 11, 18, 42).getTime() } };
+  const resign = withMail(kill, new Date(2026, 10, 12, 9));
+  assert.equal(resign.letter?.ref, 'resign:2026-11-09');
+  assert.ok(resign.letter?.body.includes('on Wednesday at 18:42, 2 days and 18 hours into the week'), resign.letter?.body);
+  assert.equal(withMail(resign.state, new Date(2026, 10, 13, 9)).letter?.from, 'mamma', 'the next day');
+  // the second resignation carries an intercepted memo in its P.S.
+  const two = { ...resign.state, bossesDefeated: { ...kill.bossesDefeated, '2026-11-16': 'dehydration' }, bossKilledAt: { ...kill.bossKilledAt, '2026-11-16': new Date(2026, 10, 17, 20, 5).getTime() } };
+  const second = withMail(two, new Date(2026, 10, 18, 9));
+  assert.ok(second.letter?.memo && memoFound(second.state, 'letter'));
+  assert.ok(second.letter?.body.includes('1 day and 20 hours'), second.letter?.body);
+  // a late kill says so instead of a time
+  assert.equal(killedText('2026-11-09', 0, true), 'after the final whistle, on numbers that came in late');
+  // a care package when the rough-patch card would show: knitting, never XP, at most every 30 days
+  const care = withMail(mamma.state, new Date(2026, 10, 10, 9), { rough: true });
+  assert.equal(care.letter?.gift, 'knit_scarf');
+  assert.ok(owns(care.state, 'knit_scarf'));
+  assert.equal(care.state.xp, mamma.state.xp);
+  assert.equal(withMail(care.state, new Date(2026, 10, 20, 9), { rough: true }).letter, null, 'not again within the month');
+  let knitted = mamma.state;
+  for (const id of KNITS) knitted = withOwned(knitted, id);
+  const bus = withMail(knitted, new Date(2026, 10, 10, 9), { rough: true });
+  assert.equal(bus.letter?.coins, CARE_COINS);
+  assert.equal(bus.state.coins, knitted.coins + CARE_COINS);
+  // Mamma's letters stay kind and private: nothing about the body, food or mood, in any month or parcel
+  for (let m = 0; m < 12; m++) {
+    for (const letter of [withMail(base(), new Date(2027, m, 3, 9)).letter, withMail(base(), new Date(2027, m, 3, 9), { rough: true }).letter]) {
+      assert.ok(letter && letter.from === 'mamma');
+      assert.ok(!/\b(food|eat|ate|eaten|meal|dinner|lunch|breakfast|kcal|calorie|protein|weight|kg|body|mood|diet|cake|bun|buns|coffee|fika|berries|lingon|sleep|slept|tired|sad)\b/i.test(letter.body), letter.body);
+    }
+  }
+  // a co-op partner's postcard once the week is settled
+  const coop = { ...mamma.state, coop: { week: '2026-11-02', partner: { name: 'Hydro Hanna', emoji: '💧' }, goal: 'water' as const, base: 4, result: { count: 5, target: 4, won: true, coins: 80 } } };
+  const card = withMail(coop, new Date(2026, 10, 10, 9));
+  assert.equal(card.letter?.ref, 'coop:2026-11-02');
+  assert.ok(card.letter?.body.includes('5 of 4 water-goal days'));
+  // the Couch King writes from exile once he's down, every four weeks while he stays down
+  const exile = { ...mamma.state, syndicateBroken: 1, bossesDefeated: { '2026-10-19': 'couch_king' }, bossKilledAt: { '2026-10-19': new Date(2026, 9, 21).getTime() }, kingWeeks: ['2026-10-19'], mail: [...(mamma.state.mail ?? []), { id: 'r', from: 'king' as const, sender: 'K', emoji: '👑', subject: '', body: '', at: new Date(2026, 9, 22).getTime(), day: '2026-10-22', ref: 'resign:2026-10-19' }] };
+  const fromExile = withMail(exile, new Date(2026, 10, 10, 9));
+  assert.equal(fromExile.letter?.ref, 'exile:2026-11-09');
+  assert.equal(withMail(fromExile.state, new Date(2026, 10, 30, 9)).letter, null, 'not again within four weeks');
+  // kept for good, but capped
+  let lots = base();
+  for (let i = 0; i < MAIL_KEEP + 5; i++) lots = { ...lots, mail: [...(lots.mail ?? []), { ...mamma.letter!, id: `l${i}`, day: `d${i}` }] };
+  assert.equal(withMail(lots, new Date(2027, 0, 5, 9)).state.mail?.length, MAIL_KEEP);
+  // the banner: unread mail until it's read or its banner is closed
+  assert.equal(mailBanner(mamma.state)?.id, mamma.letter?.id);
+  assert.equal(mailBanner(withRead(mamma.state, mamma.letter?.id)), null);
+  assert.equal(mailBanner({ ...mamma.state, dismissed: [mailBannerKey(mamma.letter!)] }), null);
+
+  // ---- big days ----
+  const kinds: [string, string | null][] = [
+    ['Tandläkare 14:00', 'dentist'],
+    ['Läkarbesök vårdcentralen', 'doctor'],
+    ['Intervju hos Spotify', 'interview'],
+    ['Tenta i statistik', 'exam'],
+    ['Final exam', 'exam'],
+    ['Example review', null],
+    ['Tentative hold', null],
+    ['Flyg till Malaga', 'flight'],
+    ['Födelsedagsfest', 'party'],
+    ['Manifest planning', null],
+    ['Weekly sync', null],
+    ['Uppkörning', 'driving'],
+    ['Bröllop: Anna & Erik', 'wedding'],
+  ];
+  for (const [title, kind] of kinds) assert.equal(bigKindOf(title), kind, title);
+  const ev = (key: string, title: string, start: Date, o: Partial<CalEvent> = {}): CalEvent => ({ key, title, start: start.getTime(), end: start.getTime() + 3_600_000, allDay: false, location: null, calendarId: 'c', ...o });
+  const week = [
+    ev('a', 'Tandläkare', new Date(2026, 10, 9, 14)),
+    ev('b', 'Party planning', new Date(2026, 10, 9, 9), { recurring: true }),
+    ev('c', 'Flyg standup', new Date(2026, 10, 9, 8)),
+    ev('d', 'Flyg standup', new Date(2026, 10, 10, 8)),
+    ev('e', 'Intervju', new Date(2026, 10, 10, 10)),
+  ];
+  assert.deepEqual(bigDaysOn(week, '2026-11-09').map((b) => b.kind), ['dentist'], 'one-off events only');
+  const brief = briefParts(base(), week, '2026-11-09');
+  assert.deepEqual(brief, { key: 'bigDayLuck', vars: { title: 'the dentist', time: '14:00' }, last: null });
+  const dentist = bigDaysOn(week, '2026-11-09')[0];
+  const survived = withBigAnswer(base(), dentist, '2026-11-09', 'survived', 1);
+  assert.equal(briefParts(survived, [ev('f', 'Tandläkaren', new Date(2026, 11, 3, 9))], '2026-12-03')?.last, 'bigDayLastSurvived', 'remembered for the next one');
+  const rough = withBigAnswer(base(), dentist, '2026-11-09', 'rough', 1);
+  assert.equal(briefParts(rough, [ev('f', 'Tandläkaren', new Date(2026, 11, 3, 9))], '2026-12-03')?.last, null, 'a rough one is never brought up');
+  assert.ok(!JSON.stringify(rough.bigDays).includes('Tandläkare'), 'no titles saved');
+  assert.equal(withBigAnswer(survived, dentist, '2026-11-09', 'nailed', 2).bigDays?.length, 1, 'one answer per event');
+  assert.equal(briefParts(base(), [ev('g', 'Flyg till Malaga', new Date(2026, 10, 9), { allDay: true })], '2026-11-09')?.key, 'bigDayLuckAllDay');
+  // "rough" feeds nothing: the tone, the rough-day filters and every other module stay as they were, and only big-days.ts reads the answers
+  for (const k of ['2026-11-09', '2026-11-10']) {
+    assert.deepEqual(toneOn(rough, k, at9), toneOn(base(), k, at9));
+    assert.equal(quietDay(rough, k, at9), quietDay(base(), k, at9));
+    assert.equal(roughDay(rough, k), roughDay(base(), k));
+  }
+  const srcFiles = (dir: string): string[] => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? srcFiles(join(dir, f)) : /\.tsx?$/.test(f) ? [join(dir, f)] : []));
+  for (const f of srcFiles(join(process.cwd(), 'src'))) {
+    if (['big-days.ts', 'types.ts'].includes(basename(f))) continue;
+    assert.ok(!/\.bigDays\b|\bbigDays:/.test(readFileSync(f, 'utf8')), `${relative(process.cwd(), f)} reads the big-day answers`);
+  }
+
+  // ---- intercepted memos ----
+  assert.equal(new Set(RUNES).size, 26);
+  const map = runeMap(base());
+  assert.equal(new Set(Object.values(map)).size, 26, 'one rune per letter');
+  const clues = ROSTER_LIST.map((r) => JSON.stringify(cluesOf(r)));
+  assert.equal(new Set(clues).size, ROSTER_LIST.length, 'the memos together point at exactly one rival');
+  for (const r of ROSTER_LIST) for (const t of memoTexts(r)) assert.ok(/^[A-Z .,']+$/.test(t), t);
+  assert.equal(memoTexts(ROSTER_LIST.find((r) => r.name === 'Caffeine Kalle')!)[2], 'OUR FRIEND HAS A FIRST NAME THAT BEGINS WITH K. DESTROY THIS MEMO.');
+  // the key: 2 letters a boss, 1 a fly species
+  const keyed = { ...base(), bossesDefeated: { a: 'snooze', b: 'binge', c: 'binge' }, flies: { house_fly: { firstAt: 1, count: 9 }, gym_gnat: { firstAt: 1, count: 1 } } };
+  assert.equal(lettersKnown(keyed), 8);
+  assert.ok(!/[A-Z]/.test(memoLine(base(), 'ABC XYZ')), 'nothing known: all runes');
+  assert.equal(memoLine({ ...keyed, bossesDefeated: Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`w${i}`, 'snooze'])) }, 'THE KING.'), 'THE KING.');
+  // a place gives its memo once; the first seeds the save's runes and its mole
+  const m1 = withMemo(base(), 'version', 100);
+  assert.equal(m1.cipher?.found.length, 1);
+  assert.equal(withMemo(m1, 'version', 200), m1);
+  const mole = moleOf(m1);
+  assert.equal(moleOf(withMemo(m1, 'postcard', 300)).name, mole.name, 'the mole stays put');
+  assert.equal(memosFound(m1)[0].text, memoTexts(mole)[0]);
+  // accusations: one per memo found, wrong ones crossed off, the right one pays a cosmetic and never XP
+  assert.equal(accuse(base(), mole.name), null, 'no memo, no case');
+  const suspect = ROSTER_LIST.find((r) => r.name !== mole.name)!.name;
+  const wrong = accuse(m1, suspect)!;
+  assert.equal(wrong.right, false);
+  assert.deepEqual(wrong.state.cipher?.wrong, [suspect]);
+  assert.equal(guessesLeft(wrong.state), 0);
+  assert.equal(accuse(wrong.state, mole.name), null, 'out of accusations until the next memo');
+  const m2 = withMemo(wrong.state, 'leet', 400);
+  const right = accuse(m2, mole.name)!;
+  assert.ok(right.right && owns(right.state, MOLE_PRIZE) && right.state.cipher?.solved?.name === mole.name);
+  assert.equal(right.state.xp, m2.xp);
+  assert.equal(accuse(right.state, suspect), null, 'case closed');
+  // the 13th fly and 13:37 (once each)
+  const flies12 = { ...base(), flies: { house_fly: { firstAt: 1, count: 12 } } };
+  const flies13 = { ...flies12, flies: { house_fly: { firstAt: 1, count: 13 } } };
+  assert.ok(memoFound(checkStory(flies12, flies13, [], { now: at9 }), 'fly13'));
+  const flies27 = { ...flies12, flies: { house_fly: { firstAt: 1, count: 27 } } };
+  assert.ok(memoFound(checkStory({ ...flies12, flies: { house_fly: { firstAt: 1, count: 25 } } }, flies27, [], { now: at9 }), 'fly13'), 'a collection past 13 finds it on the 26th');
+  const leetMsgs: { text: string; tone: 'info' | 'good' | 'bad' | 'epic' }[] = [];
+  const leet = checkStory(mamma.state, { ...mamma.state }, leetMsgs, { now: new Date(2026, 10, 9, 13, 37) });
+  assert.ok(memoFound(leet, 'leet') && leetMsgs.some((m) => m.text.startsWith('📡 13:37')));
+  const again: { text: string; tone: 'info' | 'good' | 'bad' | 'epic' }[] = [];
+  checkStory(leet, { ...leet }, again, { now: new Date(2026, 10, 10, 13, 37) });
+  assert.ok(!again.some((m) => m.text.startsWith('📡')), 'once');
+
+  // ---- the other timeline ----
+  let opened = mamma.state;
+  for (let i = 0; i < OPENS_WINK - 1; i++) opened = withOpen(opened, at9.getTime() + i * 60_000);
+  assert.ok(!opened.meta?.pending?.length);
+  opened = withOpen(opened, at9.getTime() + 20 * 60_000);
+  assert.deepEqual(opened.meta?.pending, ['opens']);
+  const winkMsgs: { text: string; tone: 'info' | 'good' | 'bad' | 'epic' }[] = [];
+  const winked = checkStory(mamma.state, opened, winkMsgs, { now: new Date(at9.getTime() + 20 * 60_000) });
+  assert.ok(winkMsgs.some((m) => m.text.startsWith('🌀') && m.text.includes(String(OPENS_WINK))), JSON.stringify(winkMsgs));
+  assert.ok(!winked.meta?.pending?.length && saidThisWeek(winked, 'opens', at9.getTime()));
+  const noMore: { text: string; tone: 'info' | 'good' | 'bad' | 'epic' }[] = [];
+  checkStory(winked, withOpen(winked, at9.getTime() + 30 * 60_000), noMore, { now: new Date(at9.getTime() + 30 * 60_000) });
+  assert.ok(!noMore.some((m) => m.text.startsWith('🌀')), 'once a week');
+  assert.equal(winked.xp, mamma.state.xp, 'no XP');
+  // never on a quiet day: the wink is dropped, not saved for later
+  const quiet: { text: string; tone: 'info' | 'good' | 'bad' | 'epic' }[] = [];
+  const hush = checkStory(sick(mamma.state), sick(opened), quiet, { now: new Date(at9.getTime() + 20 * 60_000) });
+  assert.ok(!quiet.some((m) => m.text.startsWith('🌀')) && !hush.meta?.pending?.length);
+  // three themes in a day; a restore, and a restore from another install (a new phone)
+  let themes = base();
+  for (let i = 0; i < THEMES_WINK; i++) themes = withThemeSwitch(themes, at9.getTime() + i);
+  assert.deepEqual(themes.meta?.pending, ['theme']);
+  assert.deepEqual(withRestore({ ...base(), install: 'A' }, 'A').meta?.pending, ['restore']);
+  const moved = withRestore({ ...base(), install: 'A' }, 'B');
+  assert.deepEqual(moved.meta?.pending, ['newPhone']);
+  assert.equal(moved.install, 'B');
+  assert.deepEqual(withRestore(base(), 'B').meta?.pending, ['restore'], 'a backup from before installs were stamped');
+  // undo a glass and pour the same one straight back
+  const today = '2026-11-09';
+  const one = { ...base(), days: { [today]: { ...emptyDay(), water: [{ id: 'g1', ml: 250, at: at9.getTime() }] } } };
+  const undone = metaEvents(one, { ...one, days: { [today]: { ...emptyDay(), water: [] } } }, at9.getTime());
+  assert.deepEqual(undone.state.meta?.undo, { at: at9.getTime(), ml: 250 });
+  const back = metaEvents(undone.state, { ...undone.state, days: { [today]: { ...emptyDay(), water: [{ id: 'g2', ml: 250, at: at9.getTime() + 30_000 }] } } }, at9.getTime() + 30_000);
+  assert.deepEqual(back.events.map((e) => e.kind), ['relog']);
+  assert.equal(back.state.meta?.undo, undefined);
+  const otherGlass = metaEvents(undone.state, { ...undone.state, days: { [today]: { ...emptyDay(), water: [{ id: 'g3', ml: 500, at: at9.getTime() }] } } }, at9.getTime() + 30_000);
+  assert.deepEqual(otherGlass.events, [], 'a different glass is just a glass');
+  // an edit to a day two weeks back (not to last week)
+  const hist = { ...base(), days: { '2026-10-20': { ...emptyDay() }, '2026-11-01': { ...emptyDay() } } };
+  const oldEdit = metaEvents(hist, { ...hist, days: { ...hist.days, '2026-10-20': { ...emptyDay(), water: glasses(1, '2026-10-20') } } }, at9.getTime());
+  assert.deepEqual(oldEdit.events, [{ kind: 'backdated', vars: { days: 20 } }]);
+  const recent = metaEvents(hist, { ...hist, days: { ...hist.days, '2026-11-01': { ...emptyDay(), water: glasses(1, '2026-11-01') } } }, at9.getTime());
+  assert.deepEqual(recent.events, []);
+  const appOnly = metaEvents(hist, { ...hist, days: { ...hist.days, '2026-10-20': { ...hist.days['2026-10-20'], banked: 3 } } }, at9.getTime());
+  assert.deepEqual(appOnly.events, [], "the app's own bookkeeping isn't an edit");
+}
+step9StoryTests();
 
 console.log('synchronous logic tests passed');

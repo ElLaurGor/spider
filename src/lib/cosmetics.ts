@@ -63,6 +63,12 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'trek_ticket', slot: 'held', name: 'Travel card', emoji: '🎫', source: 'reward', note: 'Walk the tunnelbana trek' },
   { id: 'trek_map', slot: 'held', name: 'Trail map', emoji: '🗺️', source: 'reward', note: 'Halfway along Sörmlandsleden' },
   { id: 'trek_pack', slot: 'held', name: 'Trail backpack', emoji: '🎒', source: 'reward', note: 'Walk Sörmlandsleden' },
+  // step 9 story: Mamma Spindel's care packages (mail.ts) and the mole hunt's prize (cipher.ts)
+  { id: 'knit_scarf', slot: 'held', name: 'Knitted scarf', emoji: '🧣', source: 'gift', note: 'Knitted by Mamma Spindel in Småland' },
+  { id: 'knit_mittens', slot: 'held', name: 'Knitted mittens', emoji: '🧤', source: 'gift', note: 'Knitted by Mamma Spindel in Småland' },
+  { id: 'knit_socks', slot: 'held', name: 'Wool socks', emoji: '🧦', source: 'gift', note: 'Knitted by Mamma Spindel in Småland' },
+  { id: 'knit_yarn', slot: 'hat', name: 'Bobble hat', emoji: '🧶', source: 'gift', note: 'Knitted by Mamma Spindel in Småland' },
+  { id: 'mole_glass', slot: 'held', name: "Mole hunter's magnifier", emoji: '🔍', source: 'reward', note: 'Unmask the Syndicate mole (Bestiary · Decoder)' },
 ];
 
 /** Silk Track hats, held items and auras (seasonal pieces it hands out are in COSMETICS already). */

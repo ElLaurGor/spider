@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
@@ -12,6 +12,9 @@ import { BADGE_NOTE, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@
 // step 8 game: the month's calls and the contract ledger
 import { ContractLedgerCard } from '@/components/contract-ledger';
 import { CallsCard } from '@/components/shot-call';
+// step 9 story: things noticed and the mailbox
+import { unreadMail } from '@/lib/mail';
+import { REMARKS, remarksFound } from '@/lib/remarks';
 
 export default function RecordsScreen() {
   const { state } = useStore();
@@ -99,6 +102,8 @@ export default function RecordsScreen() {
         ) : null}
       </Card>
 
+      <StoryLinks />
+
       {shame.length > 0 ? (
         <Card accent={C.red}>
           <H>💀 Hall of Shame</H>
@@ -111,6 +116,27 @@ export default function RecordsScreen() {
         </Card>
       ) : null}
     </ScrollView>
+  );
+}
+
+/** step 9 story: the once-only remarks (remarks.ts) and the mailbox (mail.ts), next to the Roast Book. */
+function StoryLinks() {
+  const { state } = useStore();
+  const found = remarksFound(state).length;
+  const letters = state.mail?.length ?? 0;
+  const unread = unreadMail(state).length;
+  return (
+    <Card>
+      <Pressable onPress={() => router.push('/noticed')} accessibilityRole="button" accessibilityLabel="Things I've noticed">
+        <H right={<T dim small>{`${found}/${REMARKS.length} →`}</T>}>👁️ Things I&apos;ve noticed</H>
+      </Pressable>
+      <T dim small>
+        Remarks I make once, ever, at the moment they happen. Kept here afterwards.
+      </T>
+      <Pressable onPress={() => router.push('/mail')} accessibilityRole="button" accessibilityLabel="Mailbox">
+        <H right={<T dim small>{unread ? `${unread} new →` : `${letters} →`}</T>}>📬 Mailbox</H>
+      </Pressable>
+    </Card>
   );
 }
 
