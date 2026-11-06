@@ -6,6 +6,8 @@ import { emotionEmoji, moodInfo } from './mood';
 import { BOSSES } from './quests';
 import { dayScoreFor, gradeOf, type Grade } from './report';
 import { activitiesOf, avgMood, coffeeOf, dayOf, effectiveSavage, gamingBudgetMin, gamingUsedMs, moodsOf, trainedOn, trainMinutes, waterGoalFor, waterMl } from './selectors';
+import { monthLine, nearStockholm } from './sthlm-climate';
+import { outingsIn } from './sthlm-events';
 import type { ActivityKind, State } from './types';
 
 export type SlideColor = 'red' | 'water' | 'yellow' | 'green' | 'purple' | 'cyan' | 'blue';
@@ -251,6 +253,25 @@ export function monthWrapped(s: State, year: number, month: number, now = new Da
         ? pick('Bosses fell. Bards are writing songs. Quiet ones.', 'Bosses fell. Nice work.')
         : pick('The bosses are still laughing. Next month.', 'The bosses can wait for next month.'),
       color: 'yellow',
+    });
+  }
+
+  // Stockholm (step 8): weekend events added to the Plan (a total), and how the city's month ran against normal (trivia, never graded)
+  const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const outings = outingsIn(s, ym);
+  const cityMean = nearStockholm(s.settings.weather) ? s.sthlmClimate?.months?.[ym] : undefined;
+  const city = cityMean != null ? monthLine(ym, cityMean) : null;
+  if (outings || city) {
+    slides.push({
+      id: 'stockholm',
+      emoji: '🏙️',
+      title: 'Stockholm',
+      big: outings ? plural(outings, 'outing') : `${city && city.delta > 0 ? '+' : ''}${(city?.delta ?? 0).toFixed(1)}°`,
+      sub: [outings ? `${plural(outings, 'weekend event')} added to your plan` : '', city?.text ?? ''].filter(Boolean).join(' · '),
+      quip: outings
+        ? pick('Plans with the city. Turning up to them is the advanced level.', 'Some city plans this month. Nice.')
+        : pick("Stockholm's weather, for the record. Neither of us takes the blame.", "Stockholm's weather, for the record."),
+      color: 'cyan',
     });
   }
 

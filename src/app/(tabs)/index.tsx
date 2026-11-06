@@ -26,6 +26,8 @@ import { noonOf, useToday } from '@/components/use-today';
 import { OutsideAlerts } from '@/components/outside-alerts';
 import { WeatherRow } from '@/components/weather-row';
 import { SlCard } from '@/components/sl-card';
+import { SthlmClimateSync } from '@/components/sthlm-climate-sync';
+import { WeekendCard } from '@/components/weekend-card';
 import { WeekCard } from '@/components/week-card';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
@@ -391,6 +393,7 @@ export default function HQ() {
     experiment: () => <ExperimentCard compact />,
     wild: () => <WildCard />,
     lair: () => <LairCard />,
+    weekend: () => <WeekendCard />, // step 8 stockholm
     // NEW HQ CARD: add `<id>: () => <YourCard />,` here and `{ id, label }` to HQ_SECTIONS in lib/hq-layout.ts.
   };
 
@@ -472,6 +475,7 @@ export default function HQ() {
       <PrizesCard />
       <JulfridCard />
       <AdventCard />
+      <SthlmClimateSync />
 
       {visible.map((id) => (
         <Fragment key={id}>{SECTIONS[id]()}</Fragment>

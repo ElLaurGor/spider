@@ -23,6 +23,7 @@ import { useStore } from '@/lib/store';
 import { toneOn } from '@/lib/tone';
 import { PauseCard } from '@/components/pause-card';
 import { StepsCheckPanel } from '@/components/steps-check';
+import { WeekendSettings } from '@/components/weekend-settings';
 import type { NotifyPrefs, Settings } from '@/lib/types';
 
 const SAVAGE_LABEL = (v: number) => (v <= 2 ? 'polite butler' : v <= 5 ? 'sassy' : v <= 8 ? 'savage' : 'no mercy');
@@ -362,6 +363,7 @@ export default function SettingsScreen() {
       </Card>
 
       <SlSettings />
+      <WeekendSettings />
 
       <Card>
         <H>Outside: pollen, air & warnings</H>

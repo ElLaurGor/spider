@@ -6,6 +6,9 @@ import { foodNutrients, loadFoods, searchFoods } from '../src/lib/food-db';
 import { alertWhen, fetchAir, fetchSmhi, fetchVma, SMHI_PAGE } from '../src/lib/outside';
 import { departureText, fetchDepartures, fetchDeviations, nextDepartures, relevantDeviations, routesOf, searchStops } from '../src/lib/sl';
 import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } from '../src/lib/weather';
+// step 8 stockholm
+import { climateUpdate, factsOn, fetchSthlmObs, triviaLine } from '../src/lib/sthlm-climate';
+import { EVENT_SLUGS, EVENTS_API, fetchWeekend, pickWeekend, weekendOf, whenText } from '../src/lib/sthlm-events';
 
 (async () => {
   for (const q of ['Stockholm', 'Göteborg', 'Malmö', 'Uppsala', 'Kiruna']) {
@@ -87,6 +90,35 @@ import { fetchWeather, fetchWeatherHistory, findPlace, rainNote, withCounty } fr
     console.log(`${q} -> ${hit.name}: ${n.kcal100} kcal, ${n.protein100} g protein per 100 g`);
     assert.ok(n.kcal100 > 0);
   }
+
+  // Step 8: Visit Stockholm's categories are still the ones Settings offers, and a weekend's events parse into picks.
+  const meta = (await (await fetch(EVENTS_API)).json()) as { meta?: { categories?: { slug: string }[] } };
+  const slugs = (meta.meta?.categories ?? []).map((c) => c.slug);
+  console.log('Visit Stockholm categories:', slugs.join(', '));
+  assert.deepEqual([...slugs].sort(), [...EVENT_SLUGS].sort(), 'the API lists other categories than Settings offers');
+  const thursday = new Date();
+  thursday.setDate(thursday.getDate() + ((4 - thursday.getDay() + 7) % 7)); // the coming Thursday (today if it is one)
+  thursday.setHours(9, 0, 0, 0);
+  const weekend = weekendOf(thursday)!;
+  const events = await fetchWeekend(['music', 'exhibitions'], weekend.days);
+  const picks = pickWeekend(events, ['music', 'exhibitions'], thursday);
+  console.log(`Visit Stockholm, weekend of ${weekend.friday}: ${events.length} events in music + exhibitions; picks:`);
+  for (const p of picks) console.log('  ', whenText(p, thursday), '|', p.event.title, '|', p.event.station ?? '(no station)', '|', p.event.venue ?? '');
+  assert.ok(events.length > 0 && picks.length === 3, 'a weekend in two big categories has three picks');
+
+  // Step 8: SMHI's Stockholm Observatoriekullen A (98230) has yesterday's mean, max and min; the trivia reads.
+  const obs = await fetchSthlmObs();
+  console.log('SMHI 98230 latest:', obs.length, 'days,', obs[0]?.day, '…', JSON.stringify(obs.slice(-3)));
+  const today = new Date();
+  const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const y = new Date(today);
+  y.setDate(y.getDate() - 1);
+  const yesterday = obs.find((o) => o.day === key(y));
+  console.log('yesterday', key(y), JSON.stringify(yesterday), 'facts', JSON.stringify(factsOn(key(y))));
+  assert.ok(yesterday?.mean != null && yesterday.max != null && yesterday.min != null, "yesterday's readings are in");
+  const folded = climateUpdate(undefined, obs, key(today));
+  console.log('months', JSON.stringify(folded.next.months), '· new records', JSON.stringify(folded.next.records), '· toast', folded.toast);
+  console.log('HQ trivia today:', triviaLine(key(today)));
   console.log('all ok');
 })().catch((e) => {
   console.error('FAILED', e);

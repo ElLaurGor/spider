@@ -137,6 +137,10 @@ import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, planText, type
 // step 6: moving a slipping workout
 import { copingPlan, copingWeekday, movedTo, moveDayName, moveTargets, withMove, withoutMove, withWhy } from './workout-move';
 import { quickAddOf } from './quick-add';
+// step 8 stockholm: the weekend card's outings and Stockholm weather trivia
+import type { DayObs } from './climate-table';
+import { climateUpdate } from './sthlm-climate';
+import { dayText, outingTask, planned, type WeekendPick } from './sthlm-events';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -3021,6 +3025,35 @@ function useStoreValue() {
         disk.current.allowShrink = true;
         setLineMemory(undefined);
         commit(defaultState());
+      },
+
+      // --- step 8 stockholm ---
+      /** "Add to Plan" on HQ's weekend card: a task for the event's day, and the outing counted for Wrapped's month total. Once per event and day. */
+      planOuting(pick: WeekendPick) {
+        run((s, msgs) => {
+          const day = pick.slot.day;
+          if (!isDayKey(day) || planned(s, pick.event.id, day)) return s;
+          const id = uid();
+          const at = Date.now();
+          msgs.push({ text: L(s, 'sthlmOutingAdded', { title: pick.event.title, day: dayText(day) }), tone: 'good' });
+          return {
+            ...s,
+            tasks: [{ id, title: outingTask(pick), done: false, createdAt: at }, ...s.tasks],
+            sthlmOutings: [...(s.sthlmOutings ?? []), { id: pick.event.id, day, title: pick.event.title, task: id, at }].slice(-200),
+          };
+        });
+      },
+
+      /** SMHI's latest Stockholm readings (sthlm-climate.ts): month means and new records kept, a record yesterday toasted once. */
+      sthlmClimateIn(obs: DayObs[]) {
+        run(
+          (s, msgs) => {
+            const { next, toast } = climateUpdate(s.sthlmClimate, obs, dayKey());
+            if (toast) msgs.push({ text: L(s, 'sthlmRecord', { finding: toast }), tone: 'info' });
+            return JSON.stringify(next) === JSON.stringify(s.sthlmClimate ?? null) ? s : { ...s, sthlmClimate: next };
+          },
+          { quiet: true },
+        );
       },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],

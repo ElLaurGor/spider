@@ -2098,6 +2098,25 @@ export const LINES = {
     mild: ['{habit}: {done}, the top of the range. +{xp} XP.'],
     savage: ['{habit}: {done}. Top of the range. +{xp} XP. Show-off.'],
   },
+  // ---- step 8 stockholm ----
+  // HQ's weekend card (sthlm-events.ts): a line over the picks, and the toast when one goes into the Plan
+  sthlmWeekend: {
+    mild: ['Three picks for the weekend, from your categories.', 'Something to do this weekend, if you feel like going out.', 'The weekend, sorted by what you like. Pick one, or none.'],
+    savage: [
+      'Three reasons to leave the flat this weekend. I did the research; the showing up is yours.',
+      'The city made plans for you. They beat scrolling, I checked.',
+      'Stockholm is up to things this weekend. You could be one of the people there.',
+    ],
+  },
+  sthlmOutingAdded: {
+    mild: ['{title} is in your plan for {day}.', 'Added to your plan: {title}, {day}.'],
+    savage: ['{title}, {day}. It is in the plan now, so it happens.', 'In the plan: {title}, {day}. Tickets are your department.'],
+  },
+  // Stockholm weather since 1859 (sthlm-climate.ts): yesterday set a record for its date. City trivia, never about her.
+  sthlmRecord: {
+    mild: ['📜 City trivia: {finding}', '📜 One for the record books: {finding}'],
+    savage: ['📜 {finding} Stockholm keeps showing off.', '📜 {finding} The weather went for a personal best.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

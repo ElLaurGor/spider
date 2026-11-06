@@ -84,6 +84,8 @@ export type Settings = {
   // step 4
   sl?: { siteId: number; name: string; routes: string[]; walkMin: number } | null; // SL departures card (lib/sl.ts); unset = no card
   quickAdd?: QuickAdd; // Fuel's quick-add chips (lib/quick-add.ts); unset = the most-logged foods only
+  // step 8 stockholm
+  sthlmEvents?: string[]; // Visit Stockholm categories for HQ's weekend card (lib/sthlm-events.ts); unset or empty = no card
 };
 
 /** A one-tap food on Fuel's quick-add row. */
@@ -386,6 +388,9 @@ export type State = {
   trek?: Trek | null; // the virtual trek walked with watch steps (lib/trek.ts); unset = none started
   treksDone?: TrekRoute[]; // routes walked to the end, in order
   storm?: StormAlert[]; // storm.ts: the orange/red SMHI warnings and VMAs last seen for the owner's area (the Storm protocol)
+  // step 8 stockholm
+  sthlmOutings?: Outing[]; // weekend events added to the Plan (lib/sthlm-events.ts), for Wrapped's month total
+  sthlmClimate?: SthlmClimate; // Stockholm weather trivia (lib/sthlm-climate.ts): month means, records set since the table, the last record toast
 };
 
 /** An alert that holds the Storm protocol (storm.ts): kept in State so every day's tone, notifications included, can see it. */
@@ -437,3 +442,11 @@ export type Experiment = {
 // cluster A
 /** Sick or away, from and to inclusive (day keys). */
 export type Pause = { from: string; to: string; kind: 'sick' | 'away'; endedAt?: number }; // endedAt: "I'm back" was tapped on `to` (today stays easy)
+
+// step 8 stockholm
+/** An event added to the Plan from HQ's weekend card (sthlm-events.ts): its task, and the day it's on (Wrapped counts by that). */
+export type Outing = { id: string; day: string; title: string; task: string; at: number };
+/** A Stockholm temperature record set after the climate table was built (sthlm-climate.ts): warm/cold daily mean, high max, low min. */
+export type NewRecord = { day: string; kind: 'warm' | 'cold' | 'hi' | 'lo'; v: number };
+/** Stockholm weather trivia (sthlm-climate.ts): the day yesterday's readings came in, the last day checked for records, month means, new records, the day whose record was toasted. */
+export type SthlmClimate = { fetchedDay?: string; checked?: string; months?: Record<string, number>; records?: NewRecord[]; toasted?: string };
