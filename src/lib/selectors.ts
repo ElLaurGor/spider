@@ -177,33 +177,23 @@ export const proteinGoalOn = (s: State, key = dayKey()) => s.days[key]?.goals?.p
 const redDay = (date: Date | number) => holidayOn(date)?.red ?? false;
 
 /**
- * The day's water goal and why it's higher than the base: hot days (that day's saved weather) and
- * training days (planned or done) add some, unless adaptive water is off. Only ever raises the goal,
- * and a goal already hit stays hit (waterGoalHit is never taken back).
+ * The day's water goal and why it's higher than the base: only hot days (that day's saved weather)
+ * add some, unless adaptive water is off. Training days never do (the owner asked for the same goal
+ * on gym days). Only ever raises the goal, and a goal already hit stays hit (waterGoalHit is never taken back).
  */
 export function waterGoalParts(s: State, key = dayKey()): { ml: number; why: string[] } {
   const base = s.settings.waterGoalMl;
   if (s.settings.adaptiveWater === false) return { ml: base, why: [] };
-  const d = dayOf(s, key);
-  const why: string[] = [];
-  let extra = 0;
-  const max = d.weather?.max;
-  if (max != null && max >= 22) {
-    const add = max >= 25 ? 500 : 300;
-    extra += add;
-    why.push(`+${add} ml: ${Math.round(max)}°`);
-  }
-  if (workoutFor(s, new Date(`${key}T12:00`)) || trainedOn(d)) {
-    extra += 400;
-    why.push('+400 ml: training day');
-  }
-  return { ml: base + extra, why };
+  const max = dayOf(s, key).weather?.max;
+  if (max == null || max < 22) return { ml: base, why: [] };
+  const add = max >= 25 ? 500 : 300;
+  return { ml: base + add, why: [`+${add} ml: ${Math.round(max)}°`] };
 }
 
 /** A day's water goal: the snapshot once the day is over (lib/goals.ts), else the live one. */
 export const waterGoalFor = (s: State, key = dayKey()) => s.days[key]?.goals?.water ?? waterGoalParts(s, key).ml;
 
-/** The water goal counts as met once the glass that met it was logged, even if the goal grew later (a gym set, a hotter forecast). */
+/** The water goal counts as met once the glass that met it was logged, even if the goal grew later (a hotter forecast). */
 export const waterGoalMet = (s: State, d: DayLog, key: string) => !!d.waterGoalHit || liveWaterMl(d) >= waterGoalFor(s, key);
 
 export const gamingBudgetMin = (s: State, key = dayKey()) => (s.days[key]?.goals?.gaming ?? s.settings.gamingBudgetMin) + dayOf(s, key).bonusGameMin;

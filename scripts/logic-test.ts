@@ -3062,8 +3062,8 @@ void (async () => {
   assert.deepEqual(habitsFor(edited, addDays(gMon, 5)).map((h) => h.id), ['old', 'new']);
   assert.deepEqual(habitsFor({ ...edited, days: {} }, addDays(gMon, 1)).map((h) => h.id), ['old']);
   assert.equal(liveGoals(edited, gk(0)).water, 1500, 'the live goal moved; the snapshot did not');
-  // a water goal met once stays met when the goal grows (a gym set later that day)
-  const met = { ...empty(), water: [{ id: 'w', ml: 2500, at: 0 }], waterGoalHit: true, sets: [{ id: 's', exercise: 'Squat', weight: 50, reps: 5, at: 0 }] };
+  // a water goal met once stays met when the goal grows (a hotter forecast later that day)
+  const met = { ...empty(), water: [{ id: 'w', ml: 2500, at: 0 }], waterGoalHit: true, weather: { max: 27, min: 16, rainMm: 0, sunMin: 500, code: 0 } };
   const ad = defaultState();
   ad.days[gk(10)] = met;
   assert.ok(waterGoalFor(ad, gk(10)) > 2500 && waterGoalMet(ad, met, gk(10)));
@@ -4140,21 +4140,23 @@ void (async () => {
 }
 
 // ---- cluster C ----
-// adaptive water: hot days and training days raise the goal; off means the plain goal
+// adaptive water: only hot days raise the goal, training days (planned or done) never do; off means the plain goal
 {
   const w = defaultState();
   const sunday = '2027-01-10'; // a rest day in the default plan
   const monday = '2027-01-11'; // Push day
   w.days[sunday] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0 };
   assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl);
-  assert.equal(waterGoalFor(w, monday), w.settings.waterGoalMl + 400);
+  assert.equal(waterGoalFor(w, monday), w.settings.waterGoalMl, 'a planned gym day keeps the plain goal');
+  w.days[monday] = { water: [], food: [], sets: [], games: [], bonusGameMin: 0, activities: [{ id: 'm', kind: 'cardio', minutes: 45, at: 0 }] };
+  assert.deepEqual(waterGoalParts(w, monday), { ml: w.settings.waterGoalMl, why: [] }, 'a day trained keeps the plain goal');
   w.days[sunday] = { ...w.days[sunday], weather: { max: 23, min: 14, rainMm: 0, sunMin: 300, code: 0 } };
   assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl + 300);
   w.days[sunday] = { ...w.days[sunday], weather: { max: 27, min: 16, rainMm: 0, sunMin: 500, code: 0 } };
   w.days[sunday].activities = [{ id: 'a', kind: 'cardio', minutes: 30, at: 0 }]; // trained on a rest day
   const parts = waterGoalParts(w, sunday);
-  assert.equal(parts.ml, w.settings.waterGoalMl + 900);
-  assert.deepEqual(parts.why, ['+500 ml: 27°', '+400 ml: training day']);
+  assert.equal(parts.ml, w.settings.waterGoalMl + 500);
+  assert.deepEqual(parts.why, ['+500 ml: 27°']);
   w.settings.adaptiveWater = false;
   assert.equal(waterGoalFor(w, sunday), w.settings.waterGoalMl);
 }

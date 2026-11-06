@@ -261,7 +261,7 @@ export default function SettingsScreen() {
         </SettingRow>
         <Toggle
           label="Adapt water to the day"
-          hint="+300–500 ml on hot days, +400 ml on training days"
+          hint="+300–500 ml on hot days (22° and up). Training days keep the plain goal."
           value={s.adaptiveWater !== false}
           onChange={(v) => set({ adaptiveWater: v })}
         />

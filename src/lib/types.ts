@@ -77,7 +77,7 @@ export type Settings = {
   // cluster E
   hq?: { order: string[]; hidden: string[] }; // HQ card order and hidden cards (lib/hq-layout.ts); unset = the default
   // cluster C
-  adaptiveWater?: boolean; // hot days and training days raise the water goal (default on)
+  adaptiveWater?: boolean; // hot days raise the water goal (default on); training days never do
   maxHr?: number; // for heart rate zones in training (lib/workout-heart.ts DEFAULT_MAX_HR when unset)
   stepsFill?: boolean; // today's steps: other apps (the phone's own counter) cover the time Zepp hasn't written to Health Connect yet (default on)
   moveNudgeHour?: number | null; // workdays at this hour: a nudge to move (her stillest hour on the movement map); unset = off
