@@ -2098,6 +2098,34 @@ export const LINES = {
     mild: ['{habit}: {done}, the top of the range. +{xp} XP.'],
     savage: ['{habit}: {done}. Top of the range. +{xp} XP. Show-off.'],
   },
+  // ---- step 8 terrarium ----
+  tankPoke: {
+    mild: [
+      'Hello to you too, {name}. I was busy being majestic.',
+      "A poke! I'll allow it. Once.",
+      'You found me. The web is holding up nicely, thanks for asking.',
+      'Wave received. Waving back with all eight.',
+      'Yes, I live here. The rent is paid in coins.',
+      'Careful with the glass. It is the only wall I have.',
+      'Hi. I was counting threads. Lost count. Worth it.',
+    ],
+    savage: [
+      'Poking a spider before drinking a glass of water. Priorities, {name}.',
+      'You tap this glass faster than you tick off habits.',
+      'I wave, you scroll. One of us is getting things done.',
+      'Stop knocking on my glass. Go knock out a task instead.',
+      'Every poke is a minute that to-do list will never see.',
+      'That tap had more focus in it than your last Web Focus.',
+    ],
+  },
+  eggSacDropped: {
+    mild: ['An egg sac! It goes in the terrarium and hatches after {n} km of walking. No hurry.', 'You found an egg sac. Walk {n} km, whenever, and it hatches.'],
+    savage: ['An egg sac dropped. {n} km of walking hatches it. Your legs know what to do.', 'Egg sac secured. It needs {n} km of your steps. The sofa adds nothing.'],
+  },
+  eggSacHatched: {
+    mild: ['The egg sac hatched! A spiderling moved into the terrarium. +{coins} 🪙', 'A spiderling hatched from all that walking. It lives in the terrarium now. +{coins} 🪙'],
+    savage: ['Hatched. Your walking made a spiderling. It already walks more than some people. +{coins} 🪙', 'A spiderling, hatched by your steps. Proof that walking pays. +{coins} 🪙'],
+  },
   // ---- step 8 sweden ----
   // People days (people-days.ts): kind in both pools, since these days can hurt. {title} is "Vendela's name day" or "Fars dag".
   personDayToday: {

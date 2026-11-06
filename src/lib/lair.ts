@@ -34,8 +34,8 @@ export const lairPieces = (s: State) => LAIR.filter((p) => has(s).includes(p.id)
 /** The next piece to buy, or null once the terrarium is complete. Pieces go in one at a time, in order. */
 export const nextPiece = (s: State) => LAIR.find((p) => !has(s).includes(p.id)) ?? null;
 
-/** `s` with piece `id` in the terrarium (the caller checks it's the next one and takes the coins). */
-export const withPiece = (s: State, id: string): State => ({ ...s, lair: [...new Set([...has(s), id])] });
+/** `s` with piece `id` in the terrarium (the caller checks it's the next one and takes the coins), noting when it went in (plants grow from then). */
+export const withPiece = (s: State, id: string, now = Date.now()): State => ({ ...s, lair: [...new Set([...has(s), id])], lairAt: { ...s.lairAt, [id]: s.lairAt?.[id] ?? now } });
 
 /** Coins still needed for every piece not bought yet. */
 export const lairLeft = (s: State) => LAIR.filter((p) => !has(s).includes(p.id)).reduce((a, p) => a + p.price, 0);

@@ -1,5 +1,6 @@
 import { addDays, dayKey, isDayKey, startOfWeek } from './dates';
 import { applyFixes, FIXES } from './fixes';
+import { levelForXp } from './levels';
 import type { DayLog, State } from './types';
 
 export function emptyDay(): DayLog {
@@ -136,5 +137,8 @@ export function hydrate(saved: Partial<State> | null): State {
     counters: { ...base.counters, ...saved.counters },
     // step 4: a habit without a weekly range or an if-then plan has neither
     habits: (saved.habits ?? base.habits).map((h) => ({ ...h, perWeek: h.perWeek ?? null, plan: h.plan ?? null })),
+    // step 8 terrarium: no molt for levels reached before the tank could show one; older pieces grow from first sight
+    moltSeen: saved.moltSeen ?? Math.max(saved.maxLevel ?? 1, levelForXp(saved.xp ?? 0)),
+    lairAt: { ...Object.fromEntries((saved.lair ?? []).map((id) => [id, Date.now()])), ...saved.lairAt },
   });
 }
