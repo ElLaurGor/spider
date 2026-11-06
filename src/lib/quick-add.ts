@@ -1,6 +1,7 @@
 // Fuel's quick-add row: one tap logs a food. Pinned foods (picked by hand, with their own numbers) come first,
 // in the order they were pinned; the month's most-logged foods fill the rest up to QUICK_MAX unless that's off.
 // A food taken off the row stays off (`hidden`), even when it's logged again, until it's put back or pinned.
+import { fikaOn, fikaPortion } from './fika';
 import { foodBase, recentFoods } from './selectors';
 import type { QuickAdd, QuickFood, State } from './types';
 
@@ -13,9 +14,30 @@ export const foodKey = (name: string) => foodBase(name).toLowerCase();
 
 export const quickAddOf = (s: State): QuickAdd => s.settings.quickAdd ?? { pinned: [], hidden: [] };
 
-export type QuickChip = QuickFood & { pinned: boolean };
+/** `fika`: the fika almanac's food of the day (fika.ts); `ask`: a name only, so a tap fills in the name instead of logging. */
+export type QuickChip = QuickFood & { pinned: boolean; fika?: { emoji: string; ask: boolean } };
 
-export function quickFoods(s: State): QuickChip[] {
+/**
+ * The row for Fuel's shown day. On a fika day (step 8) that day's food comes first, in place of the same food
+ * further along, unless it was taken off the row (`hidden`) or the fika almanac is off.
+ */
+export function quickFoods(s: State, day?: string): QuickChip[] {
+  const row = savedFoods(s);
+  const fika = day ? fikaChip(s, day) : null;
+  return fika ? [fika, ...row.filter((f) => foodKey(f.name) !== foodKey(fika.name))] : row;
+}
+
+/** The fika day's chip for a day, if it has a food and it's wanted. */
+export function fikaChip(s: State, day: string): QuickChip | null {
+  const f = s.settings.sweden?.fika === false ? null : fikaOn(day);
+  if (!f?.food || quickAddOf(s).hidden.includes(foodKey(f.food.name))) return null;
+  const portion = fikaPortion(f.food);
+  return portion
+    ? { ...portion, pinned: false, fika: { emoji: f.emoji, ask: false } }
+    : { name: f.food.name, kcal: 0, protein: 0, pinned: false, fika: { emoji: f.emoji, ask: true } };
+}
+
+function savedFoods(s: State): QuickChip[] {
   const q = quickAddOf(s);
   const pinned = q.pinned.map((f) => ({ ...f, pinned: true }));
   if (q.auto === false) return pinned;

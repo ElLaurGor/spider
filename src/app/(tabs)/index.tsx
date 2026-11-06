@@ -8,6 +8,7 @@ import { ContractCard } from '@/components/contract-card';
 import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { SwedishDaysRow } from '@/components/swedish-year';
+import { FikaBanner, SwedenCard } from '@/components/sweden-card';
 import { DebriefCard, TopThreeCard } from '@/components/debrief-cards';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
 import { LairCard } from '@/components/lair-card';
@@ -387,6 +388,7 @@ export default function HQ() {
       </Card>
     ),
     swedishDays: () => <SwedishDaysRow />,
+    sweden: () => <SwedenCard />,
     progress: () => <ProgressChips />,
     experiment: () => <ExperimentCard compact />,
     wild: () => <WildCard />,
@@ -469,6 +471,7 @@ export default function HQ() {
         </View>
       ) : null}
 
+      <FikaBanner />
       <PrizesCard />
       <JulfridCard />
       <AdventCard />

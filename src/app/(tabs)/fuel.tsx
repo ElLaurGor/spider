@@ -188,7 +188,7 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
   const [looking, setLooking] = useState(false);
   const meals = [...shownDay.food].sort((a, b) => a.at - b.at);
   const meal = meals.find((f) => f.id === editing);
-  const quick = quickFoods(state);
+  const quick = quickFoods(state, day); // a fika day's food first (step 8 sweden, fika.ts)
   const [editQuick, setEditQuick] = useState(false);
   const [quickFood, setQuickFood] = useState<{ was?: string; food: QuickFood } | null>(null); // the quick-add food being edited or added
   const k = kcalOf(shownDay);
@@ -275,9 +275,25 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
           />
         ) : quick.length > 0 ? (
           <Row gap={6} style={{ flexWrap: 'wrap' }}>
-            {quick.map((f) => (
-              <Chip key={f.name} label={`${f.name} · ${f.protein}g`} onPress={() => actions.addFood({ name: f.name, kcal: f.kcal, protein: f.protein }, day)} />
-            ))}
+            {quick.map((f) =>
+              f.fika?.ask ? (
+                // A fika food with no numbers: the tap fills in the name and the owner adds the rest.
+                <Chip
+                  key={f.name}
+                  label={`${f.fika.emoji} ${f.name}`}
+                  onPress={() => {
+                    setPicked(null);
+                    setName(f.name);
+                  }}
+                />
+              ) : (
+                <Chip
+                  key={f.name}
+                  label={`${f.fika ? `${f.fika.emoji} ` : ''}${f.name} · ${f.protein}g`}
+                  onPress={() => actions.addFood({ name: f.name, kcal: f.kcal, protein: f.protein }, day)}
+                />
+              ),
+            )}
           </Row>
         ) : (
           <T dim small>

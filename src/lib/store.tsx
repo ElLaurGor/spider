@@ -137,6 +137,8 @@ import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, planText, type
 // step 6: moving a slipping workout
 import { copingPlan, copingWeekday, movedTo, moveDayName, moveTargets, withMove, withoutMove, withWhy } from './workout-move';
 import { quickAddOf } from './quick-add';
+// step 8 sweden
+import { prepWeekOn, tickPrep as tickPrepItem, type PrepItem } from './beredskap';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -3021,6 +3023,45 @@ function useStoreValue() {
         disk.current.allowShrink = true;
         setLineMemory(undefined);
         commit(defaultState());
+      },
+
+      // --- step 8 sweden ---
+      /** The Swedish calendar's settings: name days, people and the built-in days, fika, Hesa Fredrik, deklaration. */
+      setSweden(change: (p: NonNullable<Settings['sweden']>) => NonNullable<Settings['sweden']>) {
+        run((s) => ({ ...s, settings: { ...s.settings, sweden: change(s.settings.sweden ?? {}) } }));
+      },
+
+      /** A people day's or the tax return's one-tap task ('fars:2026', 'dekl:2027'): added once, again only if it was deleted. */
+      addSwedenTask(key: string, title: string) {
+        const t = title.trim();
+        if (!t) return;
+        run((s, msgs) => {
+          const had = s.sweden?.tasks?.[key];
+          if (had && s.tasks.some((x) => x.id === had)) return s;
+          const id = uid();
+          msgs.push({ text: L(s, 'taskAdded'), tone: 'info' });
+          return { ...s, tasks: [{ id, title: t, done: false, createdAt: Date.now() }, ...s.tasks], sweden: { ...s.sweden, tasks: { ...s.sweden?.tasks, [key]: id } } };
+        });
+      },
+
+      /** The tax return is approved (deklaration.ts): the countdown and its nudges stop for that year. No XP. */
+      markDeklaration(year: number) {
+        run((s, msgs) => {
+          if (s.sweden?.dekl?.[String(year)]) return s;
+          msgs.push({ text: `🧾 ${L(s, 'deklDone')}`, tone: 'good' });
+          return { ...s, sweden: { ...s.sweden, dekl: { ...s.sweden?.dekl, [String(year)]: Date.now() } } };
+        });
+      },
+
+      /** Krisberedskapsveckan's checklist (beredskap.ts): ticks an item; all five pay a few coins once a year, never XP. */
+      tickPrep(item: PrepItem) {
+        run((s, msgs) => {
+          const today = dayKey();
+          if (!prepWeekOn(today)) return s;
+          const r = tickPrepItem(s, item, Number(today.slice(0, 4)));
+          if (r.paid) msgs.push({ text: L(r.state, 'prepDone', { coins: r.paid }), tone: 'epic' });
+          return r.state;
+        });
       },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],
