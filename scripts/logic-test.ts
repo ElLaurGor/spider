@@ -171,6 +171,7 @@ import { LAIR, LAIR_HOME, lairLeft, lairPieces, lairSpots, nextPiece, nextSpot, 
 import { PEEL_XP, peelBlocker, PEELS_PER_WEEK, rosterName, withPeel, withRivalName, withRivalNames } from '../src/lib/league';
 import { QUEST_SLOTS, questCardBlocker, questSlotsOn, withBossName, withQuestCard } from '../src/lib/quests';
 import { voiceOf } from '../src/lib/rival-talk';
+import { buildPiece, createWorld, planRoute, spots3d, TANK } from '../src/lib/terrarium-3d';
 import { pauseOn } from '../src/lib/pause';
 
 // levels
@@ -509,6 +510,45 @@ function shopTests() {
   assert.ok(!validDraft(four, draft.defaults, morning), 'three is not enough once four were bought');
 }
 shopTests();
+
+// the terrarium in 3D: every spot has a place, and the spider walks, climbs and hangs without leaving the tank
+function terrarium3dTests() {
+  const all = LAIR.map((x) => x.id);
+  assert.deepEqual(spots3d(all).map((x) => x.id), lairSpots(all).map((x) => x.id), 'every 2D spot has a place in 3D');
+  assert.deepEqual(spots3d([]).map((x) => x.id), ['home', 'left', 'right']);
+  for (const id of all) assert.ok(buildPiece(id).children.length > 0, `${id} has a look`);
+  const web = spots3d(all).find((x) => x.id === 'web')!;
+  const moss = spots3d(all).find((x) => x.id === 'rug')!;
+  const route = planRoute(web, moss, () => 0.5);
+  assert.equal(route[0].kind, 'move', 'down the thread first');
+  assert.equal(route.at(-1)?.kind, 'wait');
+  let seed = 1;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const w = createWorld({ ids: all, next: null, marking: '#E23636', background: '#10141F', random: rnd });
+  const seen = new Set<string>();
+  const before = w.legAngles();
+  let outside = 0;
+  let hung = false;
+  let legs = false;
+  for (let i = 0; i < 60 * 60 * 15; i++) {
+    w.step(1 / 60);
+    const p = w.pose();
+    if (Math.abs(p.pos.x) > TANK.w / 2 || Math.abs(p.pos.z) > TANK.d / 2 || p.pos.y < -0.001 || p.pos.y > TANK.h) outside++;
+    if (p.thread && p.pos.y > 2) hung = true;
+    if (w.act()) seen.add(w.spotId());
+    if (!legs && w.legAngles().some((a, j) => Math.abs(a - before[j]) > 0.1)) legs = true;
+  }
+  assert.equal(outside, 0, 'never through the glass or the floor');
+  assert.ok(seen.size >= 8, `rests at most pieces: ${[...seen].join(', ')}`);
+  assert.ok(hung && legs);
+  const anchor = w.actAnchor();
+  assert.ok(anchor && anchor.x > 0 && anchor.x < 1 && anchor.y > 0 && anchor.y < 1, 'the bubble lands in view');
+  // buying a piece puts the spider back in the middle, with the new spot to visit
+  w.setPieces(['web'], 'lamp');
+  assert.equal(w.spotId(), 'home');
+  w.dispose();
+}
+terrarium3dTests();
 
 // free-time finder + meeting detection (tomorrow, so "now" doesn't clip it)
 const tomorrow = atTime(new Date(), 1, 0);

@@ -1,8 +1,10 @@
-import { router, useIsFocused } from 'expo-router';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { AccessibilityInfo, Alert, Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MODEL, SpiderModel } from '@/components/spider-model';
+import { Terrarium3D } from '@/components/terrarium-3d';
+import { useAwake } from '@/components/use-awake';
 import { Btn, Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { worn } from '@/lib/cosmetics';
@@ -18,25 +20,6 @@ const LID = 10;
 const toPx = (spot: LairSpot, w: number) => ({ x: (w * spot.x) / 100 - MODEL / 2, y: (TANK_H * spot.y) / 100 - MODEL / 2 });
 /** Off the floor: hanging on its thread or up the branch, seen from the front instead of from above. */
 const raised = (spot: LairSpot) => !!spot.hang || !!spot.up;
-
-/** The spider may walk while its screen is showing, the app is in front, and the phone doesn't ask for less motion. */
-function useTankAwake() {
-  const focused = useIsFocused();
-  const [active, setActive] = useState(AppState.currentState === 'active');
-  const [still, setStill] = useState(false);
-  useEffect(() => {
-    const app = AppState.addEventListener('change', (st) => setActive(st === 'active'));
-    const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', setStill);
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then(setStill)
-      .catch(() => {});
-    return () => {
-      app.remove();
-      motion.remove();
-    };
-  }, []);
-  return focused && active && !still;
-}
 
 type Layer = 'back' | 'front' | 'top';
 type Blob = [x: number, y: number, w: number, h: number, color: string];
@@ -172,8 +155,14 @@ const SPECKS: Blob[] = [
   [44, 77, 3, 2, '#3A2617'],
 ];
 
+/** The terrarium in 3D, or drawn flat (below) if the phone's GL or three.js won't start. */
+export function TerrariumView() {
+  const [flat, setFlat] = useState(false);
+  return flat ? <Terrarium /> : <Terrarium3D onFail={() => setFlat(true)} />;
+}
+
 /**
- * The terrarium on a shelf: glass, a mesh lid, substrate with pebbles, whatever has been bought for it, and the
+ * The flat terrarium (the fallback for TerrariumView): glass, a mesh lid, substrate with pebbles, whatever has been bought for it, and the
  * spider itself as a model. It walks from piece to piece (turning to face where it's going, smaller at the back),
  * stops a few seconds at each to do its thing, climbs the branch and hangs from the web on a thread. It rests in
  * the middle of the floor while the screen is away or motion is reduced.
@@ -184,7 +173,7 @@ export function Terrarium() {
   const next = nextPiece(state);
   const ids = built.map((p) => p.id).join(',');
   const marking = worn(state).aura?.ring ?? C.red;
-  const awake = useTankAwake();
+  const awake = useAwake();
   const [w, setW] = useState(0);
   const [pos] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
   const [lift] = useState(() => new Animated.Value(0)); // 0 on the floor, 1 up off it
@@ -333,7 +322,7 @@ export function LairCard() {
         <H right={<T dim small>shop →</T>}>
           🕸️ Terrarium · {built.length}/{LAIR.length}
         </H>
-        <Terrarium />
+        <TerrariumView />
         <T dim small>
           {!built.length
             ? `Just the spider so far. First up: ${next?.emoji} ${next?.name}, ${num(next?.price ?? 0)} 🪙 in the shop.`
@@ -360,9 +349,9 @@ export function LairShop() {
     <Card>
       <H>🕸️ Terrarium</H>
       <T dim small>
-        The spider&apos;s home, one piece at a time. It walks to each one and uses it. Looks only. The terrarium lives on HQ (Settings can move or hide it).
+        The spider&apos;s home, one piece at a time. It walks to each one and uses it; drag sideways to turn the tank. Looks only. The terrarium lives on HQ (Settings can move or hide it).
       </T>
-      <Terrarium />
+      <TerrariumView />
       {LAIR.map((p) => {
         const inside = have.includes(p.id);
         const isNext = next?.id === p.id;
