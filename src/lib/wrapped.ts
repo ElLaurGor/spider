@@ -4,6 +4,7 @@ import { dayKey, fmtDuration, fmtTime, MIN } from './dates';
 import { countedDay, firstDataDay, roughDay, usedOn } from './day-filters';
 import { emotionEmoji, moodInfo } from './mood';
 import { BOSSES } from './quests';
+import { chaptersBetween } from './chapters';
 import { dayScoreFor, gradeOf, type Grade } from './report';
 import { activitiesOf, avgMood, coffeeOf, dayOf, effectiveSavage, gamingBudgetMin, gamingUsedMs, moodsOf, trainedOn, trainMinutes, waterGoalFor, waterMl } from './selectors';
 import type { ActivityKind, State } from './types';
@@ -251,6 +252,21 @@ export function monthWrapped(s: State, year: number, month: number, now = new Da
         ? pick('Bosses fell. Bards are writing songs. Quiet ones.', 'Bosses fell. Nice work.')
         : pick('The bosses are still laughing. Next month.', 'The bosses can wait for next month.'),
       color: 'yellow',
+    });
+  }
+
+  // step 8 game: a fresh-start chapter begun this month (chapters.ts), by its own name. No "days since".
+  const begun = chaptersBetween(s, dayKey(first), dayKey(new Date(year, month, lastOfMonth)));
+  if (begun.length) {
+    const last = begun[begun.length - 1];
+    slides.push({
+      id: 'chapter',
+      emoji: '📖',
+      title: begun.length > 1 ? 'New chapters' : 'A new chapter',
+      big: last.title,
+      sub: `${begun.length > 1 ? `${begun.map((c) => c.title).join(' → ')} · ` : ''}Chapter ${last.n}, from ${short(new Date(`${last.from}T12:00`))}${last.restart ? ` · restarting ${last.restart.text}` : ''}`,
+      quip: pick('A fresh page. Try not to doodle on it.', 'A fresh page, opened on purpose.'),
+      color: 'cyan',
     });
   }
 

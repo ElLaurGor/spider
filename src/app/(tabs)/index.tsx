@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BackupHint } from '@/components/backup-hint';
 import { CareCard } from '@/components/care-card';
+import { ChapterCard } from '@/components/chapter-card'; // step 8 game
 import { ContractCard } from '@/components/contract-card';
 import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
@@ -391,6 +392,7 @@ export default function HQ() {
     experiment: () => <ExperimentCard compact />,
     wild: () => <WildCard />,
     lair: () => <LairCard />,
+    chapter: () => <ChapterCard />, // step 8 game: a fresh-start chapter on a landmark
     // NEW HQ CARD: add `<id>: () => <YourCard />,` here and `{ id, label }` to HQ_SECTIONS in lib/hq-layout.ts.
   };
 

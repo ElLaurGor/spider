@@ -8,7 +8,8 @@ import { fillLine } from './lines';
 import { dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, moodsOf, trainMinutes, trainedOn, waterGoalFor, waterMl } from './selectors';
 import { pauseOn } from './pause';
 import { periodDay, quietDay } from './tone';
-import type { DayLog, DiaryPage, State } from './types';
+import type { Chapter, DayLog, DiaryPage, State } from './types';
+import { chapterOn } from './chapters';
 
 export const QUESTS_PER_PAGE = 10;
 
@@ -167,4 +168,17 @@ export function unlockPages(s: State, now = new Date()): { state: State; added: 
     added++;
   }
   return { state: next, added };
+}
+
+// step 8 game: the diary's pages under the fresh-start chapter each was written in (chapters.ts).
+/** Pages newest first, grouped by the chapter their day falls in (null: before the first chapter). */
+export function diaryChapters(s: State): { chapter: Chapter | null; pages: DiaryPage[] }[] {
+  const out: { chapter: Chapter | null; pages: DiaryPage[] }[] = [];
+  for (const p of [...(s.diary ?? [])].reverse()) {
+    const chapter = chapterOn(s, p.day);
+    const last = out[out.length - 1];
+    if (last && last.chapter?.n === chapter?.n) last.pages.push(p);
+    else out.push({ chapter, pages: [p] });
+  }
+  return out;
 }

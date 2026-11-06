@@ -7,6 +7,7 @@ import { addDays, dayKey, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
 import { ledgerOn } from '@/lib/ledger';
 import { gradeOf, weekReport, type Grade } from '@/lib/report';
 import { useStore } from '@/lib/store';
+import { CallsLine } from '@/components/shot-call'; // step 8 game: the week's calls and the month's title
 
 const GRADE_COLOR: Record<Grade, string> = { A: C.green, B: C.cyan, C: C.yellow, D: '#FF8A3D', F: C.red };
 const GRADE_LINE = { A: 'reportGreat', B: 'reportGood', C: 'reportMid', D: 'reportBad', F: 'reportBad' } as const;
@@ -63,6 +64,8 @@ export default function ReportScreen() {
       </Card>
 
       <SpiderSays text={verdict} />
+
+      <CallsLine monday={r.monday} />
 
       <Card>
         <H>Categories</H>

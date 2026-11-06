@@ -19,6 +19,7 @@ import { findPlace } from '@/lib/weather';
 import { fetchDepartures, routesOf, searchStops, type SlStop } from '@/lib/sl';
 import { levelForXp } from '@/lib/xp';
 import { sendTestRoast } from '@/lib/notifications';
+import { cleanBirthday } from '@/lib/chapters'; // step 8 game
 import { useStore } from '@/lib/store';
 import { toneOn } from '@/lib/tone';
 import { PauseCard } from '@/components/pause-card';
@@ -35,6 +36,13 @@ export default function SettingsScreen() {
   const s = state.settings;
   const set = (patch: Partial<Settings>) => actions.updateSettings(patch);
   const [name, setName] = useState(s.userName);
+  const [birthday, setBirthday] = useState(s.birthday ?? ''); // step 8 game: a fresh-start landmark (chapters.ts)
+  const saveBirthday = () => {
+    const b = cleanBirthday(birthday);
+    if (birthday.trim() && !b) say("That isn't a date. Use MM-DD, like 03-14.", 'bad');
+    set({ birthday: b });
+    setBirthday(b ?? '');
+  };
   const [preview, setPreview] = useState(() => line('spiderTap', s.savageLevel, { name: s.userName || 'boss' }));
 
   const setNotify = (k: keyof NotifyPrefs, v: boolean) => set({ notify: { ...s.notify, [k]: v } });
@@ -166,6 +174,10 @@ export default function SettingsScreen() {
           What should I call you?
         </T>
         <Field value={name} onChangeText={setName} onEndEditing={() => set({ userName: name.trim() })} placeholder="Your name" />
+        <T dim small>
+          Birthday (optional, MM-DD): a fresh start, so HQ offers a new chapter that day.
+        </T>
+        <Field value={birthday} onChangeText={setBirthday} onEndEditing={saveBirthday} placeholder="e.g. 03-14" keyboardType="numbers-and-punctuation" maxLength={5} />
         <SettingRow label="Savage level" hint={SAVAGE_LABEL(s.savageLevel)}>
           <Stepper
             value={s.savageLevel}

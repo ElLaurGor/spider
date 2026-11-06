@@ -2,12 +2,14 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Bar, Card, H, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { nextPageAt, QUESTS_PER_PAGE } from '@/lib/diary';
+import { diaryChapters, nextPageAt, QUESTS_PER_PAGE } from '@/lib/diary';
 import { useStore } from '@/lib/store';
 
 export default function DiaryScreen() {
   const { state } = useStore();
   const pages = [...(state.diary ?? [])].reverse();
+  const groups = diaryChapters(state);
+  const chaptered = (state.chapters ?? []).length > 0;
   const next = nextPageAt(state);
   const done = state.counters.quests;
   return (
@@ -24,12 +26,18 @@ export default function DiaryScreen() {
           No pages yet. The diary is locked. For now.
         </T>
       ) : null}
-      {pages.map((p) => (
-        <View key={p.n} style={styles.page}>
-          <Text style={styles.meta}>
-            PAGE {p.n} · {new Date(`${p.day}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
-          </Text>
-          <Text style={styles.text}>{p.text}</Text>
+      {/* step 8 game: pages under the fresh-start chapter they were written in */}
+      {groups.map((g) => (
+        <View key={g.pages[0].n} style={{ gap: 14 }}>
+          {chaptered ? <Text style={styles.chapter}>{g.chapter ? `📖 CHAPTER ${g.chapter.n} · ${g.chapter.title.toUpperCase()}${g.chapter.restart ? ` · RESTARTING ${g.chapter.restart.text.toUpperCase()}` : ''}` : '📖 PROLOGUE'}</Text> : null}
+          {g.pages.map((p) => (
+            <View key={p.n} style={styles.page}>
+              <Text style={styles.meta}>
+                PAGE {p.n} · {new Date(`${p.day}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+              </Text>
+              <Text style={styles.text}>{p.text}</Text>
+            </View>
+          ))}
         </View>
       ))}
     </ScrollView>
@@ -41,4 +49,5 @@ const styles = StyleSheet.create({
   page: { backgroundColor: C.card, borderRadius: 4, borderLeftWidth: 3, borderLeftColor: C.purple, padding: 14, gap: 8 },
   meta: { color: C.dim, fontFamily: MONO, fontSize: 11, letterSpacing: 1 },
   text: { color: C.text, fontFamily: MONO, fontSize: 14, lineHeight: 22 },
+  chapter: { color: C.cyan, fontFamily: MONO, fontSize: 12, fontWeight: '800', letterSpacing: 1 },
 });

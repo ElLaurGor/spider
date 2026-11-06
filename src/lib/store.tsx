@@ -137,6 +137,14 @@ import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, planText, type
 // step 6: moving a slipping workout
 import { copingPlan, copingWeekday, movedTo, moveDayName, moveTargets, withMove, withoutMove, withWhy } from './workout-move';
 import { quickAddOf } from './quick-add';
+// step 8 game: calls, obstacle scouting, mini versions, chapters, the sealed card, boss picks, the contract ledger
+import { callHistory, callOf, questionWord, settleShotMonth, settleShots, withShot, yesterdayShot } from './prediction';
+import { woopCue, woopOf, woopTally, withSeen } from './woop';
+import { didMini, MINI_XP, miniRef, SALVAGE_KIND, SALVAGE_MIN, salvageOffered, withMini, withoutMini } from './mini';
+import { landmarkOffer, withChapter } from './chapters';
+import { revealedMult, sealedXp } from './sealed-card';
+import { pickInfo, withBossPick } from './boss-pick';
+import { withLogged } from './contract-log';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -334,8 +342,11 @@ function checkQuests(s: State, msgs: Msg[]): State {
   for (const q of questsFor(next)) {
     if ((dayOf(next, key).questsDone ?? []).includes(q.id) || q.progress < q.target) continue;
     next = bump(patchDay(next, key, (d) => ({ ...d, questsDone: [...(d.questsDone ?? []), q.id] })), 'quests');
-    msgs.push({ text: `🗡️ ${L(next, 'questDone', { quest: q.title, xp: q.xp })}`, tone: 'epic' });
-    next = reward(next, msgs, q.xp, 0, key, { ref: `q:${q.id}` });
+    const xp = sealedXp(next, key, q.id, q.xp); // step 8 game: the sealed card pays its multiplier, revealed now
+    const mult = revealedMult(next, q.id, key);
+    msgs.push({ text: `🗡️ ${L(next, 'questDone', { quest: q.title, xp })}`, tone: 'epic' });
+    if (mult != null) msgs.push({ text: `🂠 ${L(next, mult > 1 ? 'sealedDouble' : mult < 1 ? 'sealedHalf' : 'sealedEven', { quest: q.title, xp })}`, tone: 'epic' });
+    next = reward(next, msgs, xp, 0, key, { ref: `q:${q.id}` });
   }
 
   const d = dayOf(next, key);
@@ -535,15 +546,15 @@ function checkContract(s: State, msgs: Msg[]): State {
   const vars = { goal: goalOf(c.goal).title(c.target), stake: c.stake, coins: payout };
   if (contractProgress(s, c) >= c.target) {
     msgs.push({ text: `📜 ${L(s, 'contractWon', vars)}`, tone: 'epic' });
-    return { ...s, contract: { ...c, status: 'won' }, coins: s.coins + payout, coinsEarned: s.coinsEarned + payout - c.stake };
+    return settleContract({ ...s, contract: { ...c, status: 'won' }, coins: s.coins + payout, coinsEarned: s.coinsEarned + payout - c.stake }, c, 'won', payout, msgs);
   }
   if (c.week === weekKeyOf()) return s;
   if (roughWeek(s, c)) {
     msgs.push({ text: `📜 ${L(s, 'contractVoided', vars)}`, tone: 'info' });
-    return { ...s, contract: { ...c, status: 'voided' }, coins: s.coins + c.stake };
+    return settleContract({ ...s, contract: { ...c, status: 'voided' }, coins: s.coins + c.stake }, c, 'voided', c.stake, msgs);
   }
   msgs.push({ text: `📜 ${L(s, 'contractLost', vars)}`, tone: 'bad' });
-  return { ...s, contract: { ...c, status: 'lost' } };
+  return settleContract({ ...s, contract: { ...c, status: 'lost' } }, c, 'lost', 0, msgs);
 }
 
 // ---- cluster B: economy & progression ----
@@ -580,7 +591,7 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
     next = reward(next, msgs, award.xp, 0, today, { ref: `medals:${award.week}` });
     msgs.push({ text: L(next, 'medalsWeek', { medals: medalList(award.won), xp: award.xp }), tone: 'epic' });
   }
-  return next;
+  return step8Rollover(next, msgs, now); // step 8 game: yesterday's call settled, last month's scored at month start
 }
 
 /**
@@ -758,6 +769,43 @@ function recomputePr(s: State, exercise: string): State {
   if (best === undefined) delete prs[id];
   else prs[id] = best;
   return { ...s, prs };
+}
+
+// ---- step 8 game ----
+
+/**
+ * At the day's rollover: the calls of finished days settled (prediction.ts), with a word on yesterday's when it
+ * was scored, and at month start last month's calls scored and paid in coins (never XP).
+ */
+function step8Rollover(s: State, msgs: Msg[], now: Date): State {
+  const today = dayKey(now);
+  const r = settleShots(s, today);
+  let next = r.state;
+  const shot = yesterdayShot(r.settled, today);
+  if (shot) {
+    const vars = { title: callOf(shot.call).label.toLowerCase(), goal: questionWord(shot.q) };
+    msgs.push({ text: `🎯 ${L(next, shot.result === 'hit' ? 'shotHit' : 'shotMiss', vars)}`, tone: shot.result === 'hit' ? 'good' : 'info' });
+  }
+  const m = settleShotMonth(next, now);
+  next = m.state;
+  if (m.award) {
+    const month = new Date(`${m.award.month}-15T12:00`).toLocaleDateString('en-GB', { month: 'long' });
+    const vars = { month, n: m.award.n, score: (m.award.brier ?? 0).toFixed(2), title: m.award.title ?? '', coins: m.award.coins };
+    msgs.push({ text: `🎯 ${L(next, m.award.title ? 'shotMonth' : 'shotMonthFew', vars)}`, tone: 'epic' });
+  }
+  return next;
+}
+
+/** A contract as it settles: into the ledger (contract-log.ts), and its obstacle's tally said once (woop.ts). */
+function settleContract(s: State, c: NonNullable<State['contract']>, status: 'won' | 'lost' | 'voided', payout: number, msgs: Msg[]): State {
+  const tally = c.woop ? woopTally(s, c) : undefined;
+  if (tally) msgs.push({ text: `🧭 ${L(s, tally.showed ? 'woopRecap' : 'woopNoShow', { n: tally.showed, count: tally.fired })}`, tone: 'info' });
+  return withLogged(s, c, status, payout, tally);
+}
+
+/** A habit done as its mini version, taken back: out of the day with exactly what it paid (and any crit it rolled). */
+function takeBackMini(s: State, key: string, id: string): State {
+  return unreward(patchDay(withoutMini(s, id, key), key, (d) => withoutCrit(d, id)), key, miniRef(id), MINI_XP);
 }
 
 // ---------- persistence bookkeeping ----------
@@ -1132,12 +1180,13 @@ function useStoreValue() {
       const scored = checkBoss(checkAchievements(checked, msgs, quiet), msgs);
       // If-then cues that just happened in the app (if-then.ts): noted on the day, and the latest one prompts.
       const cued = checkCues(prev, scored);
+      const woop = woopCue(prev, cued.state); // step 8 game: the contract's obstacle plan, on its in-app cue
       // Silk Track tiers wait for the next ordinary action after body or photo logging (no fanfare there).
       // The hour's running XP total is noted too, for the ghost of last week (xp-timeline.ts).
-      const next = withXpHour(quiet ? checkDiary(cued.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(cued.state, msgs), msgs), msgs), msgs), msgs));
+      const next = withXpHour(quiet ? checkDiary(woop.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(woop.state, msgs), msgs), msgs), msgs), msgs));
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone, m.action));
-      const cue = cued.prompts.at(-1);
+      const cue = woop.prompt ?? cued.prompts.at(-1);
       if (cue) setCuePrompt({ ...cue, text: L(next, 'ifThenCue', cueVars(cue.plan)) });
       // Earned bonus minutes mid-session move the gaming alerts (the session's own day, past midnight too).
       const playKey = next.activeGame ? dayKey(next.activeGame.start) : null;
@@ -1180,6 +1229,10 @@ function useStoreValue() {
     const t = setTimeout(() => void refreshCalendar(false), 0);
     return () => clearTimeout(t);
   }, [ready, calendarIdsKey, refreshCalendar]);
+  // step 8 game: a calendar obstacle that shows up today is noted on the contract (woop.ts), for its tally.
+  useEffect(() => {
+    if (ready && events.length && withSeen(stateRef.current, events) !== stateRef.current) run((s) => withSeen(s, events));
+  }, [ready, events, run]);
 
   // ----- over-the-air updates: announce a freshly applied version -----
   useEffect(() => {
@@ -2382,6 +2435,7 @@ function useStoreValue() {
           const done = habitsDone(s, key);
           const week = weekKeyOf();
           if (done.includes(id)) {
+            if (didMini(s, id, key)) return takeBackMini(s, key, id); // step 8 game: a mini version goes back as it came
             let next = unreward(patchDay(s, key, (d) => withoutCrit({ ...d, habits: done.filter((x) => x !== id) }, id)), key, `h:${id}`, XP.habit);
             // The top-of-range bonus goes with the check that earned it (and can be earned again).
             if (s.rangeTop?.[id] === week && dayOf(next, key).xpBy?.[`rt:${id}`] != null) {
@@ -2637,7 +2691,7 @@ function useStoreValue() {
        * Stakes coins on a weekly goal (Monday to Wednesday; another one any day once this week's is won), at a
        * difficulty that sets target and payout.
        */
-      signContract(goal: ContractGoal, stake: number, difficulty: Difficulty = 'normal') {
+      signContract(goal: ContractGoal, stake: number, difficulty: Difficulty = 'normal', woop?: { outcome: string; obstacle: Parameters<typeof woopOf>[3]; then?: string }) {
         run((s0, msgs) => {
           const s = checkContract(s0, msgs); // last week's, if it's still open, and this week's if it's just been reached
           const week = weekKeyOf();
@@ -2650,10 +2704,12 @@ function useStoreValue() {
           const target = targetFor(goal, difficulty);
           const { before } = options;
           msgs.push({ text: `📜 ${before.length ? `#${before.length + 1} ` : ''}${L(s, 'contractSigned', { goal: goalOf(goal).title(target), stake })}`, tone: 'info' });
+          const w = woop ? woopOf(s, goal, woop.outcome, woop.obstacle, woop.then) : null; // step 8 game: obstacle scouting
+          if (w) msgs.push({ text: `🧭 ${L(s, 'woopScouted', { plan: planText(w.plan) })}`, tone: 'info' });
           return {
             ...s,
             coins: s.coins - stake,
-            contract: { week, from: dayKey(), signedAt: Date.now(), goal, target, stake, status: 'open', difficulty, ...(before.length ? { before } : {}) },
+            contract: { week, from: dayKey(), signedAt: Date.now(), goal, target, stake, status: 'open', difficulty, ...(before.length ? { before } : {}), ...(w ? { woop: w } : {}) },
           };
         });
       },
@@ -3022,6 +3078,82 @@ function useStoreValue() {
         setLineMemory(undefined);
         commit(defaultState());
       },
+
+      // --- step 8 game ---
+      /** The morning's call (prediction.ts): once, before noon, on a normal day. Settled at the rollover. */
+      callShot(call: Parameters<typeof withShot>[1]) {
+        run((s, msgs) => {
+          const next = withShot(s, call);
+          const shot = dayOf(next).shot;
+          if (next === s || !shot) return s;
+          const h = callHistory(next, call);
+          const vars = { title: callOf(call).label.toLowerCase(), goal: questionWord(shot.q), score: h.pct ?? 0 };
+          msgs.push({ text: `🎯 ${L(next, h.n >= 3 ? 'shotHistory' : 'shotCalled', vars)}`, tone: 'info' });
+          return next;
+        });
+      },
+
+      /** Habit `id` done as its mini version (mini.ts): it counts as showing up today, for a third of the XP under its own ref. */
+      doMini(id: string) {
+        run((s, msgs) => {
+          const key = dayKey();
+          const habit = s.habits.find((h) => h.id === id);
+          let next = withMini(s, id, key);
+          if (next === s || !habit) return s;
+          msgs.push({ text: L(next, 'habitMini', { habit: `${habit.emoji} ${habit.name}`, xp: MINI_XP }), tone: 'good' });
+          next = reward(next, msgs, MINI_XP, 0, key, { ref: miniRef(id) });
+          // Showing up is the point: a mini counts towards every habit done, once a day like any check.
+          const due = habitsFor(next);
+          const nowDone = habitsDone(next, key);
+          if (!dayOf(next, key).habitsAllDone && due.length > 0 && due.every((h) => nowDone.includes(h.id))) {
+            next = patchDay(next, key, (d) => ({ ...d, habitsAllDone: true }));
+            msgs.push({ text: L(next, 'habitAllDone'), tone: 'epic' });
+            next = reward(next, msgs, XP.habitsAll);
+          }
+          return next;
+        });
+      },
+
+      /** Today's mini version of habit `id` taken back, with exactly what it paid. */
+      undoMini(id: string) {
+        run((s) => (didMini(s, id) ? takeBackMini(s, dayKey(), id) : s));
+      },
+
+      /** The 10-minute salvage of a slipping workout (mini.ts): a short activity logged now, once a day. */
+      salvageWorkout() {
+        run((s, msgs) => {
+          if (!salvageOffered(s)) return s;
+          const key = dayKey();
+          const id = uid();
+          let next = patchDay(s, key, (d) => ({ ...d, salvage: id, activities: [...activitiesOf(d), { id, kind: SALVAGE_KIND, minutes: SALVAGE_MIN, at: Date.now() }] }));
+          next = startWorkout(next, msgs);
+          msgs.push({ text: L(next, 'salvageDone', { minutes: SALVAGE_MIN }), tone: 'good' });
+          return reward(next, msgs, activityXp(SALVAGE_MIN), 0, key, { ref: `a:${id}` });
+        });
+      },
+
+      /** A new chapter begun on the landmark on offer (chapters.ts): named, with one thing to restart. The spider seals the last one. */
+      beginChapter(title: string, restart: Parameters<typeof withChapter>[3]) {
+        run((s, msgs) => {
+          const l = landmarkOffer(s);
+          const next = l ? withChapter(s, l, title, restart) : s;
+          const c = next.chapters?.at(-1);
+          if (next === s || !c) return s;
+          msgs.push({ text: `📖 ${L(next, c.n > 1 ? 'chapterSealed' : 'chapterFirst', { n: c.n, title: c.title })}`, tone: 'epic' });
+          return next;
+        });
+      },
+
+      /** The boss for the week a pick is open for (boss-pick.ts): from Sunday, and Monday until it takes damage. */
+      pickBoss(id: string) {
+        run((s, msgs) => {
+          const next = withBossPick(s, id);
+          if (next === s) return s;
+          const b = pickInfo(id);
+          msgs.push({ text: `${b.emoji} ${L(next, 'bossPicked', { boss: b.name, weakness: b.weakness })}`, tone: 'info' });
+          return next;
+        });
+      },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],
   );
@@ -3120,7 +3252,7 @@ function useStoreValue() {
   const cueDone = useCallback(() => {
     const p = cuePrompt;
     setCuePrompt(null);
-    if (!p) return;
+    if (!p || p.target === 'woop') return; // step 8 game: the contract's plan has nothing to open
     if (!p.habit) goTo('/gym');
     else if (!habitsDone(stateRef.current).includes(p.habit.id)) actions.toggleHabit(p.habit.id);
   }, [cuePrompt, actions]);

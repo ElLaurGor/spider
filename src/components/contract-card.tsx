@@ -9,6 +9,9 @@ import { weekKeyOf } from '@/lib/league';
 import { contractBonus } from '@/lib/perks';
 import { useStore } from '@/lib/store';
 import type { ContractGoal } from '@/lib/types';
+// step 8 game: obstacle scouting at signing
+import { blankWoop, WoopForm, woopPicked, WoopLine } from '@/components/woop-form';
+import { obstacleOptions } from '@/lib/woop';
 
 /** In its own card, or `bare` inside another one (HQ's This week card). */
 function Shell({ bare, accent, children }: { bare?: boolean; accent: string; children: ReactNode }) {
@@ -39,6 +42,7 @@ export function ContractCard({ bare }: { bare?: boolean }) {
             <T small style={{ color: C.green }}>
               Fulfilled. +{payoutOf(c, bonus)} 🪙 paid out.
             </T>
+            <WoopLine c={c} />
             {options ? <Btn label="Sign another contract" icon="edit" kind="ghost" small onPress={() => setMore(won)} /> : null}
           </>
         ) : (
@@ -47,6 +51,7 @@ export function ContractCard({ bare }: { bare?: boolean }) {
             <T dim small mono>
               {Math.min(progress, c.target)}/{c.target} · pays {payoutOf(c, bonus)} 🪙 · ends Sunday
             </T>
+            <WoopLine c={c} />
           </>
         )}
       </Shell>
@@ -63,7 +68,9 @@ export function ContractCard({ bare }: { bare?: boolean }) {
 
 /** Picking a goal, stake and difficulty. `next` > 1: a follow-up after a won contract, on a goal the week hasn't had. */
 function SignForm({ goalIds, next, onCancel }: { goalIds: ContractGoal[]; next: number; onCancel?: () => void }) {
-  const { state, actions } = useStore();
+  const { state, actions, cal } = useStore();
+  const today = useToday();
+  const [scout, setScout] = useState(blankWoop);
   // After a lost contract a different goal comes first (a new mission), and last week's goes last.
   const mission = next === 1 ? newMission(state) : null;
   const goals = CONTRACT_GOALS.filter((g) => goalIds.includes(g.id)).sort((a, b) => Number(a.id === mission?.lost) - Number(b.id === mission?.lost));
@@ -77,6 +84,10 @@ function SignForm({ goalIds, next, onCancel }: { goalIds: ContractGoal[]; next: 
   const level = difficultyOk(goal, difficulty) ? difficulty : ((['normal', 'easy', 'hard'] as const).find((d) => difficultyOk(goal, d)) ?? 'easy');
   const target = targetFor(goal, level);
   const payout = payoutOf({ stake, difficulty: level }, bonus);
+  // step 8 game: the obstacles the app can see for this goal, likeliest first (woop.ts)
+  const obstacles = obstacleOptions(state, goal, noonOf(today), cal.events, cal.status === 'granted');
+  const obstacle = scout.off ? null : woopPicked(obstacles, scout);
+  const woop = obstacle ? { outcome: scout.outcome, obstacle: obstacle.id, then: scout.then } : undefined;
   return (
     <>
       <H right={<T dim small mono>{state.coins} 🪙</T>}>📜 {next > 1 ? `Contract #${next} this week` : 'Weekly contract'}</H>
@@ -92,7 +103,16 @@ function SignForm({ goalIds, next, onCancel }: { goalIds: ContractGoal[]; next: 
       ) : null}
       <Row gap={6} style={{ flexWrap: 'wrap' }}>
         {goals.map((g) => (
-          <Chip key={g.id} label={g.title(g.target)} active={goal === g.id} color={C.yellow} onPress={() => setGoal(g.id)} />
+          <Chip
+            key={g.id}
+            label={g.title(g.target)}
+            active={goal === g.id}
+            color={C.yellow}
+            onPress={() => {
+              setGoal(g.id);
+              setScout((w) => ({ ...w, obstacle: null, then: '' })); // a new goal gets its own ready plan
+            }}
+          />
         ))}
       </Row>
       <Row gap={6}>
@@ -111,10 +131,11 @@ function SignForm({ goalIds, next, onCancel }: { goalIds: ContractGoal[]; next: 
         {DIFFICULTIES[level].label}: {def.title(target).toLowerCase()}, pays {payout} 🪙 if you make it.
         {!difficultyOk(goal, 'hard') ? ' Hard is only open while there are enough days left this week.' : ''}
       </T>
+      <WoopForm options={obstacles} value={scout} onChange={setScout} />
       <Btn
         label={state.coins >= stake ? `Sign: ${def.title(target)} for ${stake} 🪙` : `Need ${stake - state.coins} more 🪙`}
         icon="edit"
-        onPress={() => actions.signContract(goal, stake, level)}
+        onPress={() => actions.signContract(goal, stake, level, woop)}
         disabled={state.coins < stake}
       />
       {onCancel ? <Btn label="Not now" kind="ghost" small onPress={onCancel} /> : null}
