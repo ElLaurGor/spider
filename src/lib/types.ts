@@ -84,6 +84,8 @@ export type Settings = {
   // step 4
   sl?: { siteId: number; name: string; routes: string[]; walkMin: number } | null; // SL departures card (lib/sl.ts); unset = no card
   quickAdd?: QuickAdd; // Fuel's quick-add chips (lib/quick-add.ts); unset = the most-logged foods only
+  // step 8 sweden
+  sweden?: SwedenPrefs; // the Swedish calendar's extras (name days, people days, fika, Hesa Fredrik, deklaration); unset = the defaults
 };
 
 /** A one-tap food on Fuel's quick-add row. */
@@ -394,6 +396,8 @@ export type State = {
   tankSnaps?: Record<string, string>; // 'YYYY-MM' -> the month's automatic snapshot of the tank (a file in files/photos)
   eggSacs?: EggSac[]; // egg-sacs.ts: dropped by a gold chest or a boss kill, hatched by walking
   spiderlings?: Spiderling[]; // hatched from egg sacs; a few live in the terrarium
+  // step 8 sweden
+  sweden?: SwedenState; // one-tap tasks added, the tax return approved, the preparedness checklist (lib/people-days.ts, deklaration.ts, beredskap.ts)
 };
 
 
@@ -452,3 +456,26 @@ export type Pause = { from: string; to: string; kind: 'sick' | 'away'; endedAt?:
 export type EggSac = { id: string; from: 'chest' | 'boss'; key: string; at: number; since: string; skip: number; km: number; stepM: number };
 /** A spiderling hatched from an egg sac, and the coins its hatching paid. */
 export type Spiderling = { id: string; from: 'chest' | 'boss'; key: string; laidAt: number; hatchedAt: number; km: number; coins: number };
+
+// step 8 sweden
+/** Built-in people days (people-days.ts): Mors dag, Fars dag, Alla hjärtans dag. */
+export type PeopleDayId = 'mors' | 'fars' | 'valentine';
+/**
+ * Someone whose day gets a morning reminder: their name day (`nameDay`, looked up in the almanac when added) or
+ * a date picked by hand, with what it is ("birthday"). `md` is "MM-DD"; `since` is when they were added.
+ */
+export type Person = { id: string; name: string; md: string; nameDay: boolean; what?: string; since: number };
+export type SwedenPrefs = {
+  nameDays?: boolean; // HQ shows today's names and flag day (default on)
+  people?: Person[]; // opt-in: nobody until added
+  days?: Partial<Record<PeopleDayId, { who: string; since: number }>>; // opt-in: on once set, `who` for the task ("Call Dad")
+  fika?: boolean; // the fika almanac: HQ banner and that day's food on quick add (default on)
+  siren?: boolean; // Hesa Fredrik's test: a heads-up at 14:50 (default on)
+  deklaration?: boolean; // the tax return countdown and nudges (default on)
+};
+export type SwedenState = {
+  tasks?: Record<string, string>; // 'fars:2026', 'dekl:2027' -> the task added for it with one tap (added once)
+  dekl?: Record<string, number>; // year -> when the tax return was marked approved
+  prep?: Record<string, string[]>; // year -> preparedness checklist items ticked (beredskap.ts PREP_ITEMS)
+  prepPaid?: string[]; // years whose checklist paid its coins
+};

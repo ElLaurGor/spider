@@ -173,6 +173,15 @@ import { QUEST_SLOTS, questCardBlocker, questSlotsOn, withBossName, withQuestCar
 import { voiceOf } from '../src/lib/rival-talk';
 import { buildPiece, createWorld, planRoute, spots3d, TANK } from '../src/lib/terrarium-3d';
 import { pauseOn } from '../src/lib/pause';
+// step 8 sweden
+import { fathersDay, fettisdagen, lastWeekday, mothersDay, nthWeekday, sirenTests, surstrommingDay } from '../src/lib/swedish-days';
+import { mdLabel, nameDayOf, nameDayText, namesOn, parseNameDays } from '../src/lib/name-days';
+import { aheadAt, nextPeopleDay, nextPersonDay, peoplePings, peopleSoon, PEOPLE_DAYS } from '../src/lib/people-days';
+import { FIKA, fikaOn, fikaPortion } from '../src/lib/fika';
+import { nextSirenTest, PREP_COINS, PREP_ITEMS, prepWeek, prepWeekOn, sirenPing, sirenToday, tickPrep } from '../src/lib/beredskap';
+import { deklarationFor, deklarationOn, deklDone, deklPings } from '../src/lib/deklaration';
+import type { PlannedPing } from '../src/lib/people-days';
+import type { State as SweState, StormAlert as SweStorm } from '../src/lib/types';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -5097,6 +5106,242 @@ void (async () => {
   assert.equal(widgetLines({ ...snap, gameLeftMin: -75 }).game, '1h 15m over');
   assert.equal(widgetLines({ ...snap, gaming: true }).game, 'playing');
 }
+
+// ---------- step 8 sweden: name days, people days, the fika almanac, Hesa Fredrik, deklaration ----------
+function step8SwedenTests() {
+  const k = (d: Date) => dayKey(d);
+  const pick = (x: { phase: string; target: string; days: number } | null) => (x ? { phase: x.phase, target: x.target, days: x.days } : null);
+  // date rules
+  assert.equal(k(mothersDay(2026)), '2026-05-31');
+  assert.equal(k(mothersDay(2027)), '2027-05-30');
+  assert.equal(k(fathersDay(2026)), '2026-11-08'); // this Sunday
+  assert.equal(k(fathersDay(2027)), '2027-11-14');
+  assert.equal(k(nthWeekday(2026, 11, 1, 0)), '2026-11-01');
+  assert.equal(k(lastWeekday(2026, 11, 1)), '2026-11-30');
+  assert.equal(k(fettisdagen(2026)), '2026-02-17');
+  assert.equal(k(fettisdagen(2027)), '2027-02-09');
+  for (let y = 2025; y <= 2045; y++) {
+    assert.equal(fettisdagen(y).getDay(), 2, `fettisdagen ${y}`); // always a Tuesday
+    assert.equal(mothersDay(y).getDay(), 0);
+    assert.ok(mothersDay(y).getDate() >= 25 && mothersDay(y).getMonth() === 4);
+    assert.ok(fathersDay(y).getDate() >= 8 && fathersDay(y).getDate() <= 14 && fathersDay(y).getDay() === 0);
+    assert.ok(surstrommingDay(y).getDay() === 4 && surstrommingDay(y).getDate() >= 15 && surstrommingDay(y).getDate() <= 21);
+  }
+  assert.equal(k(surstrommingDay(2026)), '2026-08-20');
+  assert.equal(k(surstrommingDay(2027)), '2027-08-19');
+
+  // Hesa Fredrik: the first non-holiday Monday of March, June, September and December, at 15:00
+  assert.deepEqual(sirenTests(2026).map(k), ['2026-03-02', '2026-06-01', '2026-09-07', '2026-12-07']);
+  assert.deepEqual(sirenTests(2027).map(k), ['2027-03-01', '2027-06-07', '2027-09-06', '2027-12-06']);
+  assert.equal(k(sirenTests(2022)[1]), '2022-06-13'); // 6 June 2022 was the first Monday: the national day moves it a week
+  assert.ok(sirenTests(2026).every((t) => t.getHours() === 15 && t.getDay() === 1 && !holidayOn(t)));
+  const nov6 = new Date(2026, 10, 6, 20, 14);
+  assert.equal(nextSirenTest(nov6)?.getTime(), new Date(2026, 11, 7, 15).getTime());
+  assert.equal(k(nextSirenTest(new Date(2026, 11, 7, 16))!), '2027-03-01');
+  const base: SweState = defaultState();
+  const ping = sirenPing(base, nov6);
+  assert.deepEqual([ping?.id, ping?.at.getTime(), ping?.line], ['siren-2026-12-07', new Date(2026, 11, 7, 14, 50).getTime(), 'sirenTest']);
+  assert.ok(isPlanned(ping!.id));
+  const alert = (level: SweStorm['level']): SweStorm => ({ id: 'a', source: level === 'VMA' ? 'VMA' : 'SMHI', level, title: 'x', advice: '', url: '', start: new Date(2026, 11, 7, 9).toISOString(), seenAt: new Date(2026, 11, 7, 10).getTime() });
+  const morning = new Date(2026, 11, 7, 11);
+  assert.ok(sirenPing(base, morning)); // still ahead at 11:00
+  assert.equal(sirenPing({ ...base, storm: [alert('VMA')] }, morning), null); // never "only a test" beside a real VMA
+  assert.ok(sirenPing({ ...base, storm: [alert('ORANGE')] }, morning)); // a weather warning isn't the siren
+  assert.equal(sirenPing({ ...base, settings: { ...base.settings, sweden: { siren: false } } }, morning), null);
+  assert.equal(sirenPing(base, new Date(2026, 11, 7, 14, 55)), null); // the heads-up time has gone
+  assert.ok(sirenToday(base, new Date(2026, 11, 7, 14, 55)));
+  assert.ok(!sirenToday(base, new Date(2026, 11, 7, 15, 20)));
+  assert.ok(!sirenToday({ ...base, storm: [alert('VMA')] }, new Date(2026, 11, 7, 14, 55)));
+  assert.ok(stormPlan(['siren-2026-12-07', 'morning-2026-12-07'], ['2026-12-07']).cancel.includes('siren-2026-12-07')); // a storm while closed takes it back
+
+  // Krisberedskapsveckan: ISO week 39, and its checklist pays coins once a year, never XP
+  assert.deepEqual(prepWeek(2027), { from: '2027-09-27', to: '2027-10-03' });
+  assert.deepEqual(prepWeek(2026), { from: '2026-09-21', to: '2026-09-27' });
+  for (let y = 2025; y <= 2040; y++) {
+    const w = prepWeek(y);
+    assert.equal(isoWeek(new Date(`${w.from}T12:00`)), 39, String(y));
+    assert.equal(new Date(`${w.from}T12:00`).getDay(), 1);
+  }
+  assert.ok(prepWeekOn('2027-09-30'));
+  assert.equal(prepWeekOn('2027-10-04'), null);
+  let prep: SweState = { ...base, coins: 10, coinsEarned: 10 };
+  let paid = 0;
+  for (const item of PREP_ITEMS) {
+    const r = tickPrep(prep, item.id, 2027);
+    prep = r.state;
+    paid += r.paid;
+  }
+  assert.equal(paid, PREP_COINS);
+  assert.deepEqual([prep.coins, prep.coinsEarned, prep.xp], [10 + PREP_COINS, 10 + PREP_COINS, base.xp]);
+  const again = tickPrep(tickPrep(prep, 'cash', 2027).state, 'cash', 2027); // untick and tick: paid already
+  assert.equal(again.paid, 0);
+  assert.equal(again.state.coins, 10 + PREP_COINS);
+  assert.equal(tickPrep(prep, 'water', 2028).paid, 0); // one item of next year's list
+
+  // deklaration: the early refund, then the deadline (2 May or the next weekday), shown from 1 March
+  assert.equal(deklarationFor(2026).deadline, '2026-05-04');
+  assert.equal(deklarationFor(2027).deadline, '2027-05-03');
+  assert.equal(deklarationFor(2028).deadline, '2028-05-02');
+  for (let y = 2028; y <= 2045; y++) {
+    const d = deklarationFor(y);
+    assert.ok(d.deadline >= `${y}-05-02` && d.deadline <= `${y}-05-06` && !isDayOff(new Date(`${d.deadline}T12:00`)), d.deadline);
+    assert.equal(d.early, `${y}-03-31`);
+  }
+  assert.equal(deklarationOn(base, '2027-02-28'), null);
+  assert.deepEqual(pick(deklarationOn(base, '2027-03-01')), { phase: 'early', target: '2027-03-31', days: 30 });
+  assert.deepEqual(pick(deklarationOn(base, '2027-04-01')), { phase: 'deadline', target: '2027-05-03', days: 32 });
+  assert.equal(deklarationOn(base, '2027-05-03')?.days, 0);
+  assert.equal(deklarationOn(base, '2027-05-04'), null); // nothing the rest of the year
+  assert.equal(deklarationOn(base, '2026-11-06'), null);
+  const approved: SweState = { ...base, sweden: { dekl: { 2027: Date.now() } } };
+  assert.equal(deklarationOn(approved, '2027-03-10'), null);
+  const viaTask: SweState = { ...base, sweden: { tasks: { 'dekl:2027': 't1' } }, days: { '2027-03-10': { ...emptyDay(), doneTasks: [{ id: 't1', at: 1 }] } } };
+  assert.ok(deklDone(viaTask, 2027)); // the task was done, then cleared: still done
+  assert.ok(!deklDone({ ...viaTask, days: {} }, 2027));
+  assert.equal(deklarationOn({ ...base, settings: { ...base.settings, sweden: { deklaration: false } } }, '2027-03-10'), null);
+  const ids = (xs: PlannedPing[]) => xs.map((x) => x.id);
+  assert.deepEqual(ids(deklPings(base, nov6)), []); // too far ahead to plan yet
+  assert.deepEqual(ids(deklPings(base, new Date(2027, 2, 1, 9))), ['dekl-2027-early']);
+  assert.equal(deklPings(base, new Date(2027, 2, 1, 9))[0].at.getTime(), new Date(2027, 2, 29, 18).getTime());
+  assert.deepEqual(ids(deklPings(base, new Date(2027, 3, 1, 9))), ['dekl-2027-week', 'dekl-2027-eve']);
+  assert.deepEqual(ids(deklPings(approved, new Date(2027, 3, 1, 9))), []);
+  assert.deepEqual(ids(deklPings(base, new Date(2027, 4, 2, 19))), []); // the eve has gone
+
+  // name days: the almanac's year from a sample payload, its lookups, and nothing from a broken answer
+  const dagar: { datum: string; namnsdag: string[]; flaggdag: string }[] = [];
+  for (let d = new Date(2026, 0, 1, 12); d.getFullYear() === 2026; d = addDays(d, 1)) dagar.push({ datum: dayKey(d), namnsdag: [`N${dagar.length}`], flaggdag: '' });
+  const setDay = (key: string, names: string[], flag = '') => Object.assign(dagar.find((x) => x.datum === key)!, { namnsdag: names, flaggdag: flag });
+  setDay('2026-01-01', [], 'Nyårsdagen');
+  setDay('2026-06-06', ['Gustav', 'Gösta'], 'Sveriges nationaldag och svenska flaggans dag');
+  setDay('2026-11-06', ['Gustav Adolf'], 'Gustav Adolfsdagen');
+  setDay('2026-11-08', ['Vendela']);
+  const payload = { cachetid: '2026-11-06 20:15:36', version: '2.1', dagar };
+  const names = parseNameDays(JSON.parse(JSON.stringify(payload)), 2026);
+  assert.ok(names);
+  assert.equal(parseNameDays(payload, 2027), null); // another year's answer
+  assert.equal(parseNameDays({ dagar: dagar.slice(0, 200) }, 2026), null); // half a year
+  assert.equal(parseNameDays({ error: 'x' }, 2026), null);
+  assert.equal(parseNameDays(null, 2026), null);
+  assert.deepEqual(namesOn(names, '2026-11-06'), { names: ['Gustav Adolf'], flag: 'Gustav Adolfsdagen' });
+  assert.equal(nameDayText(names, '2026-11-06'), 'Gustav Adolf · flag day (Gustav Adolfsdagen)');
+  assert.equal(nameDayText(names, '2026-11-08'), 'Vendela');
+  assert.equal(nameDayText(names, '2026-01-01'), 'flag day (Nyårsdagen)');
+  assert.equal(nameDayText(names, '2027-11-06'), null); // not this almanac's year
+  assert.equal(nameDayText(null, '2026-11-06'), null); // unavailable: nothing shown
+  assert.equal(nameDayOf(names, 'vendela'), '11-08');
+  assert.equal(nameDayOf(names, 'Gustav Adolf'), '11-06');
+  assert.equal(nameDayOf(names, 'Gustav'), '06-06');
+  assert.equal(nameDayOf(names, 'Gösta Berg'), '06-06'); // the first name
+  assert.equal(nameDayOf(names, 'Gosta'), '06-06'); // without the accent
+  assert.equal(nameDayOf(names, 'Zlatan'), null);
+  assert.equal(mdLabel('11-08'), '8 Nov');
+
+  // people days: kind heads-up and nudge, planned so a replan never sends one twice
+  const at = (d: number, h: number, m = 0) => new Date(2026, 10, d, h, m).getTime();
+  const withDays = (since: number, people: { name: string; md: string; nameDay: boolean; what?: string }[] = []): SweState => ({
+    ...base,
+    settings: { ...base.settings, wakeHour: 7, sweden: { days: { fars: { who: '', since } }, people: people.map((x, i) => ({ ...x, id: `p${i}`, since: at(1, 9) })) } },
+  });
+  // turned on tonight (Friday 20:14): the 3-days-ahead time has gone, so the heads-up is tomorrow at 18:00
+  const tonight = withDays(nov6.getTime());
+  const plan = peoplePings(tonight, nov6);
+  assert.deepEqual(
+    plan.map((x) => [x.id, x.at.getTime()]),
+    [
+      ['people-fars-2026-11-08-ahead', at(7, 18)],
+      ['people-fars-2026-11-08-day', at(8, 7, 30)],
+    ],
+  );
+  assert.equal(plan[0].title, '👔 Fars dag tomorrow');
+  assert.deepEqual(plan[0].vars, { title: 'Fars dag', day: 'tomorrow', task: 'Call Dad' });
+  assert.ok(plan.every((x) => isPlanned(x.id)));
+  // replanned after it went out: it isn't moved to another evening
+  assert.deepEqual(ids(peoplePings(tonight, new Date(at(7, 19)))), ['people-fars-2026-11-08-day']);
+  // on for months: the heads-up was Thursday's (gone by now), the nudge still comes
+  assert.equal(aheadAt('2026-11-08', at(1, 9))?.getTime(), at(5, 18));
+  assert.deepEqual(ids(peoplePings(withDays(at(1, 9)), nov6)), ['people-fars-2026-11-08-day']);
+  // turned on Saturday evening: no heads-up on the day itself, just the nudge; on Sunday after the nudge: HQ only
+  assert.equal(aheadAt('2026-11-08', at(7, 19)), null);
+  assert.deepEqual(ids(peoplePings(withDays(at(7, 19)), new Date(at(7, 19)))), ['people-fars-2026-11-08-day']);
+  assert.deepEqual(ids(peoplePings(withDays(at(8, 9)), new Date(at(8, 9)))), []);
+  assert.deepEqual(
+    peopleSoon(withDays(at(8, 9)), '2026-11-08').map((x) => [x.kind, x.in]),
+    [['builtin', 0]],
+  );
+  assert.equal(peopleSoon(tonight, '2026-11-05').length, 1); // 3 days ahead: the one-tap task shows
+  assert.equal(peopleSoon(tonight, '2026-11-04').length, 0);
+  const soon = peopleSoon({ ...tonight, settings: { ...tonight.settings, sweden: { days: { fars: { who: 'Anders', since: 0 } } } } }, '2026-11-06')[0];
+  assert.ok(soon.kind === 'builtin' && soon.task === 'Call Anders' && soon.taskKey === 'fars:2026');
+  // off by default: nothing planned or shown
+  assert.deepEqual(peoplePings(base, nov6), []);
+  assert.deepEqual(peopleSoon(base, '2026-11-07'), []);
+  // the next Mors dag and Alla hjärtans dag from here
+  assert.deepEqual(
+    PEOPLE_DAYS.map((d) => k(nextPeopleDay(d, '2026-11-06'))),
+    ['2027-05-30', '2026-11-08', '2027-02-14'],
+  );
+  // a person's name day or date: a morning note, in words that name them
+  const vendela = withDays(at(1, 9), [
+    { name: 'Vendela', md: '11-08', nameDay: true },
+    { name: 'Anna', md: '11-07', nameDay: false, what: 'birthday' },
+  ]);
+  const notes = peoplePings(vendela, nov6).filter((x) => x.line === 'personDayToday');
+  assert.deepEqual(
+    notes.map((x) => [x.id, x.at.getTime(), x.vars.title]),
+    [
+      ['people-pp0-2026-11-08', at(8, 7, 30), "Vendela's name day"],
+      ['people-pp1-2026-11-07', at(7, 7, 30), "Anna's birthday"],
+    ],
+  );
+  assert.ok(line('personDayToday', 10, notes[0].vars).includes("Vendela's name day"));
+  assert.equal(k(nextPersonDay({ md: '02-29' }, '2027-01-10')), '2027-02-28');
+  assert.equal(k(nextPersonDay({ md: '11-06' }, '2026-11-07')), '2027-11-06');
+  // every ping passes what its pool's lines use; people days and the siren are kind in both pools; Kalle Anka is never hit
+  const pools = LINES as Record<string, { mild: string[]; savage: string[] }>;
+  const all = [...peoplePings(vendela, nov6), sirenPing(base, nov6)!, ...deklPings(base, new Date(2027, 2, 1, 9)), ...deklPings(base, new Date(2027, 3, 1, 9))];
+  for (const x of all) {
+    const pool = pools[x.line];
+    assert.ok(pool, x.line);
+    for (const t of [...pool.mild, ...pool.savage]) for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(m[1] === 'name' || m[1] in x.vars, `${x.id}: {${m[1]}}`);
+    assert.ok(!(x.at.getMonth() === 11 && x.at.getDate() === 24 && x.at.getHours() === 15));
+  }
+  for (const key of ['personDayToday', 'peopleDayAhead', 'peopleDayToday', 'sirenTest']) assert.deepEqual(pools[key].savage, pools[key].mild, key);
+
+  // the fika almanac: computed days, a banner key per day, the food first on quick add, never logged by itself
+  assert.equal(fikaOn('2026-11-06')?.id, 'gustavadolf'); // today
+  assert.equal(fikaOn('2026-11-07')?.id, 'kladdkaka');
+  assert.equal(fikaOn('2026-11-10')?.id, 'marten');
+  assert.equal(fikaOn('2026-02-17')?.id, 'semla');
+  assert.equal(fikaOn('2027-02-09')?.id, 'semla');
+  assert.equal(fikaOn('2026-08-20')?.id, 'surstromming');
+  assert.deepEqual(['2026-01-13', '2026-03-25', '2026-05-11', '2026-10-04', '2026-12-09'].map((x) => fikaOn(x)?.id), ['knut', 'waffle', 'chokladboll', 'kanelbulle', 'pepparkaka']);
+  assert.equal(fikaOn('2026-11-08'), null);
+  assert.equal(fikaOn('2027-11-06'), null); // Alla helgons dag that year: no pastry banner
+  for (let y = 2026; y <= 2040; y++) {
+    const keys = FIKA.map((f) => k(f.dateOf(y)));
+    assert.equal(new Set(keys).size, keys.length, String(y)); // no two on one day
+    // only Våffeldagen can land on a holiday (Easter, some years); the others never do
+    for (const key of keys) if (fikaOn(key) && fikaOn(key)?.id !== 'waffle') assert.equal(holidayOn(new Date(`${key}T12:00`)), null, key);
+  }
+  assert.deepEqual(fikaPortion(FIKA.find((f) => f.id === 'semla')!.food!), { name: 'Semla (100 g)', kcal: 333, protein: 5 });
+  assert.equal(fikaPortion({ name: 'Gustav Adolfsbakelse' }), null);
+  const fuel: SweState = { ...base, settings: { ...base.settings, quickAdd: { pinned: [{ name: 'Kladdkaka (60 g)', kcal: 1, protein: 1 }, { name: 'Ägg', kcal: 70, protein: 6 }], hidden: [] } } };
+  const row = quickFoods(fuel, '2026-11-07');
+  assert.deepEqual(
+    row.map((f) => [f.name, f.kcal, f.fika?.ask ?? null]),
+    [
+      ['Kladdkaka (60 g)', 250, false],
+      ['Ägg', 70, null],
+    ],
+  ); // first, and in place of the same food further along
+  assert.equal(quickFoods(fuel, '2026-11-06')[0].fika?.ask, true); // a name only: the tap fills in the name
+  assert.equal(quickFoods(fuel, '2026-11-08')[0].name, 'Kladdkaka (60 g)'); // any other day: the row as it was
+  assert.equal(quickFoods(fuel)[0].fika, undefined);
+  assert.equal(quickFoods({ ...fuel, settings: { ...fuel.settings, quickAdd: { pinned: [], hidden: ['kladdkaka'] } } }, '2026-11-07').length, 0); // taken off stays off
+  assert.equal(quickFoods({ ...fuel, settings: { ...fuel.settings, sweden: { fika: false } } }, '2026-11-07')[0].fika, undefined);
+  assert.deepEqual(fuel.days, {}); // offering a food logs nothing
+}
+step8SwedenTests();
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.
 console.log('synchronous logic tests passed');

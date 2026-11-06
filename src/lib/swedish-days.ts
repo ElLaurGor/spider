@@ -136,3 +136,40 @@ export function upcomingDays(now: Date = new Date(), horizon = 14): DayNote[] {
   if (isPayday(now)) notes.push({ in: 0, kind: 'payday', emoji: '💸', text: 'Payday. Spend it like a sensible spider.' });
   return notes.sort((a, b) => a.in - b.in).slice(0, 3).map(({ in: _in, ...n }) => n);
 }
+
+// ---- step 8 sweden: the date rules behind people days, the fika almanac and Hesa Fredrik ----
+
+/** The `n`-th `weekday` (0 = Sunday) of a month (1–12). */
+export const nthWeekday = (year: number, month: number, n: number, weekday: number) => addDays(firstOnOrAfter(year, month, 1, weekday), 7 * (n - 1));
+
+/** The last `weekday` (0 = Sunday) of a month (1–12). */
+export function lastWeekday(year: number, month: number, weekday: number) {
+  const last = new Date(year, month, 0, 12);
+  return addDays(last, -((last.getDay() - weekday + 7) % 7));
+}
+
+/** Mors dag: the last Sunday in May. */
+export const mothersDay = (year: number) => lastWeekday(year, 5, 0);
+
+/** Fars dag: the second Sunday in November. */
+export const fathersDay = (year: number) => nthWeekday(year, 11, 2, 0);
+
+/** Fettisdagen: the Tuesday 47 days before Easter Sunday. */
+export const fettisdagen = (year: number) => addDays(easterSunday(year), -47);
+
+/** Surströmmingspremiären: the third Thursday in August. */
+export const surstrommingDay = (year: number) => nthWeekday(year, 8, 3, 4);
+
+/**
+ * Hesa Fredrik, the outdoor warning siren, is tested at 15:00 on the first Monday of March, June, September and
+ * December that isn't a holiday (6 June on a Monday moves it a week).
+ */
+export function sirenTests(year: number): Date[] {
+  return [3, 6, 9, 12].map((month) => {
+    let d = firstOnOrAfter(year, month, 1, 1);
+    while (holidayOn(d)) d = addDays(d, 7);
+    const at = new Date(d);
+    at.setHours(15, 0, 0, 0);
+    return at;
+  });
+}

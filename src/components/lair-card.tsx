@@ -9,6 +9,7 @@ import { Btn, Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { worn } from '@/lib/cosmetics';
 import { eggKm } from '@/lib/egg-sacs';
+import { crashedInGl, glForgive } from '@/lib/gl-guard';
 import { LAIR, LAIR_HOME, lairLeft, lairPieces, lairSpots, nextPiece, nextSpot, type LairPiece, type LairSpot } from '@/lib/lair';
 import { useStore } from '@/lib/store';
 import { moltState } from '@/lib/tank-life';
@@ -157,10 +158,42 @@ const SPECKS: Blob[] = [
   [44, 77, 3, 2, '#3A2617'],
 ];
 
-/** The terrarium in 3D, or drawn flat (below) if the phone's GL or three.js won't start. `onTap`: a tap on the 3D tank that missed the spider and the fly. */
+/**
+ * The terrarium in 3D, or drawn flat (below) if GL, three.js or a shader gives up, or if the last session crashed
+ * while the 3D view was drawing (lib/gl-guard.ts); then a tap brings 3D back. `onTap`: a tap on the 3D tank that
+ * missed the spider and the fly.
+ */
 export function TerrariumView({ onTap }: { onTap?: () => void }) {
-  const [flat, setFlat] = useState(false);
-  return flat ? <Terrarium /> : <Terrarium3D onFail={() => setFlat(true)} onTap={onTap} />;
+  const [mode, setMode] = useState<'wait' | '3d' | 'flat' | 'crashed'>('wait');
+  useEffect(() => {
+    let on = true;
+    crashedInGl().then((crashed) => {
+      if (on) setMode(crashed ? 'crashed' : '3d');
+    });
+    return () => {
+      on = false;
+    };
+  }, []);
+  if (mode === 'wait') return <View style={styles.waiting} />;
+  if (mode === '3d') return <Terrarium3D onFail={() => setMode('flat')} onTap={onTap} />;
+  return (
+    <>
+      <Terrarium />
+      {mode === 'crashed' ? (
+        <Pressable
+          onPress={() => {
+            glForgive();
+            setMode('3d');
+          }}
+          accessibilityRole="button"
+          hitSlop={6}>
+          <T dim small>
+            The 3D tank took a break after a crash. Tap here to try 3D again.
+          </T>
+        </Pressable>
+      ) : null}
+    </>
+  );
 }
 
 /**
@@ -433,6 +466,7 @@ export function LairShop() {
 }
 
 const styles = StyleSheet.create({
+  waiting: { height: 210, borderRadius: 12, backgroundColor: C.card },
   tank: { height: TANK_H, borderRadius: 10, borderWidth: 2, borderColor: '#3C424D', backgroundColor: '#0E1B17', overflow: 'hidden' },
   abs: { position: 'absolute' },
   fill: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, pointerEvents: 'none' },

@@ -2,6 +2,7 @@
 // Easter eggs hidden on each tab, and the Valborg bonfire for old tasks.
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { NameDayLine } from '@/components/sweden-card';
 import { Btn, T } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { seasonOn } from '@/lib/seasons';
@@ -15,6 +16,7 @@ export function SwedishDaysRow() {
   const notes = upcomingDays(noonOf(today));
   return (
     <>
+      <NameDayLine />
       {notes.length ? (
         <View style={styles.notes}>
           {notes.map((n) => (

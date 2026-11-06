@@ -28,7 +28,8 @@ export const HQ_SECTIONS = [
   { id: 'trek', label: 'Virtual trek (full card, with watch steps)' },
   { id: 'contract', label: 'Weekly contract (full card)' },
   { id: 'countdowns', label: 'Countdowns' },
-  { id: 'swedishDays', label: 'Red days & payday' },
+  { id: 'swedishDays', label: 'Red days, name days & payday' },
+  { id: 'sweden', label: 'Swedish calendar: people days, Hesa Fredrik, tax return, preparedness week' }, // step 8 sweden
   { id: 'upnext', label: 'Up next' },
   { id: 'progress', label: 'Ability points & rested bonus' },
   { id: 'shortcuts', label: 'Shortcut buttons' },

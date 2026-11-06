@@ -953,17 +953,24 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     return g;
   };
   const extras = { skins: layer('skins'), lings: layer('spiderlings'), eggs: layer('eggs'), dressing: layer('dressing'), weather: layer('weather'), pet: layer('pet'), fx: layer('fx') };
+  // What's taken out of the scene waits here and leaves the GPU in collect(), which the view calls while it draws:
+  // freeing GL resources is a GL call, and those only happen while the view is on screen.
+  const trash: THREE.Object3D[] = [];
+  const spent: THREE.InstancedMesh[] = []; // instanced meshes whose geometry and material are shared: only their instances go
+  const collect = () => {
+    for (const o of trash.splice(0)) disposeTree(o);
+    for (const m of spent.splice(0)) m.dispose();
+  };
   const clear = (g: THREE.Group) => {
     for (const c of [...g.children]) {
       g.remove(c);
-      disposeTree(c);
+      trash.push(c);
     }
   };
-  /** Takes out instanced meshes whose geometry and material are shared (the mini spider): only their instances go. */
   const drop = (g: THREE.Group) => {
     for (const c of [...g.children]) {
       g.remove(c);
-      (c as THREE.InstancedMesh).dispose?.();
+      if ((c as THREE.InstancedMesh).isInstancedMesh) spent.push(c as THREE.InstancedMesh);
     }
   };
 
@@ -1016,7 +1023,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
   };
   const setPieces = (list: readonly string[], next: string | null) => {
     scene.remove(pieces);
-    disposeTree(pieces);
+    trash.push(pieces);
     pieces = new THREE.Group();
     ids = [...list];
     for (const id of ids) {
@@ -1041,7 +1048,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     const old = pieces.children.find((c) => c.name === `piece-${id}`);
     if (old) {
       pieces.remove(old);
-      disposeTree(old);
+      trash.push(old);
     }
     pieces.add(buildPiece(id, look));
     collectNamed();
@@ -1199,7 +1206,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     if ((pet?.key ?? '') === key) return;
     if (pet) {
       extras.pet.remove(pet.group);
-      disposeTree(pet.group);
+      trash.push(pet.group);
     }
     pet = null;
     if (!life.pet) return;
@@ -1225,7 +1232,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     hatKey = key;
     for (const c of [...spider.hatMount.children]) {
       spider.hatMount.remove(c);
-      disposeTree(c);
+      trash.push(c);
     }
     if (life.hat) spider.hatMount.add(buildHat(life.hat.shape, life.hat.id));
   };
@@ -1727,7 +1734,9 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     if (before.mode !== next.mode) interrupt();
   };
 
+  /** Frees everything (the tests; the app never calls it: the GL context may be gone with the view). */
   const dispose = () => {
+    collect();
     mini.dispose();
     skinMat.dispose();
     lingMat.dispose();
@@ -1763,6 +1772,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     pick,
     poke,
     settle,
+    collect,
     setDragging: (on: boolean) => {
       dragging = on;
     },

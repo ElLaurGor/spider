@@ -2126,6 +2126,144 @@ export const LINES = {
     mild: ['The egg sac hatched! A spiderling moved into the terrarium. +{coins} 🪙', 'A spiderling hatched from all that walking. It lives in the terrarium now. +{coins} 🪙'],
     savage: ['Hatched. Your walking made a spiderling. It already walks more than some people. +{coins} 🪙', 'A spiderling, hatched by your steps. Proof that walking pays. +{coins} 🪙'],
   },
+  // ---- step 8 sweden ----
+  // People days (people-days.ts): kind in both pools, since these days can hurt. {title} is "Vendela's name day" or "Fars dag".
+  personDayToday: {
+    mild: [
+      '{title} today: a text counts.',
+      '{title} today. A quick message is plenty.',
+      "It's {title}. Two words and an emoji will do.",
+      "{title} today. If you've got a minute, say hi.",
+      'Today is {title}. A text, a call, a card: any of them counts.',
+      '{title} today. No pressure, just a nudge from the almanac.',
+    ],
+    savage: [
+      '{title} today: a text counts.',
+      '{title} today. A quick message is plenty.',
+      "It's {title}. Two words and an emoji will do.",
+      "{title} today. If you've got a minute, say hi.",
+      'Today is {title}. A text, a call, a card: any of them counts.',
+      '{title} today. No pressure, just a nudge from the almanac.',
+    ],
+  },
+  peopleDayAhead: {
+    mild: [
+      '{title} is {day}. Want “{task}” on your list? One tap on HQ.',
+      'Heads-up: {title} is {day}. HQ can put “{task}” on your list.',
+      "{title} {day}. If it's a good year for it, “{task}” is one tap away on HQ.",
+      '{title} is {day}. No plans needed. HQ has “{task}” ready if you want it.',
+      'A quiet heads-up: {title} {day}. Whatever it means to you this year is fine.',
+      '{title} is {day}. A card, a call or nothing at all: your call. “{task}” waits on HQ.',
+    ],
+    savage: [
+      '{title} is {day}. Want “{task}” on your list? One tap on HQ.',
+      'Heads-up: {title} is {day}. HQ can put “{task}” on your list.',
+      "{title} {day}. If it's a good year for it, “{task}” is one tap away on HQ.",
+      '{title} is {day}. No plans needed. HQ has “{task}” ready if you want it.',
+      'A quiet heads-up: {title} {day}. Whatever it means to you this year is fine.',
+      '{title} is {day}. A card, a call or nothing at all: your call. “{task}” waits on HQ.',
+    ],
+  },
+  peopleDayToday: {
+    mild: [
+      "{title} today. “{task}” if it feels right; if today is hard, that's allowed too.",
+      "It's {title}. A small hello goes a long way. If it's a complicated day, be gentle with yourself.",
+      '{title} today. “{task}” is enough. Anything more is a bonus.',
+      "Today is {title}. However you spend it, I'm not keeping score.",
+      "{title} today. If there's someone to reach, now's a nice time. If there isn't, look after you.",
+      "{title}. Some years it's easy, some years it isn't. Either way, go gently today.",
+    ],
+    savage: [
+      "{title} today. “{task}” if it feels right; if today is hard, that's allowed too.",
+      "It's {title}. A small hello goes a long way. If it's a complicated day, be gentle with yourself.",
+      '{title} today. “{task}” is enough. Anything more is a bonus.',
+      "Today is {title}. However you spend it, I'm not keeping score.",
+      "{title} today. If there's someone to reach, now's a nice time. If there isn't, look after you.",
+      "{title}. Some years it's easy, some years it isn't. Either way, go gently today.",
+    ],
+  },
+  // The fika almanac's HQ banner (fika.ts): teases skipping the tradition, never what or how much. {title} is the day's name.
+  fikaDay: {
+    mild: [
+      '{title} today. A tradition, if you fancy it.',
+      "It's {title}. As good a reason as any for a proper break.",
+      "{title} today. Join in or don't; it comes round again next year.",
+      'Happy {title}. Small traditions make regular days a bit nicer.',
+      "{title} today. Take ten minutes and enjoy it, if it's your thing.",
+      "It's {title}. The almanac says so, and the almanac is rarely wrong.",
+    ],
+    savage: [
+      '{title} today. Skipping it would be deeply un-Swedish. Just saying.',
+      "It's {title}. Ignoring a national tradition is a choice. A strange one.",
+      "{title} today. Half the country is in on it and you're answering emails?",
+      "{title}. Even I observe it, and I'm a spider made of code.",
+      "It's {title}. Miss it and you wait a whole year. Think about that.",
+    ],
+  },
+  // Hesa Fredrik's test (beredskap.ts): helpful first, at most a wink, the same in both pools.
+  sirenTest: {
+    mild: [
+      '15:00 is only the siren test. Hesa Fredrik gets checked four times a year. Nothing to do.',
+      'Heads-up: the outdoor siren at 15:00 is just the scheduled test. Carry on.',
+      "At 15:00 you'll hear Hesa Fredrik. It's the regular test, not a warning.",
+      'The siren at 15:00 is a test. A real alert comes with a VMA on the radio and in the apps.',
+      'Siren test at 15:00. No need to do anything; try not to jump.',
+      'Only the test at 15:00. Any other time, the siren means: go inside, close windows and vents, and listen to P4.',
+    ],
+    savage: [
+      '15:00 is only the siren test. Hesa Fredrik gets checked four times a year. Nothing to do.',
+      'Heads-up: the outdoor siren at 15:00 is just the scheduled test. Carry on.',
+      "At 15:00 you'll hear Hesa Fredrik. It's the regular test, not a warning.",
+      'The siren at 15:00 is a test. A real alert comes with a VMA on the radio and in the apps.',
+      'Siren test at 15:00. No need to do anything; try not to jump.',
+      'Only the test at 15:00. Any other time, the siren means: go inside, close windows and vents, and listen to P4.',
+    ],
+  },
+  prepDone: {
+    mild: [
+      'Preparedness checklist done: water, radio, cash, torch, medicines. +{coins} 🪙',
+      "All five sorted. If the power goes, you're ready. +{coins} 🪙",
+    ],
+    savage: [
+      "Checklist complete. When the grid goes down, you'll be the smug one. +{coins} 🪙",
+      'Five for five. Prepared, and paid for it: +{coins} 🪙',
+    ],
+  },
+  // Deklaration (deklaration.ts): {day} is the date, like "Wednesday 31 March".
+  deklEarly: {
+    mild: [
+      'Approve your tax return by {day} and the refund comes early. A few minutes in the app.',
+      'Deklaration: approve it digitally by {day} for the early refund.',
+      'Reminder: {day} is the cut-off for the early tax refund. A few taps with BankID.',
+    ],
+    savage: [
+      'Your tax return can be approved in five minutes. The early refund ends {day}. Do the maths.',
+      "Free money from Skatteverket, if you approve by {day}. You'd rather wait? Interesting.",
+      "{day}: early refund cut-off. Your tax return isn't going to approve itself.",
+    ],
+  },
+  deklDeadline: {
+    mild: [
+      'Your tax return is due {day}. Approve it, or send changes, before then.',
+      "Deklaration deadline: {day}. A few minutes with BankID and it's done.",
+      'Gentle reminder: the tax return needs approving by {day}.',
+    ],
+    savage: [
+      "Tax return due {day}. Skatteverket doesn't do extensions for vibes.",
+      '{day} is the deadline. A late fee costs more than five minutes of your time.',
+      "Your tax return, still unapproved. Deadline {day}. I'm watching the clock.",
+    ],
+  },
+  deklDone: {
+    mild: [
+      "Tax return approved. That's a whole year's paperwork, done.",
+      'Deklaration done. Nicely handled.',
+    ],
+    savage: [
+      'Tax return approved. Skatteverket and I are both mildly impressed.',
+      'Deklaration: done. One adult task, slain.',
+    ],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

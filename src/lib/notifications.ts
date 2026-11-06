@@ -45,6 +45,9 @@ import { PRIZE_DAY, prizesAccepted, prizesFor } from './prizes';
 import { lastMoodLow, periodDay, realFlow, toneOn, type DayTone } from './tone';
 import { upcomingDays } from './swedish-days';
 import { moveDayName, moveTargets, slipAt } from './workout-move';
+import { peoplePings } from './people-days';
+import { sirenPing } from './beredskap';
+import { deklPings } from './deklaration';
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -86,6 +89,7 @@ const LINKS: [prefix: string, href: Href][] = [
   ['backup-', '/settings'],
   ['evening-', '/debrief'],
   ['move-', '/movement'],
+  ['siren-', '/outside'], // step 8 sweden: people days and the tax return open HQ
 ];
 /** The screen a notification opens. Morning, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
@@ -450,6 +454,13 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       jobs.push(scheduleAt(`countdown-${c.id}-eve`, atTime(day, -1, 18), `${c.emoji} Tomorrow: ${c.title}`, sayOn(s, eve, 'countdownTomorrow', vars, dayKey(addDays(day, -1))), CH.remind));
       jobs.push(scheduleAt(`countdown-${c.id}-day`, atTime(day, 0, st.wakeHour), `${c.emoji} Today: ${c.title}`, sayOn(s, toneOn(s, dayKey(day), now, cycle), 'countdownToday', vars, dayKey(day)), CH.remind));
     }
+  }
+
+  // step 8 sweden: people days (opt-in), Hesa Fredrik's test (not while a VMA is out) and the tax return, each in
+  // the tone of the day it goes out on (people-days.ts, beredskap.ts, deklaration.ts plan them).
+  const siren = sirenPing(s, now);
+  for (const p of [...peoplePings(s, now), ...(siren ? [siren] : []), ...deklPings(s, now)]) {
+    jobs.push(scheduleAt(p.id, p.at, p.title, sayOn(s, toneOn(s, p.day, now, cycle), p.line, p.vars, p.day), CH.remind));
   }
 
   // League: Sunday 17:00 heads-up with the rank at planning time. Not on a paused or kind Sunday (julafton, a storm, a low patch).

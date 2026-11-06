@@ -6,10 +6,11 @@ import { Animated, Pressable, StyleSheet, Text, View, type GestureResponderEvent
 import * as THREE from 'three';
 
 import { useNow } from '@/components/ui';
-import { useAwake } from '@/components/use-awake';
+import { useScreenState } from '@/components/use-awake';
 import { useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
 import { worn } from '@/lib/cosmetics';
+import { glLive } from '@/lib/gl-guard';
 import { lairPieces, nextPiece } from '@/lib/lair';
 import { importPhoto } from '@/lib/photos';
 import { useStore } from '@/lib/store';
@@ -22,28 +23,47 @@ const AUTO_SNAP_MS = 9000;
 
 type Gfx = {
   world: World | null;
-  renderer: THREE.WebGLRenderer | null;
+  draw: (() => void) | null; // renders a frame and shows it
+  render: (() => void) | null; // renders a frame without showing it (for a snapshot, read before it's shown)
   gl: ExpoWebGLRenderingContext | null;
-  draw: (() => void) | null;
   yaw: number;
   from: number; // the yaw when a drag began
   touch: { x: number; y: number }; // where it began
-  dragging: boolean;
-  moved: boolean;
-  running: boolean;
-  snapping: boolean;
+  dragging: boolean; // a sideways drag is turning the tank
+  moved: boolean; // the finger moved: not a tap
+  running: boolean; // the frame loop is on
+  visible: boolean; // the screen is showing with the app in front
+  dirty: boolean; // something changed while hidden: draw once it shows again
+  snapping: boolean; // a snapshot is being read: no other frames until it's done
   w: number;
   h: number;
 };
 
-/** Takes the tank as it is now as a JPEG (a file in the cache): drawn once more, read back before it's shown, then shown. */
-async function snapshot(x: Gfx): Promise<string | null> {
-  if (!x.gl || !x.world || !x.renderer || x.snapping) return null;
+/**
+ * Draws a frame, but only while the view is on screen. GL on a hidden screen's view (HQ under the shop, say)
+ * can crash the app natively, so a change made then waits for the view to show again.
+ */
+function paint(x: Gfx, onFail: () => void) {
+  if (!x.visible || x.snapping) {
+    x.dirty = true;
+    return;
+  }
+  try {
+    x.draw?.();
+  } catch {
+    onFail();
+  }
+}
+
+/**
+ * Takes the tank as it is now as a JPEG (a file in the cache), only while it's on screen: drawn once more and
+ * read back before that frame is shown (once shown, the buffer may be gone), then shown through paint().
+ */
+async function snapshot(x: Gfx, onFail: () => void): Promise<string | null> {
+  if (!x.visible || x.snapping || !x.gl || !x.render) return null;
   x.snapping = true;
   try {
-    // Read before endFrameEXP: once the frame is presented the buffer may be gone.
-    x.world.setYaw(x.yaw);
-    x.renderer.render(x.world.scene, x.world.camera);
+    x.render();
     const shot = await GLView.takeSnapshotAsync(x.gl, { format: 'jpeg', compress: 0.9 });
     const uri = typeof shot.uri === 'string' ? shot.uri : shot.localUri;
     return uri ? (uri.startsWith('file://') ? uri : `file://${uri}`) : null;
@@ -51,7 +71,7 @@ async function snapshot(x: Gfx): Promise<string | null> {
     return null;
   } finally {
     x.snapping = false;
-    x.draw?.();
+    paint(x, onFail);
   }
 }
 
@@ -59,9 +79,10 @@ async function snapshot(x: Gfx): Promise<string | null> {
  * The terrarium in 3D (lib/terrarium-3d.ts) through expo-gl: the spider lives in it on its own, following the app
  * (lib/tank-life.ts: day and night, sleep, focus and gaming, kind days, the web, molts, plants, weather, season,
  * pet and hat, replays of what was just logged), and a sideways drag turns the tank round. A tap on the spider
- * makes it wave, a tap on a buzzing fly catches it, a tap anywhere else is `onTap` (HQ: the shop). It only
- * animates while the screen is showing, the app is in front and motion isn't reduced; otherwise it holds still
- * (a drag still turns it). `onFail`: the GL context or three.js couldn't start.
+ * makes it wave, a tap on a buzzing fly catches it, a tap anywhere else is `onTap` (HQ: the shop). It only draws
+ * while its screen is showing with the app in front, and only animates when motion isn't reduced either (a drag
+ * still turns it). While it draws, lib/gl-guard.ts keeps a flag up, so a native crash sends the next session to
+ * the flat terrarium. `onFail`: GL, three.js or a shader gave up.
  */
 export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () => void }) {
   const { state, actions, quip, say, weather, health, tank } = useStore();
@@ -70,12 +91,29 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
     .join(',');
   const next = nextPiece(state)?.id ?? null;
   const marking = worn(state).aura?.ring ?? C.red;
-  const awake = useAwake();
+  const { visible, still } = useScreenState();
+  const awake = visible && !still;
   const today = useToday();
-  const now = useNow(60_000, awake);
+  const now = useNow(60_000, visible);
   const life = tankLifeOf(state, { now, forecast: weather.data?.days.find((d) => d.date === today) ?? null, nights: health.data?.nights ?? null });
   const lifeKey = JSON.stringify(life);
-  const gfx = useRef<Gfx>({ world: null, renderer: null, gl: null, draw: null, yaw: 0, from: 0, touch: { x: 0, y: 0 }, dragging: false, moved: false, running: false, snapping: false, w: 0, h: 0 });
+  const gfx = useRef<Gfx>({
+    world: null,
+    draw: null,
+    render: null,
+    gl: null,
+    yaw: 0,
+    from: 0,
+    touch: { x: 0, y: 0 },
+    dragging: false,
+    moved: false,
+    running: false,
+    visible: false,
+    dirty: false,
+    snapping: false,
+    w: 0,
+    h: 0,
+  });
   const [ready, setReady] = useState(false);
   const [act, setAct] = useState<string | null>(null);
   const [bubble, setBubble] = useState<string | null>(null);
@@ -105,7 +143,7 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
     }
     if (!x.dragging) return;
     x.yaw = x.from - dx * 0.012;
-    if (!x.running) x.draw?.();
+    if (!x.running) paint(x, onFail);
   };
   const endDrag = () => {
     const x = gfx.current;
@@ -127,7 +165,7 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
       setBubble(quip('tankPoke'));
       if (!x.running) {
         x.world?.step(0);
-        x.draw?.();
+        paint(x, onFail);
       }
     } else onTap?.();
   };
@@ -148,7 +186,7 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
         getContext: () => gl,
       } as unknown as HTMLCanvasElement;
       const renderer = new THREE.WebGLRenderer({ canvas, context: gl as unknown as WebGL2RenderingContext, antialias: false });
-      // A shader this phone's GL can't compile would leave an empty box: fall back to the flat terrarium instead.
+      // A shader this phone's GL can't compile would leave an empty box: the next draw throws, and the flat terrarium takes over.
       let shaderError = false;
       renderer.debug.onShaderError = () => {
         shaderError = true;
@@ -160,55 +198,80 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
       world.settle();
       const x = gfx.current;
       x.world = world;
-      x.renderer = renderer;
       x.gl = gl;
-      x.draw = () => {
-        if (x.snapping) return;
+      x.render = () => {
+        world.collect(); // what was taken out of the scene leaves the GPU here, while drawing is safe
         world.setYaw(x.yaw);
         renderer.render(world.scene, world.camera);
+        if (shaderError) throw new Error('three.js shader error');
+      };
+      x.draw = () => {
+        x.render?.();
         gl.endFrameEXP();
       };
       world.step(0);
-      x.draw();
-      if (shaderError) throw new Error('three.js shader error');
+      x.dirty = true; // the first frame comes from the visibility effect, once ready
       setReady(true);
     } catch {
       onFail();
     }
   };
 
+  // On screen: draw whatever changed while hidden, and hold the crash guard's flag up while drawing is possible.
+  useEffect(() => {
+    const x = gfx.current;
+    x.visible = visible;
+    if (!ready || !visible) return;
+    glLive(true);
+    if (x.dirty) {
+      x.dirty = false;
+      paint(x, onFail);
+    }
+    return () => glLive(false);
+  }, [ready, visible, onFail]);
+
   // What's in the tank and the spider's markings follow the store.
   useEffect(() => {
     const x = gfx.current;
     if (!ready || !x.world) return;
-    x.world.setPieces(ids ? ids.split(',') : [], next);
-    x.world.step(0);
-    x.draw?.();
-  }, [ready, ids, next]);
+    try {
+      x.world.setPieces(ids ? ids.split(',') : [], next);
+      x.world.step(0);
+    } catch {
+      onFail();
+      return;
+    }
+    paint(x, onFail);
+  }, [ready, ids, next, onFail]);
   useEffect(() => {
     const x = gfx.current;
     if (!ready || !x.world) return;
     x.world.setMarking(marking);
-    x.draw?.();
-  }, [ready, marking]);
+    paint(x, onFail);
+  }, [ready, marking, onFail]);
   // Its life follows the app: the light, the mode, the web, molts, plants, weather, season, pet, hat, fly, eggs.
   useEffect(() => {
     const x = gfx.current;
     if (!ready || !x.world) return;
-    x.world.setLife(JSON.parse(lifeKey));
-    if (!x.running) {
-      x.world.step(0);
-      x.world.settle();
-      x.draw?.();
+    try {
+      x.world.setLife(JSON.parse(lifeKey));
+      if (!x.running) {
+        x.world.step(0);
+        x.world.settle();
+      }
+    } catch {
+      onFail();
+      return;
     }
-  }, [ready, lifeKey]);
+    if (!x.running) paint(x, onFail);
+  }, [ready, lifeKey, onFail]);
   // Plants keep what they grew (they never shrink, whatever the steps do later).
   const grew = grewSince(state, life.growth);
   const grewKey = grew ? JSON.stringify(grew) : '';
   useEffect(() => {
     if (grewKey) actions.tankGrew(JSON.parse(grewKey));
   }, [grewKey, actions]);
-  // What was just logged: handed to the tank to act out while it's on screen.
+  // What was just logged: handed to the tank to act out while it's on screen and moving.
   const events = tank.events;
   const take = tank.take;
   useEffect(() => {
@@ -269,33 +332,32 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
   useEffect(() => {
     if (!ready || !awake || haveSnap) return;
     const t = setTimeout(async () => {
-      const uri = await snapshot(gfx.current);
+      const uri = await snapshot(gfx.current, onFail);
       if (!uri) return;
       try {
         actions.tankSnapped(month, await importPhoto('tank', uri));
       } catch {
-        // no room or no file: try again another time
+        // no room or no file: another time
       }
     }, AUTO_SNAP_MS);
     return () => clearTimeout(t);
-  }, [ready, awake, haveSnap, month, actions]);
+  }, [ready, awake, haveSnap, month, actions, onFail]);
 
   const share = async () => {
-    const uri = await snapshot(gfx.current);
+    const uri = await snapshot(gfx.current, onFail);
     if (!uri) return say("Couldn't snap the tank just now.", 'info');
     if (!(await Sharing.isAvailableAsync())) return say('Sharing is not available on this phone.', 'info');
     await Sharing.shareAsync(uri, { mimeType: 'image/jpeg', dialogTitle: 'Share your terrarium' }).catch(() => {});
   };
 
+  // Gone: drop the scene. No GL calls here (no dispose): the context may already be torn down with the view.
   useEffect(() => {
     const x = gfx.current;
     return () => {
-      x.world?.dispose();
-      x.renderer?.dispose();
       x.world = null;
-      x.renderer = null;
-      x.gl = null;
       x.draw = null;
+      x.render = null;
+      x.gl = null;
     };
   }, []);
 

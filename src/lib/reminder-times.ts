@@ -16,7 +16,7 @@ export function wrappedReminder(now = new Date()) {
 }
 
 /** Reminders planned again on every app change, by id prefix. Gaming, rest, focus, snooze, the status line and warnings are managed apart. */
-export const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-', 'ifthen-', 'prizes-'];
+export const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-', 'ifthen-', 'prizes-', /* step 8 sweden */ 'people-', 'siren-', 'dekl-'];
 export const isPlanned = (id: string) => PLANNED_PREFIXES.some((p) => id.startsWith(p));
 
 /**
@@ -42,7 +42,8 @@ export function plannedToCancel(scheduled: readonly { identifier: string; trigge
  * everything in the Storm protocol's tone again once it's opened.
  */
 export function stormPlan(ids: readonly string[], days: readonly string[]) {
-  const roasts = new Set(days.flatMap((d) => [`gym-${d}-shame`, `gym-${d}-move`, `move-${d}`, `evening-${d}`, `weekendboss-${d}`]));
+  // step 8 sweden: and Hesa Fredrik's "15:00 is only the test", which must never go out beside a real alert.
+  const roasts = new Set(days.flatMap((d) => [`gym-${d}-shame`, `gym-${d}-move`, `move-${d}`, `evening-${d}`, `weekendboss-${d}`, `siren-${d}`]));
   return {
     cancel: ids.filter((id) => roasts.has(id)),
     soften: ids.filter((id) => days.some((d) => id.startsWith(`water-${d}-`))),
