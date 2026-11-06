@@ -14,14 +14,15 @@ import { THEMES } from '@/constants/theme';
 
 import { activityInfo } from './body';
 import { calendarPermission, calendarSupported, loadCalendars, loadEvents } from './calendar';
-import { bankFor, PITY_AFTER, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
+import { bankFor, CHEST_KEY_COST, cleanName, NAME_COST, PEEL_COST, PITY_AFTER, QUEST_CARD_COST, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
+import { nextPiece, withPiece } from './lair';
 import { stageFor, themesUnlockedBetween } from './evolution';
 import { addDays, atTime, dayKey, fmtDuration, fmtTime, isDayKey, MIN, startOfDay, startOfWeek, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
 import { connectHealth, healthStatus, healthSupported, missingHealthAccess, readHealth, readTodaySteps, withoutTodaySteps, type HealthData, type HealthStatus } from './health';
 import { withGoals } from './goals';
 import { habitsDone, habitsFor, RANGE_TOP_XP, rangeText, rangeWeek } from './habits';
-import { newLeague, settle, TIERS, weekKeyOf } from './league';
+import { newLeague, PEEL_XP, peelBlocker, settle, TIERS, weekKeyOf, withPeel, withRivalName, withRivalNames } from './league';
 import { banLine, fillLine, freshLine, GOLDEN, GOLDEN_CHANCE, lineMemory, onLineMemory, poolFor, setLineMemory, unbanLine, type LineKey } from './lines';
 import { jetlagRemark, lateCoffeeRemark, lateGameRemark, withJitSaid } from './jit';
 import { eveningKey, IMMORTAL_DAYS, taskAgeDays, tomorrowKey } from './memory';
@@ -45,7 +46,7 @@ import { clearStormWaiting, stormWaiting } from './bg-config';
 import { drainQueued, onQueued } from './pending-actions';
 import { isQueued, tapLanded, type ReminderAction } from './reminder-actions';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
-import { bossFor, bossSeasonOf, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questsFor, reducedDay, reopenQuests, rerollFor, validDraft, weekKey } from './quests';
+import { bossFor, bossSeasonOf, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questCardBlocker, questInfo, questsFor, reducedDay, reopenQuests, rerollFor, validDraft, weekKey, withBossName, withQuestCard } from './quests';
 import { bossRecap, lastWeekKey } from './boss-recap';
 import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
 import { contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, signOptions, targetFor, type Difficulty } from './contracts';
@@ -90,6 +91,7 @@ import type {
   CalEvent,
   CalInfo,
   CalStatus,
+  ChestPrize,
   ContractGoal,
   DayLog,
   Experiment,
@@ -116,7 +118,7 @@ import { activeAlerts, ALERT_LABEL, fetchAir, fetchSmhi, fetchVma, sourceAfter, 
 import { nextStorm } from './storm';
 import { ACHIEVEMENTS, activityXp, BADGE_NOTE, BONUS_MIN, focusXp, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, SET_XP_DAILY, titleFor, XP } from './xp';
 // cluster B: economy & progression
-import { buyable, cosmeticOf, legendaryDrop, owns, withOwned, withShown, withTitle, withWorn, type AvatarExtra, type Slot } from './cosmetics';
+import { cosmeticOf, forSale, legendaryDrop, owns, withOwned, withShown, withTitle, withWorn, type AvatarExtra, type Slot } from './cosmetics';
 import { chestShelf, SHELF_MAX, withChestGold } from './loot';
 import { credit, earnBonus, penalize, refundPenalty, unreward, withoutUndoRecords } from './ledger';
 import { bankRate, chestLuck, contractBonus, focusBonusMin, hasPerk, perkBlocker, perkOf, RESPEC_COST, workoutBonusMin, type PerkId } from './perks';
@@ -125,7 +127,7 @@ import { checkSilkTrack, SILK_TIERS } from './silk-track';
 import { goldenAllowed, quietDay } from './tone';
 // step 2b: weekly medals and the ghost of last week
 import { medalList, settleMedals } from './medals';
-import { coopFor, coopIntro, coopResultText, settleCoop } from './coop';
+import { coopFor, coopIntro, coopResultText, partnerName, settleCoop } from './coop';
 import { checkTrek, newTrek, ROUTES } from './trek';
 import { withoutOldXpHours, withXpHour } from './xp-timeline';
 // step 4: if-then plans, the comeback bonus, weekly range habits
@@ -250,7 +252,7 @@ function rescheduleGameAlerts(s: State, key: string) {
 function checkLeague(s: State, msgs: Msg[]): State {
   if (!s.onboarded) return s;
   const week = weekKeyOf();
-  if (!s.league) return { ...s, league: newLeague(0, week) };
+  if (!s.league) return { ...s, league: withRivalNames(newLeague(0, week), s.rivalNames) };
   if (s.league.week === week) return s;
   const r = settle(s);
   const old = s.league;
@@ -261,7 +263,8 @@ function checkLeague(s: State, msgs: Msg[]): State {
   if (r.nemesis?.beaten) msgs.push({ text: L(s, 'nemesisBeaten', { rival: `${r.nemesis.emoji} ${r.nemesis.name}`, coins: r.nemesisPrize }), tone: 'good' });
   const history = [...old.history, { week: old.week, tier: old.tier, rank: r.rank, xp: r.xp }].slice(-26);
   const coins = r.prize + r.nemesisPrize;
-  return withNemesis({ ...s, league: newLeague(r.tier, week, history), coins: s.coins + coins, coinsEarned: s.coinsEarned + coins }, old.week, r.nemesis);
+  const league = withRivalNames(newLeague(r.tier, week, history), s.rivalNames); // renamed rivals keep the names you gave them
+  return withNemesis({ ...s, league, coins: s.coins + coins, coinsEarned: s.coinsEarned + coins }, old.week, r.nemesis);
 }
 
 /** Settles a finished co-op week (once) and starts this week's when it's a co-op week (coop.ts). */
@@ -587,10 +590,15 @@ function checkDayRollover(s: State, msgs: Msg[]): State {
 function openChestOn(s: State, key: string, gold: boolean, msgs: Msg[], auto = false): State {
   const d = dayOf(s, key);
   if (!d.chestReady || d.chest) return s;
+  const r = chestPrize(s, gold, msgs, auto);
+  return patchDay(r.state, key, (x) => ({ ...x, chest: r.prize }));
+}
+
+/** Rolls a chest (pity and the Treasure Sense luck included) and applies what it gives, wherever the chest came from. */
+function chestPrize(s: State, gold: boolean, msgs: Msg[], auto = false): { state: State; prize: ChestPrize } {
   const since = s.chestsSinceLegendary ?? 0;
   const prize = rollChest(Math.random(), { gold, pity: since >= PITY_AFTER, luck: chestLuck(s) });
-  let next = patchDay(s, key, (x) => ({ ...x, chest: prize }));
-  next = { ...next, chestsSinceLegendary: prize.kind === 'legendary' ? 0 : since + 1 };
+  let next: State = { ...s, chestsSinceLegendary: prize.kind === 'legendary' ? 0 : since + 1 };
   const drop = prize.kind === 'legendary' ? legendaryDrop(next) : null;
   if (drop) {
     next = withOwned(next, drop.id);
@@ -611,7 +619,12 @@ function openChestOn(s: State, key: string, gold: boolean, msgs: Msg[], auto = f
       ? L(next, 'legendaryRoast')
       : L(next, 'chestOpened', { prize: prize.text });
   msgs.push({ text: prize.gold ? `✨ Gold chest! ${text}` : text, tone: 'epic' });
-  return next;
+  return { state: next, prize };
+}
+
+/** `s` with `cost` coins spent on something, logged under Bought. The caller has checked there are enough. */
+function spend(s: State, cost: number, title: string, emoji: string): State {
+  return { ...s, coins: s.coins - cost, purchases: [...s.purchases, { id: uid(), title, emoji, cost, at: Date.now() }].slice(-100) };
 }
 
 /** Pays coins once for a finished day's unused bonus gaming minutes. */
@@ -2433,7 +2446,7 @@ function useStoreValue() {
             questDraft: d.questDraft ? { ...d.questDraft, locked: true } : undefined,
             questFocus: d.questFocus && ids.includes(d.questFocus.id) ? d.questFocus : undefined,
           }));
-          msgs.push({ text: `🗡️ ${L(next, 'questsLocked')}`, tone: 'info' });
+          msgs.push({ text: `🗡️ ${L(next, ids.length > 3 ? 'questsLockedFour' : 'questsLocked')}`, tone: 'info' });
           return next;
         });
       },
@@ -2526,6 +2539,100 @@ function useStoreValue() {
         });
       },
 
+      // --- the shop's extras: a chest key, a fourth quest, the lair, names and banana peels (no XP in any of them) ---
+      /** Opens a loot chest bought with a key, once a day. Returns its prize for the reveal (null when none was opened). */
+      buyChestKey() {
+        let prize: ChestPrize | null = null;
+        run((s, msgs) => {
+          if (dayOf(s).keyChest) return s;
+          if (s.coins < CHEST_KEY_COST) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: CHEST_KEY_COST - s.coins }), tone: 'bad' });
+            return s;
+          }
+          const r = chestPrize(spend(s, CHEST_KEY_COST, 'Chest key', '🗝️'), false, msgs);
+          prize = r.prize;
+          return patchDay(r.state, dayKey(), (d) => ({ ...d, keyChest: r.prize }));
+        });
+        return prize;
+      },
+
+      /** A fourth quest for today, while the morning pick is open. */
+      buyQuestCard() {
+        run((s, msgs) => {
+          if (questCardBlocker(s)) return s;
+          if (s.coins < QUEST_CARD_COST) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: QUEST_CARD_COST - s.coins }), tone: 'bad' });
+            return s;
+          }
+          const next = withQuestCard(spend(s, QUEST_CARD_COST, 'Quest card', '🃏'));
+          if (!next) return s;
+          const added = (dayOf(next).quests ?? []).at(-1);
+          msgs.push({ text: `🃏 ${L(next, 'questCard', { quest: (added && questInfo(next, added)?.title) || 'one more' })}`, tone: 'info' });
+          return next;
+        });
+      },
+
+      /** The lair's next piece (they go in one at a time, in order). */
+      buyLairPiece() {
+        run((s, msgs) => {
+          const p = nextPiece(s);
+          if (!p) return s;
+          if (s.coins < p.price) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: p.price - s.coins }), tone: 'bad' });
+            return s;
+          }
+          const next = withPiece(spend(s, p.price, p.name, p.emoji), p.id);
+          msgs.push({ text: `${p.emoji} ${L(next, nextPiece(next) ? 'lairBuilt' : 'lairDone', { title: p.name })}`, tone: 'epic' });
+          return next;
+        });
+      },
+
+      /** This week's boss goes by `raw` (tidied) for the rest of the week, recaps included. */
+      nameBoss(raw: string) {
+        run((s, msgs) => {
+          const name = cleanName(raw);
+          if (!name || name === bossFor(s).name) return s;
+          if (s.coins < NAME_COST) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: NAME_COST - s.coins }), tone: 'bad' });
+            return s;
+          }
+          const next = withBossName(spend(s, NAME_COST, `Boss name: ${name}`, '✏️'), name);
+          msgs.push({ text: `✏️ ${L(next, 'bossNamed', { boss: name })}`, tone: 'good' });
+          return next;
+        });
+      },
+
+      /** Rival `id` goes by `raw` (tidied) from now on, this week and in every later league. */
+      renameRival(id: string, raw: string) {
+        run((s, msgs) => {
+          const name = cleanName(raw);
+          const r = s.league?.rivals.find((x) => x.id === id);
+          if (!name || !r || name === r.name) return s;
+          if (s.coins < NAME_COST) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: NAME_COST - s.coins }), tone: 'bad' });
+            return s;
+          }
+          const next = withRivalName(spend(s, NAME_COST, `Rival name: ${name}`, '✏️'), id, name);
+          msgs.push({ text: `✏️ ${L(next, 'rivalRenamed', { rival: `${r.emoji} ${name}` })}`, tone: 'good' });
+          return next;
+        });
+      },
+
+      /** A banana peel under rival `id`: PEEL_XP off their week (at most PEELS_PER_WEEK a week, never your co-op partner). */
+      throwPeel(id: string) {
+        run((s, msgs) => {
+          const r = s.league?.rivals.find((x) => x.id === id);
+          if (!r || peelBlocker(s, id, partnerName(s))) return s;
+          if (s.coins < PEEL_COST) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: PEEL_COST - s.coins }), tone: 'bad' });
+            return s;
+          }
+          const next = withPeel(spend(s, PEEL_COST, `Banana peel: ${r.name}`, '🍌'), id);
+          msgs.push({ text: L(next, 'peelThrown', { rival: `${r.emoji} ${r.name}`, xp: PEEL_XP }), tone: 'good' });
+          return next;
+        });
+      },
+
       /**
        * Stakes coins on a weekly goal (Monday to Wednesday; another one any day once this week's is won), at a
        * difficulty that sets target and payout.
@@ -2577,12 +2684,12 @@ function useStoreValue() {
       buyCosmetic(id: string) {
         run((s, msgs) => {
           const c = cosmeticOf(id);
-          if (!c || c.price == null || owns(s, id) || !buyable(c)) return s;
+          if (!c || c.price == null || !forSale(s, c)) return s;
           if (s.coins < c.price) {
             msgs.push({ text: L(s, 'tooPoor', { missing: c.price - s.coins }), tone: 'bad' });
             return s;
           }
-          msgs.push({ text: `${c.emoji} ${L(s, 'cosmeticBought', { title: c.name })}`, tone: 'good' });
+          msgs.push({ text: `${c.emoji} ${L(s, c.slot === 'pet' ? 'petAdopted' : 'cosmeticBought', { title: c.name })}`, tone: 'good' });
           const next = withWorn(withOwned(s, id), c.slot, id);
           const purchase = { id: uid(), title: c.name, emoji: c.emoji, cost: c.price, at: Date.now() };
           return { ...next, coins: next.coins - c.price, purchases: [...next.purchases, purchase].slice(-100) };

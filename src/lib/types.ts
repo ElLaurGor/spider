@@ -113,8 +113,10 @@ export type FocusEntry = { id: string; start: number; end: number; minutes: numb
 export type Tracker = { id: string; name: string; emoji: string; kind: 'scale' | 'number' | 'check'; unit?: string; createdAt: number };
 export type Reward = { id: string; title: string; emoji: string; cost: number };
 export type Purchase = { id: string; title: string; emoji: string; cost: number; at: number };
-export type Rival = { id: string; name: string; emoji: string; power: number };
-export type League = { tier: number; week: string; rivals: Rival[]; history: { week: string; tier: number; rank: number; xp: number }[] };
+/** `base`: the roster name, once the owner renamed them (league.ts rosterName): their voice and co-op goal hang on it. */
+export type Rival = { id: string; name: string; emoji: string; power: number; base?: string };
+/** `peels`: rival id -> banana peels thrown at them this week (each takes PEEL_XP off their week). */
+export type League = { tier: number; week: string; rivals: Rival[]; history: { week: string; tier: number; rank: number; xp: number }[]; peels?: Record<string, number> };
 /** What a co-op week asks of both partners (coop.ts). */
 export type CoopGoal = 'water' | 'train' | 'steps' | 'tasks' | 'quests';
 /**
@@ -161,6 +163,7 @@ export type DayLog = {
   energy?: Rating; // morning energy check; 1–2 = low-battery mode
   chestReady?: boolean; // earned by finishing all daily quests
   chest?: ChestPrize; // what the chest gave, once opened
+  keyChest?: ChestPrize; // a chest opened with a key bought in the shop (one a day), and what it gave
   chestGold?: boolean; // step 2: an unopened chest's gold status, frozen when its day ended (loot.ts chestShelf)
   focus?: FocusEntry[];
   breaths?: number; // breathing sessions finished
@@ -196,6 +199,7 @@ export type DayLog = {
   questFocus?: { id: string; spot: string }; // the quest aimed at the week's weak spot (weak-spot.ts)
   questReduced?: string; // a reduced day's one gentle quest, fixed once picked (quests.ts gentleQuestFor)
   questDraft?: { candidates: string[]; locked: boolean }; // step 2b: the morning draft (5 on offer, keep 3) until noon
+  questSlots?: number; // quests the day keeps: 4 once a quest card was bought for it (quests.ts), else 3
   // cluster B
   banked?: number; // coins paid at day rollover for that day's unused bonus gaming minutes (set once)
   // cluster F
@@ -351,7 +355,10 @@ export type State = {
   rested?: number; // rested-bonus XP left to hand out (lib/rested.ts)
   chestsSinceLegendary?: number; // loot chests opened since the last legendary one (lib/economy.ts pity)
   perks?: string[]; // spider abilities taken (lib/perks.ts)
-  cosmetics?: { owned: string[]; worn: Partial<Record<'hat' | 'held' | 'aura', string>>; title?: string; hidden?: ('badge' | 'respect')[] }; // lib/cosmetics.ts; hidden: avatar extras switched off
+  cosmetics?: { owned: string[]; worn: Partial<Record<'hat' | 'held' | 'aura' | 'pet', string>>; title?: string; hidden?: ('badge' | 'respect')[] }; // lib/cosmetics.ts; hidden: avatar extras switched off
+  lair?: string[]; // lib/lair.ts: the lair pieces bought, by id
+  bossNames?: Record<string, string>; // week key (its Monday) -> the name the owner gave that week's boss
+  rivalNames?: Record<string, string>; // a rival's roster name -> the name the owner gave them, for every league they turn up in
   silk?: { month: string; tier: number; prev?: { month: string; tier: number } }; // Silk Track (lib/silk-track.ts): the month on record and the highest tier handed out in it, and the month before
   // cluster F
   eggsFound?: Record<string, Record<string, number>>; // Easter hunt: year -> egg id -> found at

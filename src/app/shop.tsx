@@ -2,16 +2,22 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BossRivalsCard } from '@/components/boss-rivals-card';
+import { ChestReveal } from '@/components/hq-extras';
+import { LairShop } from '@/components/lair-card';
 import { Btn, Card, Chip, Field, H, Icon, Row, Stepper, T, useNow } from '@/components/ui';
+import { useToday } from '@/components/use-today';
 import { SilkTrackSection } from '@/components/silk-track';
 import { WardrobeCard } from '@/components/wardrobe-card';
 import { C, MONO } from '@/constants/theme';
-import { REWARD_IDEAS, shopPrice, SHOP_ITEMS } from '@/lib/economy';
-import { bossFor } from '@/lib/quests';
+import { CHEST_KEY_COST, QUEST_CARD_COST, REWARD_IDEAS, shopPrice, SHOP_ITEMS } from '@/lib/economy';
+import { bossFor, questCardBlocker } from '@/lib/quests';
 import { bankRate, perkPoints } from '@/lib/perks';
+import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import type { ChestPrize } from '@/lib/types';
 
-const EMOJIS = ['🍕', '🛋️', '🎮', '🧋', '🍿', '🥡', '😴', '🛍️', '🧹', '🎬', '🍰', '🎟️'];
+const EMOJIS = ['🍕', '🛋️', '🎮', '🧋', '🍿', '🥡', '😴', '🛍️', '🧹', '🎬', '🍰', '🎟️', '🥐', '📚', '💆', '🧖'];
 
 export default function ShopScreen() {
   const { state, actions } = useStore();
@@ -21,6 +27,9 @@ export default function ShopScreen() {
   const [emoji, setEmoji] = useState(EMOJIS[0]);
   const [cost, setCost] = useState(500);
   const now = useNow(30_000);
+  const today = dayOf(state, useToday());
+  const [keyPrize, setKeyPrize] = useState<ChestPrize | null>(null);
+  const cardBlocked = questCardBlocker(state, new Date(now));
   const doubleLeft = state.doubleXpUntil && state.doubleXpUntil > now ? Math.ceil((state.doubleXpUntil - now) / 60_000) : 0;
   const bank = bankRate(state);
   const points = perkPoints(state);
@@ -71,13 +80,52 @@ export default function ShopScreen() {
             </Row>
           );
         })}
+        <Row>
+          <Text style={{ fontSize: 22 }}>🗝️</Text>
+          <View style={{ flex: 1 }}>
+            <T>Chest key: open a loot chest now</T>
+            <T dim small>
+              {today.keyChest ? `Today's key chest: ${today.keyChest.text}. Next key tomorrow.` : 'One a day. A normal chest, odds and pity included.'}
+            </T>
+          </View>
+          {today.keyChest ? null : (
+            <Btn
+              label={`${CHEST_KEY_COST} 🪙`}
+              small
+              kind={state.coins >= CHEST_KEY_COST ? 'primary' : 'ghost'}
+              onPress={() => confirmBuy('a chest key', CHEST_KEY_COST, () => setKeyPrize(actions.buyChestKey()))}
+            />
+          )}
+        </Row>
+        <Row>
+          <Text style={{ fontSize: 22 }}>🃏</Text>
+          <View style={{ flex: 1 }}>
+            <T>Quest card: keep 4 quests today</T>
+            <T dim small>
+              {cardBlocked ?? 'A fourth quest from the morning pick. All four count towards the chest.'}
+            </T>
+          </View>
+          {cardBlocked ? null : (
+            <Btn
+              label={`${QUEST_CARD_COST} 🪙`}
+              small
+              kind={state.coins >= QUEST_CARD_COST ? 'primary' : 'ghost'}
+              onPress={() => confirmBuy('a quest card', QUEST_CARD_COST, () => actions.buyQuestCard())}
+            />
+          )}
+        </Row>
       </Card>
+      <ChestReveal prize={keyPrize} onClose={() => setKeyPrize(null)} />
 
       <Btn
         label={points ? `✨ Abilities · ${points} point${points > 1 ? 's' : ''} to spend` : '✨ Abilities'}
         kind={points ? 'primary' : 'ghost'}
         onPress={() => router.push('/perks')}
       />
+
+      <BossRivalsCard />
+
+      <LairShop />
 
       <SilkTrackSection />
 

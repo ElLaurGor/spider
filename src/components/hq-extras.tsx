@@ -14,22 +14,16 @@ import { eveningKey, topToday } from '@/lib/memory';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { gentleDay, toneOn } from '@/lib/tone';
+import type { ChestPrize } from '@/lib/types';
 import { ghostOf, ghostText } from '@/lib/xp-timeline';
 
 /** "Open loot chest" + the reveal: the shelf of chests earned by finishing all daily quests, oldest first. */
 export function ChestButton() {
   const { state, actions } = useStore();
   const [revealing, setRevealing] = useState<string | null>(null); // the day whose chest was just opened
-  const [scale] = useState(() => new Animated.Value(0.3));
   const todayKey = useToday();
   const today = dayOf(state, todayKey);
   const shown = revealing ? dayOf(state, revealing).chest : undefined;
-
-  useEffect(() => {
-    if (!revealing) return;
-    scale.setValue(0.3);
-    Animated.spring(scale, { toValue: 1, friction: 4, useNativeDriver: true }).start();
-  }, [revealing, scale]);
 
   const shelf = chestShelf(state);
   const next = shelf[0];
@@ -60,18 +54,31 @@ export function ChestButton() {
           Today&apos;s chest: {today.chest.text}
         </T>
       ) : null}
-      <Modal visible={!!shown} transparent animationType="fade" onRequestClose={() => setRevealing(null)}>
-        <Pressable style={styles.backdrop} onPress={() => setRevealing(null)}>
-          <Animated.View style={[styles.reveal, { transform: [{ scale }] }]}>
-            <Text style={{ fontSize: 80 }}>{shown?.kind === 'legendary' ? '🌟' : shown?.gold ? '🏆' : '🎁'}</Text>
-            <Text style={styles.prize}>{shown?.text}</Text>
-            <T dim small>
-              Tap to close
-            </T>
-          </Animated.View>
-        </Pressable>
-      </Modal>
+      <ChestReveal prize={shown} onClose={() => setRevealing(null)} />
     </>
+  );
+}
+
+/** The chest's prize popping up (HQ's chests and the shop's chest key). Tap anywhere to close. */
+export function ChestReveal({ prize, onClose }: { prize: ChestPrize | null | undefined; onClose: () => void }) {
+  const [scale] = useState(() => new Animated.Value(0.3));
+  useEffect(() => {
+    if (!prize) return;
+    scale.setValue(0.3);
+    Animated.spring(scale, { toValue: 1, friction: 4, useNativeDriver: true }).start();
+  }, [prize, scale]);
+  return (
+    <Modal visible={!!prize} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Animated.View style={[styles.reveal, { transform: [{ scale }] }]}>
+          <Text style={{ fontSize: 80 }}>{prize?.kind === 'legendary' ? '🌟' : prize?.gold ? '🏆' : '🎁'}</Text>
+          <Text style={styles.prize}>{prize?.text}</Text>
+          <T dim small>
+            Tap to close
+          </T>
+        </Animated.View>
+      </Pressable>
+    </Modal>
   );
 }
 

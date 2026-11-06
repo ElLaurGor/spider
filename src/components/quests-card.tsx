@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BossRecapPanel } from '@/components/boss-recap';
 import { ChestButton } from '@/components/hq-extras';
@@ -9,7 +9,8 @@ import { C, MONO } from '@/constants/theme';
 import { lastKillDay } from '@/lib/bestiary';
 import { bossFinisher } from '@/lib/boss-plan';
 import { addDays, dayKey, WEEKDAYS_LONG } from '@/lib/dates';
-import { bossFor, DRAFT_UNTIL_HOUR, draftOpen, draftPickable, MINION_COINS, QUEST_REROLL_COST, questInfo, questsFor, rerollFor, validDraft } from '@/lib/quests';
+import { QUEST_CARD_COST } from '@/lib/economy';
+import { bossFor, DRAFT_UNTIL_HOUR, draftOpen, draftPickable, MINION_COINS, QUEST_REROLL_COST, questCardBlocker, questInfo, questSlotsOn, questsFor, rerollFor, validDraft } from '@/lib/quests';
 import { BONUS_MIN, XP } from '@/lib/xp';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
@@ -39,7 +40,7 @@ export function QuestsCard({ boss = true }: { boss?: boolean }) {
         Daily quests
       </H>
       {boss ? <BossRecapPanel /> : null}
-      {drafting ? <QuestDraft key={dayKey(at)} at={at} /> : null}
+      {drafting ? <QuestDraft key={`${dayKey(at)}:${questSlotsOn(state, dayKey(at))}`} at={at} /> : null}
       {drafting ? null : quests.map((q) => {
         const complete = done.includes(q.id);
         const canSwap = !complete && rerollFor(state, q.id) != null;
@@ -174,22 +175,34 @@ export function FinisherLine({ at }: { at: number }) {
   );
 }
 
-/** The morning draft: five quests on offer, keep three. Finished ones stay; already-met new ones can't be picked. */
+/**
+ * The morning draft: five quests on offer, keep three (four with a quest card from the shop, which can be bought
+ * here too). Finished ones stay; already-met new ones can't be picked.
+ */
 function QuestDraft({ at }: { at: number }) {
   const { state, actions } = useStore();
   const now = new Date(at);
   const d = dayOf(state, dayKey(now));
   const candidates = d.questDraft?.candidates ?? [];
   const done = d.questsDone ?? [];
+  const slots = questSlotsOn(state, dayKey(now));
   const [picks, setPicks] = useState<string[]>(() => d.quests ?? []);
   const toggle = (id: string) => {
     if (done.includes(id)) return;
-    setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length < 3 ? [...p, id] : p));
+    setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length < slots ? [...p, id] : p));
   };
   const ready = validDraft(state, picks, now);
+  const canBuyCard = !questCardBlocker(state, now);
+  const buyCard = () =>
+    Alert.alert('Keep 4 quests today?', `${QUEST_CARD_COST} 🪙 · you have ${state.coins} 🪙. All four count towards the chest.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Buy', onPress: () => actions.buyQuestCard() },
+    ]);
   return (
     <View style={styles.draft}>
-      <Text style={styles.draftHead}>🗳️ PICK TODAY&apos;S 3 OF {candidates.length} · UNTIL {DRAFT_UNTIL_HOUR}:00</Text>
+      <Text style={styles.draftHead}>
+        🗳️ PICK TODAY&apos;S {slots} OF {candidates.length} · UNTIL {DRAFT_UNTIL_HOUR}:00
+      </Text>
       {candidates.map((id) => {
         const q = questInfo(state, id, now);
         if (!q) return null;
@@ -213,9 +226,10 @@ function QuestDraft({ at }: { at: number }) {
           </Pressable>
         );
       })}
-      <Btn label={ready ? 'Lock in these 3' : `Pick ${3 - Math.min(3, picks.length)} more`} small disabled={!ready} onPress={() => actions.draftQuests(picks)} />
+      <Btn label={ready ? `Lock in these ${slots}` : `Pick ${slots - Math.min(slots, picks.length)} more`} small disabled={!ready} onPress={() => actions.draftQuests(picks)} />
+      {canBuyCard ? <Btn label={`🃏 Keep 4 today · ${QUEST_CARD_COST} 🪙`} small kind="ghost" onPress={buyCard} /> : null}
       <T dim small>
-        Leave it, and the three ticked when you opened this stand from {DRAFT_UNTIL_HOUR}:00. They already count.
+        Leave it, and the {slots === 4 ? 'four' : 'three'} ticked when you opened this stand from {DRAFT_UNTIL_HOUR}:00. They already count.
       </T>
     </View>
   );

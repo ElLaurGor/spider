@@ -165,6 +165,12 @@ import { acceptPrizes, isPrizeDay, prizeCardUp, prizesFor } from '../src/lib/pri
 import { nemesisOfYear, withNemesis, yearWrapped, yearWrappedDue } from '../src/lib/year-wrapped';
 import { firstAdventSunday, isJulfridKey } from '../src/lib/swedish-days';
 import { owns, shows, withShown } from '../src/lib/cosmetics';
+import { forSale, PET_COSMETICS, PET_PRICE, petCaught } from '../src/lib/cosmetics';
+import { CHEST_KEY_COST, cleanName, NAME_MAX } from '../src/lib/economy';
+import { LAIR, lairLeft, lairPieces, nextPiece, withPiece } from '../src/lib/lair';
+import { PEEL_XP, peelBlocker, PEELS_PER_WEEK, rosterName, withPeel, withRivalName, withRivalNames } from '../src/lib/league';
+import { QUEST_SLOTS, questCardBlocker, questSlotsOn, withBossName, withQuestCard } from '../src/lib/quests';
+import { voiceOf } from '../src/lib/rival-talk';
 import { pauseOn } from '../src/lib/pause';
 
 // levels
@@ -368,6 +374,130 @@ function avatarExtrasTests() {
   assert.ok(shows(withShown(off, 'respect', true), 'respect'));
 }
 avatarExtrasTests();
+
+// the shop's extras: a chest key, names, the lair, pets, banana peels and a fourth quest (none of them pays XP)
+function shopTests() {
+  // a chest key is a treat, not an investment: a normal chest's coins average far below the key's price
+  const N = 2000;
+  let coins = 0;
+  for (let i = 0; i < N; i++) {
+    const prize = rollChest((i + 0.5) / N, {}, ((i * 7919) % N) / N);
+    if (prize.kind === 'coins' || prize.kind === 'legendary') coins += prize.amount;
+  }
+  assert.ok(coins / N < CHEST_KEY_COST / 5, `a chest averages ${coins / N} coins`);
+
+  // names: spaces tidied, capped (emoji count as one), too short is no name
+  assert.equal(cleanName('  Sir   Snooze  '), 'Sir Snooze');
+  assert.equal(cleanName(' x '), null);
+  assert.equal(Array.from(cleanName('🦥'.repeat(40)) ?? '').length, NAME_MAX);
+
+  // the lair: one piece at a time, in order, each dearer than the last, until it's complete
+  let lair = defaultState();
+  assert.equal(nextPiece(lair)?.id, LAIR[0].id);
+  assert.equal(lairLeft(lair), LAIR.reduce((a, x) => a + x.price, 0));
+  assert.equal(new Set(LAIR.map((x) => x.id)).size, LAIR.length);
+  assert.ok(LAIR.every((x, i) => i === 0 || x.price > LAIR[i - 1].price));
+  lair = withPiece(lair, LAIR[0].id);
+  assert.equal(nextPiece(lair)?.id, LAIR[1].id);
+  assert.equal(withPiece(lair, LAIR[0].id).lair?.length, 1, 'a piece is bought once');
+  for (let i = 1; i < LAIR.length; i++) lair = withPiece(lair, nextPiece(lair)!.id);
+  assert.equal(nextPiece(lair), null);
+  assert.equal(lairPieces(lair).length, LAIR.length);
+  assert.equal(lairLeft(lair), 0);
+
+  // pets: a fly caught at least once can be adopted, priced by rarity, into a slot of its own
+  const pet = defaultState();
+  const gnat = PET_COSMETICS.find((c) => c.fly === 'gym_gnat')!;
+  assert.equal(gnat.price, PET_PRICE.common);
+  assert.ok(!petCaught(pet, gnat) && !forSale(pet, gnat), 'catch it first');
+  pet.flies = { gym_gnat: { firstAt: 0, count: 1 } };
+  assert.ok(forSale(pet, gnat));
+  const adopted = withWorn(withOwned(pet, gnat.id), 'pet', gnat.id);
+  assert.ok(!forSale(adopted, gnat), 'once is enough');
+  assert.equal(worn(adopted).pet?.id, gnat.id);
+  assert.equal(cosmeticOf(gnat.id)?.slot, 'pet');
+  assert.equal(new Set(PET_COSMETICS.map((c) => c.id)).size, FLIES.length);
+  assert.ok(!PET_COSMETICS.some((c) => COSMETICS.some((x) => x.id === c.id)));
+  assert.equal(legendaryDrop(adopted, 0)?.source, 'legendary', 'chests never drop pets');
+
+  // banana peels: off a rival's week in the table (never below 0), three a week, never this week's co-op partner
+  const week = '2027-03-01';
+  const monday = new Date(2027, 2, 1, 12);
+  const sunNight = new Date(2027, 2, 7, 23, 0);
+  const lg = defaultState();
+  lg.league = newLeague(2, week);
+  const target = lg.league.rivals[0];
+  const xpOf = (st: typeof lg) => standings(st, sunNight).find((r) => r.id === target.id)!.xp;
+  const before = xpOf(lg);
+  assert.equal(before, rivalXp(target, 2, week, sunNight));
+  assert.equal(xpOf(withPeel(lg, target.id)), Math.max(0, before - PEEL_XP));
+  assert.equal(xpOf({ ...lg, league: { ...lg.league, peels: { [target.id]: 50 } } }), 0);
+  assert.equal(peelBlocker(lg, target.id, null, monday), null);
+  let three = lg;
+  for (let i = 0; i < PEELS_PER_WEEK; i++) three = withPeel(three, target.id);
+  assert.ok(peelBlocker(three, lg.league.rivals[1].id, null, monday), 'three a week');
+  assert.ok(peelBlocker(lg, target.id, target.name, monday), 'not the co-op partner');
+  assert.ok(peelBlocker(lg, 'nobody', null, monday));
+  assert.ok(peelBlocker(lg, target.id, null, new Date(2027, 2, 9, 12)), "not last week's league");
+
+  // renaming a rival: this week's table, the co-op partner too, and later leagues; voice and co-op goal stay theirs
+  const rn = defaultState();
+  rn.league = newLeague(0, week);
+  const r0 = rn.league.rivals[0];
+  rn.coop = { week, partner: { name: r0.name, emoji: r0.emoji }, goal: goalOf(r0.name), base: 3 };
+  const renamed = withRivalName(rn, r0.id, 'Bob');
+  assert.equal(renamed.league!.rivals[0].name, 'Bob');
+  assert.equal(rosterName(renamed.league!.rivals[0]), r0.name);
+  assert.equal(renamed.coop?.partner.name, 'Bob');
+  assert.equal(standings(renamed, sunNight).find((r) => r.id === r0.id)?.base, r0.name);
+  assert.equal(voiceOf(rosterName(renamed.league!.rivals[0])), voiceOf(r0.name));
+  const again = withRivalName(renamed, r0.id, 'Bobby');
+  assert.equal(rosterName(again.league!.rivals[0]), r0.name, 'a second rename keeps the roster name');
+  assert.deepEqual(again.rivalNames, { [r0.name]: 'Bobby' });
+  let found = false;
+  for (let w = 1; w <= 40 && !found; w++) {
+    const later = withRivalNames(newLeague(0, dayKey(addDays(monday, w * 7))), again.rivalNames);
+    const hit = later.rivals.find((r) => rosterName(r) === r0.name);
+    if (hit) {
+      assert.equal(hit.name, 'Bobby');
+      found = true;
+    }
+  }
+  assert.ok(found, 'they turn up again in a later league, under their new name');
+
+  // the boss's name: that week only, whatever day it's asked (recaps too); the newest 60 weeks are kept
+  const bn = withBossName(defaultState(), 'Sir Snoozealot', new Date(2027, 2, 3, 12));
+  assert.equal(bossFor(bn, new Date(2027, 2, 1, 9)).name, 'Sir Snoozealot');
+  assert.equal(bossFor(bn, sunNight).name, 'Sir Snoozealot');
+  assert.notEqual(bossFor(bn, new Date(2027, 2, 8, 9)).name, 'Sir Snoozealot');
+  let many = defaultState();
+  for (let i = 0; i < 70; i++) many = withBossName(many, `B${i}`, addDays(new Date(2026, 0, 5), i * 7));
+  assert.equal(Object.keys(many.bossNames ?? {}).length, 60);
+  assert.equal(bossFor(many, addDays(new Date(2026, 0, 5), 69 * 7)).name, 'B69');
+
+  // a quest card: only while the morning pick is open, a fourth quest goes in at once, then four must be picked
+  const qc = defaultState();
+  qc.onboarded = true;
+  const morning = new Date(2027, 2, 2, 9);
+  const key = dayKey(morning);
+  const draft = draftFor(qc, morning);
+  qc.days[key] = { ...emptyDay(), quests: draft.defaults, questDraft: { candidates: draft.candidates, locked: false } };
+  assert.equal(questSlotsOn(qc, key), QUEST_SLOTS);
+  assert.equal(questCardBlocker(qc, morning), null);
+  assert.ok(questCardBlocker(qc, new Date(2027, 2, 2, 13)), 'not after noon');
+  const four = withQuestCard(qc, morning)!;
+  const picked = four.days[key].quests!;
+  assert.equal(picked.length, 4);
+  assert.deepEqual(picked.slice(0, 3), draft.defaults);
+  assert.ok(draft.candidates.includes(picked[3]));
+  assert.equal(questSlotsOn(four, key), 4);
+  assert.equal(questsFor(four, morning).length, 4);
+  assert.ok(questCardBlocker(four, morning), 'one card a day');
+  assert.equal(withQuestCard(four, morning), null);
+  assert.ok(validDraft(four, picked, morning));
+  assert.ok(!validDraft(four, draft.defaults, morning), 'three is not enough once four were bought');
+}
+shopTests();
 
 // free-time finder + meeting detection (tomorrow, so "now" doesn't clip it)
 const tomorrow = atTime(new Date(), 1, 0);

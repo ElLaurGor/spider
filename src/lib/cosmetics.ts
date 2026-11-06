@@ -1,11 +1,14 @@
 // The spider's wardrobe: things to wear, bought with coins, found in season, dropped by legendary
-// chests, unlocked on the monthly Silk Track, earned in co-op weeks and on the trek, or handed out by an event (Advent Web doors, the Prizes). Purely for looks: nothing here changes XP, the boss or the league.
+// chests, unlocked on the monthly Silk Track, earned in co-op weeks and on the trek, or handed out by an event (Advent Web doors, the Prizes).
+// Pets are the flies of the collection (critters.ts): one caught at least once can be adopted. Purely for looks:
+// nothing here changes XP, the boss or the league.
+import { FLIES, type Rarity } from './critters';
 import { seasonOn, type SeasonId } from './seasons';
 import { SILK_ITEMS, silkTitles } from './silk-track';
 import type { State } from './types';
 import { levelForXp, titleFor } from './xp';
 
-export type Slot = 'hat' | 'held' | 'aura';
+export type Slot = 'hat' | 'held' | 'aura' | 'pet';
 /** What the avatar shows besides the worn items: the evolution stage's badge and its opinion of you (respect.ts). */
 export type AvatarExtra = 'badge' | 'respect';
 export type Cosmetic = {
@@ -13,18 +16,20 @@ export type Cosmetic = {
   slot: Slot;
   name: string;
   emoji: string;
-  source: 'shop' | 'season' | 'legendary' | 'silk' | 'reward' | 'gift';
+  source: 'shop' | 'season' | 'legendary' | 'silk' | 'reward' | 'gift' | 'pet';
   price?: number;
   season?: SeasonId;
   edition?: string; // Silk Track items: the edition that hands it out
   note?: string; // reward and gift items: where they're earned or come from
   ring?: string; // auras recolor the avatar's ring
+  fly?: string; // pets: the fly (critters.ts) it is
 };
 
 export const SLOTS: { id: Slot; name: string }[] = [
   { id: 'hat', name: 'Hats' },
   { id: 'held', name: 'Held' },
   { id: 'aura', name: 'Auras' },
+  { id: 'pet', name: 'Pets' },
 ];
 
 export const COSMETICS: Cosmetic[] = [
@@ -63,8 +68,17 @@ export const COSMETICS: Cosmetic[] = [
 /** Silk Track hats, held items and auras (seasonal pieces it hands out are in COSMETICS already). */
 export const SILK_COSMETICS: Cosmetic[] = SILK_ITEMS.map((x) => ({ ...x, source: 'silk' }));
 
-export const cosmeticOf = (id: string | undefined) => (id ? (COSMETICS.find((c) => c.id === id) ?? SILK_COSMETICS.find((c) => c.id === id)) : undefined);
+/** What adopting a fly costs, by how rare it is. */
+export const PET_PRICE: Record<Rarity, number> = { common: 300, rare: 600, epic: 1000, legendary: 1500 };
+/** Every fly of the collection as a pet, sitting by the spider. */
+export const PET_COSMETICS: Cosmetic[] = FLIES.map((f) => ({ id: `pet_${f.id}`, slot: 'pet', name: f.name, emoji: f.emoji, source: 'pet', price: PET_PRICE[f.rarity], fly: f.id }));
+
+export const cosmeticOf = (id: string | undefined) =>
+  id ? (COSMETICS.find((c) => c.id === id) ?? SILK_COSMETICS.find((c) => c.id === id) ?? PET_COSMETICS.find((c) => c.id === id)) : undefined;
 export const owns = (s: State, id: string) => (s.cosmetics?.owned ?? []).includes(id);
+
+/** A pet whose fly is in the collection: only a fly caught at least once can be adopted. */
+export const petCaught = (s: State, c: Cosmetic) => c.source === 'pet' && !!c.fly && !!s.flies?.[c.fly];
 
 /** Can be bought right now: shop items always, seasonal ones while their season is on, legendary ones never. */
 export function buyable(c: Cosmetic, date: Date | number = new Date()) {
@@ -72,6 +86,10 @@ export function buyable(c: Cosmetic, date: Date | number = new Date()) {
   if (c.source === 'season') return seasonOn(date)?.id === c.season;
   return false;
 }
+
+/** Can be bought by `s` right now: not owned yet, priced, and on sale (a pet once its fly was caught). */
+export const forSale = (s: State, c: Cosmetic, date: Date | number = new Date()) =>
+  c.price != null && !owns(s, c.id) && (c.source === 'pet' ? petCaught(s, c) : buyable(c, date));
 
 const SEASON_NOTE: Partial<Record<SeasonId, string>> = { halloween: 'Spooky season only', lucia: 'Lucia only', solstice: 'Winter solstice only' };
 
@@ -82,13 +100,14 @@ export function whereToGet(c: Cosmetic) {
   if (c.source === 'reward') return c.note ?? 'Earned';
   if (c.source === 'gift') return c.note ?? 'A gift';
   if (c.source === 'season') return (c.season && SEASON_NOTE[c.season]) ?? 'Seasonal';
+  if (c.source === 'pet') return 'Catch it first';
   return '';
 }
 
 /** What the spider wears now, owned items only. */
 export function worn(s: State): Partial<Record<Slot, Cosmetic>> {
   const out: Partial<Record<Slot, Cosmetic>> = {};
-  for (const slot of ['hat', 'held', 'aura'] as const) {
+  for (const { id: slot } of SLOTS) {
     const c = cosmeticOf(s.cosmetics?.worn[slot]);
     if (c && owns(s, c.id)) out[slot] = c;
   }

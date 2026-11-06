@@ -1777,6 +1777,43 @@ export const LINES = {
     mild: ['Your spider is now wearing: {title}.'],
     savage: ['{title} acquired. Your spider now dresses better than you.', 'Your spider wears {title} now. Fashion is a weapon.'],
   },
+  // the shop's extras: the lair, pets, names, peels and a fourth quest
+  lairBuilt: {
+    mild: ['{title} is in the lair now. It feels more like home.', 'New in the lair: {title}. Cosy.'],
+    savage: [
+      '{title} moved into the lair. My place is getting nicer than yours.',
+      '{title}, installed. Interior design by your habits, paid in coins.',
+      'The lair has {title} now. I will be insufferable about it.',
+    ],
+  },
+  lairDone: {
+    mild: ['The lair is complete. Every piece of it earned. Thank you.'],
+    savage: ['The lair is finished. Ten pieces, all paid for in habits. I may never leave.'],
+  },
+  petAdopted: {
+    mild: ['{title} moved in with your spider. Be nice to it.', "{title} is your spider's pet now."],
+    savage: ['{title} adopted. Technically it was lunch. Now it has a bed.', '{title} is a pet now. My cousins would be appalled.'],
+  },
+  bossNamed: {
+    mild: ["This week's boss answers to {boss} now."],
+    savage: ['{boss}. You named it, so now you have to beat it.', 'Meet {boss}. Naming your enemy is step one. Hitting it is step two.'],
+  },
+  rivalRenamed: {
+    mild: ['Done. In your league they go by {rival} now.'],
+    savage: ['{rival}: new name, same rival. They hate it, which is the point.', 'They are {rival} from now on. No appeals.'],
+  },
+  peelThrown: {
+    mild: ['🍌 {rival} slipped. -{xp} XP off their week.'],
+    savage: ['🍌 {rival} hit the peel. -{xp} XP. Petty? Very. Effective? Also very.', '🍌 -{xp} XP for {rival}. They never saw it coming. Neither did their dignity.'],
+  },
+  questCard: {
+    mild: ['A fourth quest for today: {quest}. Swap it before noon if you like.'],
+    savage: ['Four quests today, {quest} included. Ambitious. Let us see if it lasts past lunch.', 'You bought yourself more work: {quest}. I respect it. Mostly.'],
+  },
+  questsLockedFour: {
+    mild: ['Locked in. Four quests today, all yours.'],
+    savage: ['Four quests, locked. You paid for the extra one, so no backing out.'],
+  },
   // ---- cluster F: assistant & calendar ----
   seasonEaster: {
     mild: ['Happy Easter, {name}! 🐣 Five eggs are hidden around the app.', 'Easter hunt is on. Keep an eye out for eggs.'],

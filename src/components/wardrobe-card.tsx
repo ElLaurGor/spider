@@ -4,7 +4,8 @@ import { SpiderAvatar } from '@/components/spider-avatar';
 import { Btn, Card, Chip, H, Row, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { useToday } from '@/components/use-today';
-import { buyable, COSMETICS, owns, shows, shownTitle, SILK_COSMETICS, SLOTS, titlesEarned, whereToGet, worn, type AvatarExtra, type Cosmetic } from '@/lib/cosmetics';
+import { COSMETICS, forSale, owns, PET_COSMETICS, petCaught, shows, shownTitle, SILK_COSMETICS, SLOTS, titlesEarned, whereToGet, worn, type AvatarExtra, type Cosmetic } from '@/lib/cosmetics';
+import { caughtCount, FLIES } from '@/lib/critters';
 import { stageFor } from '@/lib/evolution';
 import { respectFor } from '@/lib/respect';
 import { editionFor, monthOf, silkBadges } from '@/lib/silk-track';
@@ -20,7 +21,9 @@ export function WardrobeCard() {
   // Silk Track pieces: the ones you have, plus this month's edition (the rest of the year stays out of the list).
   const today = useToday();
   const thisEdition = new Set(editionFor(monthOf(today)).rewards.map((r) => r.id));
-  const listed = [...COSMETICS, ...SILK_COSMETICS.filter((c) => owns(state, c.id) || thisEdition.has(c.id))];
+  // Pets: only flies already caught (the Bestiary holds the hints for the rest).
+  const pets = PET_COSMETICS.filter((c) => owns(state, c.id) || petCaught(state, c));
+  const listed = [...COSMETICS, ...SILK_COSMETICS.filter((c) => owns(state, c.id) || thisEdition.has(c.id)), ...pets];
   const badges = silkBadges(state);
   const stage = stageFor(levelForXp(state.xp));
   const respect = respectFor(state);
@@ -40,7 +43,7 @@ export function WardrobeCard() {
     <Card>
       <H right={<SpiderAvatar size={40} />}>Wardrobe</H>
       <T dim small>
-        Looks only. Seasonal pieces are sold while their season is on, auras drop from legendary chests, a few are gifts (the Advent Web, the Prizes), and the Silk Track, co-op weeks and the trek hand out the rest.
+        Looks only. Seasonal pieces are sold while their season is on, auras drop from legendary chests, a few are gifts (the Advent Web, the Prizes), and the Silk Track, co-op weeks and the trek hand out the rest. Any fly you have caught can move in as a pet.
       </T>
       {extras.length ? (
         <View style={{ gap: 8 }}>
@@ -60,7 +63,7 @@ export function WardrobeCard() {
             </Row>
           ))}
           <T dim small>
-            Hats and held things come off with their On ✓ below.
+            Hats, held things and pets come off with their On ✓ below.
           </T>
         </View>
       ) : null}
@@ -69,16 +72,21 @@ export function WardrobeCard() {
           <T dim small mono>
             {slot.name.toUpperCase()}
           </T>
+          {slot.id === 'pet' ? (
+            <T dim small>
+              {caughtCount(state)}/{FLIES.length} species caught. A pet sits by your spider; rarer flies cost more to adopt.
+            </T>
+          ) : null}
           {listed.filter((c) => c.slot === slot.id).map((c) => {
             const have = owns(state, c.id);
             const on = wearing[slot.id]?.id === c.id;
-            const forSale = !have && c.price != null && buyable(c);
+            const onSale = forSale(state, c);
             return (
               <Row key={c.id}>
-                <Text style={{ fontSize: 22, opacity: have || forSale ? 1 : 0.35 }}>{c.emoji}</Text>
+                <Text style={{ fontSize: 22, opacity: have || onSale ? 1 : 0.35 }}>{c.emoji}</Text>
                 <View style={{ flex: 1 }}>
                   <T>{c.name}</T>
-                  {!have && !forSale ? (
+                  {!have && !onSale ? (
                     <T dim small>
                       {whereToGet(c)}
                     </T>
@@ -86,7 +94,7 @@ export function WardrobeCard() {
                 </View>
                 {have ? (
                   <Btn small kind={on ? 'primary' : 'ghost'} label={on ? 'On ✓' : 'Wear'} onPress={() => actions.wearCosmetic(slot.id, on ? null : c.id)} />
-                ) : forSale ? (
+                ) : onSale ? (
                   <Btn small kind={state.coins >= (c.price ?? 0) ? 'primary' : 'ghost'} label={`${c.price} 🪙`} onPress={() => confirmBuy(c)} />
                 ) : null}
               </Row>

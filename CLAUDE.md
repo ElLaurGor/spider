@@ -76,6 +76,12 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - Co-op weeks (`coop.ts`, every other week from `COOP_FROM`) and the trek (`trek.ts`, steps × `stepM`, a new trek starts at 0 km) pay coins and cosmetics, never XP. A co-op bar comes from last week's open days only and never asks for every day (day goals cap at 6). Reward and gift cosmetics carry a `note`; one already owned pays coins.
   - Seasons: Advent Web and Julfrid (`advent.ts`; doors stay openable until 6 Jan, no XP; 24–26 Dec are kind days; reminders skip Kalle Anka on the 24th), the S.P.I.D.E.R. Prizes on 10 Dec (`prizes.ts`), the yearly Wrapped on 1 Jan (`year-wrapped.ts`). A quest with `extra` is draft-only.
   - Storm protocol (`storm.ts`, `State.storm`, `DayTone.storm`): an orange/red SMHI warning or a VMA makes every covered day kind. Weather lines get `{sunrise}`/`{sunset}`; `weatherDark` is for grey days under 8 h of daylight. Water reminders are dealt across the week (`dayLine` `perDay`). Daily and kind pools need 6+ mild lines, and a house joke may appear in at most 3 pools (tested).
+- Shop extras (prices in `economy.ts`, none pays XP):
+  - The lair (`lair.ts`, `State.lair`, HQ card `lair` drawn only once something is built): pieces bought one at a time, in order. New pieces go at the end.
+  - Pets: every fly as a `pet`-slot cosmetic (`PET_COSMETICS`), adoptable once caught (`forSale`/`petCaught`), priced by rarity.
+  - Names: `bossNames[week]` overrides that week's `bossFor().name` (recaps too). `rivalNames` maps a roster name to the given one and is applied to every new league (`withRivalNames`); voices and co-op goals look rivals up by `rosterName`, never by the shown name.
+  - Banana peels (`League.peels`): `standings` takes `PEEL_XP` each off a rival's week (`nemesisOf` doesn't), 3 a week, never the co-op partner.
+  - Chest key: one a day (`DayLog.keyChest`), a normal chest through `chestPrize` (pity counts). Quest card: `DayLog.questSlots` 4 while the morning pick is open (`withQuestCard`); all four count towards the chest.
 - Scores and recaps judge only `countedDay`s (`day-filters.ts`): something was logged and the day wasn't rough (paused, low mood, period). Rough days are listed as rest, never as misses; recaps start at `firstDataDay`. Mood and protein are shown but never graded.
 
 ## Before calling a change done

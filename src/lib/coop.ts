@@ -6,7 +6,7 @@
 import { withOwned } from './cosmetics';
 import { addDays, dayKey } from './dates';
 import { roughDay, usedOn } from './day-filters';
-import { nemesisOf, weekKeyOf } from './league';
+import { nemesisOf, rosterName, weekKeyOf } from './league';
 import { fillLine } from './lines';
 import { openDays } from './medals';
 import { doneTasksOn, stepGoalOn, trainedOn, waterGoalMet } from './selectors';
@@ -145,10 +145,10 @@ export function coopFor(s: State, now = new Date()): CoopWeek | null {
   if (!l || l.week !== weekKeyOf(now) || !isCoopWeek(l.week)) return null;
   const nemesis = nemesisOf(s)?.id;
   const steps = hasSteps(s, l.week);
-  const pool = l.rivals.filter((r) => r.id !== nemesis && (steps || goalOf(r.name) !== 'steps'));
+  const pool = l.rivals.filter((r) => r.id !== nemesis && (steps || goalOf(rosterName(r)) !== 'steps'));
   if (!pool.length) return null;
   const r = pool[hash(`${l.week}:coop`) % pool.length];
-  const goal = goalOf(r.name);
+  const goal = goalOf(rosterName(r));
   return { week: l.week, partner: { name: r.name, emoji: r.emoji }, goal, base: baseFor(s, goal, l.week) };
 }
 

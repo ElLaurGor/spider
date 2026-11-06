@@ -283,10 +283,42 @@ export function draftPickable(s: State, id: string, now = new Date()) {
   return (d.quests ?? []).includes(id) || !questMet(s, id, now);
 }
 
-/** A valid pick: three different quests on offer, all pickable, keeping every quest already done today. */
+/** Quests a day keeps: three, or four once a quest card was bought for it (QUEST_CARD_COST in economy.ts). */
+export const QUEST_SLOTS = 3;
+export const questSlotsOn = (s: State, key = dayKey()) => dayOf(s, key).questSlots ?? QUEST_SLOTS;
+
+/** The first quest on offer that isn't one of today's yet and isn't met already: what a quest card adds. */
+function fourthQuest(s: State, now: Date) {
+  const d = dayOf(s, dayKey(now));
+  return d.questDraft?.candidates.find((id) => !(d.quests ?? []).includes(id) && draftPickable(s, id, now)) ?? null;
+}
+
+/** Why a quest card can't be bought right now, or null when it can: only while the morning pick is open, once a day. */
+export function questCardBlocker(s: State, now = new Date()): string | null {
+  if (questSlotsOn(s, dayKey(now)) > QUEST_SLOTS) return 'Four quests today already';
+  if (!draftOpen(s, now)) return `Only while the morning pick is open (until ${DRAFT_UNTIL_HOUR}:00)`;
+  if (!fourthQuest(s, now)) return 'Nothing left on offer to add today';
+  return null;
+}
+
+/**
+ * Today with a fourth quest: the first free one on offer goes in straight away, so it counts even if the pick
+ * is left alone; until noon it can be swapped like the others. Null when a card can't be bought. All four
+ * count towards the chest.
+ */
+export function withQuestCard(s: State, now = new Date()): State | null {
+  const id = questCardBlocker(s, now) ? null : fourthQuest(s, now);
+  if (!id) return null;
+  const key = dayKey(now);
+  const d = dayOf(s, key);
+  return { ...s, days: { ...s.days, [key]: { ...d, questSlots: QUEST_SLOTS + 1, quests: [...(d.quests ?? []), id] } } };
+}
+
+/** A valid pick: as many different quests as the day keeps, all on offer and pickable, keeping every quest already done today. */
 export function validDraft(s: State, ids: string[], now = new Date()) {
   const d = dayOf(s, dayKey(now));
-  if (ids.length !== 3 || new Set(ids).size !== 3) return false;
+  const n = questSlotsOn(s, dayKey(now));
+  if (ids.length !== n || new Set(ids).size !== n) return false;
   if ((d.questsDone ?? []).some((id) => !ids.includes(id))) return false;
   return ids.every((id) => draftPickable(s, id, now));
 }
@@ -561,7 +593,8 @@ export function bossFor(s: State, date: Date | number = new Date(), now: Date | 
   const season = final ? null : bossSeasonOf(monday);
   const skin = season === 'halloween' ? HALLOWEEN[base.id as (typeof BOSSES)[number]['id']] : season === 'nyar' ? { name: 'The Old Year', emoji: '🕰️' } : null;
   const rank = final ? kings.indexOf(key) + 1 : bossRank(s, monday);
-  const name = (skin?.name ?? base.name) + (rank > 1 ? ` ${roman(rank)}` : '');
+  // A name the owner gave this week's boss (bought in the shop) holds for the whole week, recaps included.
+  const name = s.bossNames?.[key] ?? (skin?.name ?? base.name) + (rank > 1 ? ` ${roman(rank)}` : '');
   const weakness = final ? ANY_WEAKNESS : WEAKNESS[base.id as (typeof BOSSES)[number]['id']];
   const rage = final ? null : rageWeaknessOf(base.id, key);
   const days = Array.from({ length: 7 }, (_, i) => dayKey(addDays(monday, i)));
@@ -627,4 +660,11 @@ export function bossFor(s: State, date: Date | number = new Date(), now: Date | 
     hp: Math.max(0, maxHp - damage),
     defeated: !!s.bossesDefeated[key],
   };
+}
+
+/** `s` with this week's boss going by `name` from now on, recaps included (the newest 60 weeks are kept). */
+export function withBossName(s: State, name: string, now: Date | number = new Date()): State {
+  const week = weekKey(now);
+  const kept = Object.entries(s.bossNames ?? {}).filter(([k]) => k !== week).sort(([a], [b]) => a.localeCompare(b)).slice(-59);
+  return { ...s, bossNames: { ...Object.fromEntries(kept), [week]: name } };
 }

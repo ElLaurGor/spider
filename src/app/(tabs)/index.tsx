@@ -10,6 +10,7 @@ import { CountdownRow } from '@/components/countdowns-card';
 import { SwedishDaysRow } from '@/components/swedish-year';
 import { DebriefCard, TopThreeCard } from '@/components/debrief-cards';
 import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
+import { LairCard } from '@/components/lair-card';
 import { SilkTrackCard } from '@/components/silk-track';
 import { AdventCard, JulfridCard, PrizesCard } from '@/components/season-cards';
 import { MedalsCard } from '@/components/medals-card';
@@ -389,6 +390,7 @@ export default function HQ() {
     progress: () => <ProgressChips />,
     experiment: () => <ExperimentCard compact />,
     wild: () => <WildCard />,
+    lair: () => <LairCard />,
     // NEW HQ CARD: add `<id>: () => <YourCard />,` here and `{ id, label }` to HQ_SECTIONS in lib/hq-layout.ts.
   };
 

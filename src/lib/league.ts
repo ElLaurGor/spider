@@ -83,14 +83,24 @@ export function userWeekXp(s: State, week: string, now: Date) {
   return total;
 }
 
-export type Standing = { id: string; name: string; emoji: string; xp: number; me: boolean };
+/** `base`: a rival's roster name (rosterName), which their voice hangs on. */
+export type Standing = { id: string; name: string; emoji: string; xp: number; me: boolean; base?: string };
+
+/** Banana peels (bought in the shop): each takes PEEL_XP off a rival's week, at most PEELS_PER_WEEK a week. */
+export const PEEL_XP = 100;
+export const PEELS_PER_WEEK = 3;
+export const peelsOn = (l: League, id: string) => l.peels?.[id] ?? 0;
+export const peelsUsed = (l: League) => Object.values(l.peels ?? {}).reduce((a, n) => a + n, 0);
+
+/** A rival's week in the table: what they earned, less any peels they slipped on (never below 0). */
+const tableXp = (r: Rival, l: League, now: Date) => Math.max(0, rivalXp(r, l.tier, l.week, now) - PEEL_XP * peelsOn(l, r.id));
 
 export function standings(s: State, now = new Date()): Standing[] {
   const l = s.league;
   if (!l) return [];
   const rows: Standing[] = [
     { id: 'me', name: s.settings.userName || 'You', emoji: '🕷️', xp: userWeekXp(s, l.week, now), me: true },
-    ...l.rivals.map((r) => ({ id: r.id, name: r.name, emoji: r.emoji, xp: rivalXp(r, l.tier, l.week, now), me: false })),
+    ...l.rivals.map((r) => ({ id: r.id, name: r.name, emoji: r.emoji, xp: tableXp(r, l, now), me: false, base: rosterName(r) })),
   ];
   return rows.sort((a, b) => b.xp - a.xp || (a.me ? -1 : b.me ? 1 : 0));
 }
@@ -109,7 +119,7 @@ function lastWeekXp(s: State, l: League) {
 /**
  * This week's nemesis: the rival set to finish just above what you earned last week (rival XP is fixed per
  * week), or the strongest one if you'd beat them all. With no last week to go by, the middle of the table.
- * Picked fresh every week from the league itself, so nothing carries over.
+ * Picked fresh every week from the league itself, so nothing carries over. Peels don't change who it is.
  */
 export function nemesisOf(s: State): Rival | null {
   const l = s.league;
@@ -139,4 +149,46 @@ export function settle(s: State) {
   // Beating the nemesis pays a little extra. Losing to them costs nothing: next week brings a new one.
   const nemesis = nem ? { name: nem.name, emoji: nem.emoji, beaten: xp > nemXp } : null;
   return { rank, tier, prize, xp, nemesis, nemesisPrize: nemesis?.beaten ? NEMESIS_PRIZE : 0 };
+}
+
+/** Why a peel can't be thrown at rival `id` right now, or null when it can. `partner`: this week's co-op partner, on your side. */
+export function peelBlocker(s: State, id: string, partner: string | null = null, now = new Date()): string | null {
+  const l = s.league;
+  const r = l?.rivals.find((x) => x.id === id);
+  if (!l || !r || l.week !== weekKeyOf(now)) return "Not in this week's league";
+  if (partner && r.name === partner) return 'Your co-op partner this week. On your side.';
+  if (peelsUsed(l) >= PEELS_PER_WEEK) return `All ${PEELS_PER_WEEK} peels are out this week`;
+  return null;
+}
+
+/** `s` with one more peel under rival `id` (the caller checks peelBlocker and takes the coins). */
+export function withPeel(s: State, id: string): State {
+  const l = s.league;
+  if (!l) return s;
+  return { ...s, league: { ...l, peels: { ...l.peels, [id]: peelsOn(l, id) + 1 } } };
+}
+
+/** A rival's roster name, whatever the owner renamed them: their voice (rival-talk.ts) and co-op goal hang on it. */
+export const rosterName = (r: { name: string; base?: string }) => r.base ?? r.name;
+
+/** League `l` with its rivals under the names the owner gave them (`names`: roster name -> name). */
+export function withRivalNames(l: League, names: Record<string, string> | undefined): League {
+  if (!names) return l;
+  return {
+    ...l,
+    rivals: l.rivals.map((r) => {
+      const name = names[rosterName(r)];
+      return name ? { ...r, name, base: rosterName(r) } : r;
+    }),
+  };
+}
+
+/** Renames rival `id` for good: in this week's table now (a co-op partner too), and in every later league they turn up in. */
+export function withRivalName(s: State, id: string, name: string): State {
+  const l = s.league;
+  const r = l?.rivals.find((x) => x.id === id);
+  if (!l || !r) return s;
+  const rivalNames = { ...s.rivalNames, [rosterName(r)]: name };
+  const coop = s.coop && s.coop.week === l.week && s.coop.partner.name === r.name ? { ...s.coop, partner: { ...s.coop.partner, name } } : s.coop;
+  return { ...s, rivalNames, coop, league: withRivalNames(l, rivalNames) };
 }

@@ -56,11 +56,35 @@ export type ShopItemId = (typeof SHOP_ITEMS)[number]['id'];
 export const shopPrice = (id: ShopItemId, perks: readonly string[] = []) =>
   id === 'bomb' && perks.includes('bomb_maker') ? 450 : (SHOP_ITEMS.find((i) => i.id === id)?.cost ?? 0);
 
+// The coin-only extras, priced in one place. None of them pays XP.
+/** Naming this week's boss, or renaming a rival for good. */
+export const NAME_COST = 400;
+/** A banana peel: a rival loses league.ts PEEL_XP from their week. */
+export const PEEL_COST = 500;
+/** One loot chest right now, once a day. A normal chest is worth far less than this on average (tested). */
+export const CHEST_KEY_COST = 700;
+/** A fourth quest in today's morning pick. */
+export const QUEST_CARD_COST = 300;
+
+/** Longest name the owner can give a boss or a rival. */
+export const NAME_MAX = 28;
+/** A typed name, tidied (spaces collapsed, at most NAME_MAX characters), or null when it's too short to be one. */
+export function cleanName(raw: string): string | null {
+  const name = Array.from(raw.replace(/\s+/g, ' ').trim()).slice(0, NAME_MAX).join('').trim();
+  return name.length >= 2 ? name : null;
+}
+
 export const REWARD_IDEAS = [
   { title: 'Bubble tea', emoji: '🧋', cost: 300 },
-  { title: 'Movie night', emoji: '🍿', cost: 600 },
-  { title: 'Takeaway dinner', emoji: '🥡', cost: 900 },
-  { title: 'Sleep in, no alarm', emoji: '😴', cost: 700 },
-  { title: 'Treat yourself shopping', emoji: '🛍️', cost: 2000 },
+  { title: 'Fika in town', emoji: '🥐', cost: 400 },
   { title: 'Skip one chore', emoji: '🧹', cost: 500 },
+  { title: 'Movie night', emoji: '🍿', cost: 600 },
+  { title: 'Sleep in, no alarm', emoji: '😴', cost: 700 },
+  { title: 'Cinema trip', emoji: '🎬', cost: 800 },
+  { title: 'Takeaway dinner', emoji: '🥡', cost: 900 },
+  { title: 'A new book', emoji: '📚', cost: 1200 },
+  { title: 'Treat yourself shopping', emoji: '🛍️', cost: 2000 },
+  { title: 'Massage', emoji: '💆', cost: 2500 },
+  { title: 'A new game', emoji: '🎮', cost: 3000 },
+  { title: 'Spa day', emoji: '🧖', cost: 4000 },
 ];
