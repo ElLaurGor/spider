@@ -2098,6 +2098,59 @@ export const LINES = {
     mild: ['{habit}: {done}, the top of the range. +{xp} XP.'],
     savage: ['{habit}: {done}. Top of the range. +{xp} XP. Show-off.'],
   },
+  // ---- step 8 days ----
+  gymSlotSet: {
+    mild: ['Gym moved to {time} today. The free slot has a job now.', 'Noted: gym at {time} today. The reminders follow along.'],
+    savage: ['Gym at {time} today. You picked the time, so the time picks you.', '{time} it is. A slot with your name on it, and a barbell next to it.'],
+  },
+  pastYouAsk: {
+    mild: ["Good moment. Leave one line for the you who's about to skip?", "Nice one. Want to write a line for a day that's harder than this one?"],
+    savage: ["You did the thing. Write it down for the version of you who won't want to.", "Quick, while you're winning: one line for the you who's about to skip."],
+  },
+  pastYouSaved: {
+    mild: ['Saved. Future you gets it at the right moment.', "Got it. I'll pass that on when it matters."],
+    savage: ["Saved. I'll read it back to you when you're halfway out of it.", "Noted. Future you won't be able to argue with past you."],
+  },
+  spotterOutlasted: {
+    mild: ['{rival} called it before you did. {minutes} minutes on your web.', '{minutes} minutes, and {rival} stopped first. Nicely held.'],
+    savage: [
+      "{rival} tapped out. You didn't. {minutes} minutes, and I'm telling the whole league.",
+      '{rival} said ten more and meant eight. You did {minutes}. Embarrassing for them.',
+      '{rival} is pretending they had a meeting. {minutes} minutes for you, a fib for them.',
+    ],
+  },
+  spotterStopped: {
+    mild: ['Fair stop. {rival} keeps going alone, and your web from before still counts.', 'Stopped there. Nothing lost: the first web is still yours. {rival} can have the extra.'],
+    savage: ['Fine. {rival} gets the extra minutes and none of the glory. Your web still counts.', 'You stopped, {rival} kept going, and nobody scores for that. Your first web stands.'],
+  },
+  slotFocusPing: {
+    mild: ["Your {time} focus block starts now. Tap Focus when you're ready.", 'Focus block, as booked for {time}. The web is ready when you are.'],
+    savage: ['{time}: the focus block you booked. Past you was confident. Prove them right.', "It's {time}. You booked this block yourself, so the scrolling can wait."],
+  },
+  slotTaskPing: {
+    mild: ['Slot is open: time for {task}.', 'This is the slot you saved for {task}.'],
+    savage: ['You booked this slot for {task}. The slot showed up. Your turn.', "{task}. Now. You picked the time, I'm only the messenger."],
+  },
+  topSlotPing: {
+    mild: ['Top 3, as planned last night: {task}, now.', 'Last night you booked this slot for {task}. Here it is.'],
+    savage: ["Last night's you booked this for {task}. Don't make them a liar.", '{task}: on the top 3, booked for right now. No pressure. Some pressure.'],
+  },
+  awayPlanned: {
+    mild: ['Away from {day} until {until}. Water, gym and habit reminders take those days off.', 'Trip noted: {day} to {until}. Those days ask for one quest and no nagging.'],
+    savage: ["Away {day} to {until}. I'll miss nagging you. Mostly.", "Booked: you're away {day} to {until}. The reminders get a holiday too."],
+  },
+  phoneWeekDoom: {
+    mild: ['{app} averaged {time} a day this week. Worth a look, maybe.', '{app} took about {time} a day this week. An app limit could help, if you want one.'],
+    savage: ['{app}: {time} a day, all week. That app should be paying rent.', "{time} a day of {app}. The feed is endless; your evenings aren't."],
+  },
+  phoneWeekHeavy: {
+    mild: ['About {time} a day on the phone this week. A screen-free hour might feel nice.', '{time} of phone a day this week. Easy does it.'],
+    savage: ['{time} a day this week. Your thumb has scrolled further than most commutes.', '{time} a day on the phone. The screen is winning on points.'],
+  },
+  phoneWeekChill: {
+    mild: ['About {time} a day this week. The phone knows its place.', '{time} a day of phone this week. Calm and steady.'],
+    savage: ['Just {time} a day. The phone is starting to feel ignored.', '{time} a day this week. The feed misses you. Good.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Linking, Pressable, Text } from 'react-native';
 
+import { PastYouAsk, PastYouLine } from '@/components/past-you';
 import { PauseCard } from '@/components/pause-card';
 import { Btn, Card, Chip, H, Icon, Row, T } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
@@ -11,12 +12,13 @@ import { patchSummary, roughPatch, showRoughPatch } from '@/lib/rough-patch';
 import { dayOf, lowBattery, moodsOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 
-/** HQ's quiet check-ins: "Want to name it?" after a low one-tap check-in, and the rough-patch card. Usually nothing. */
+/** HQ's quiet check-ins: "Want to name it?" after a low one-tap check-in, the rough-patch card and (step 8 days) the week's note for future you. Usually nothing. */
 export function CareCard() {
   return (
     <>
       <NameItCard />
       <RoughPatchCard />
+      <PastYouAsk />
     </>
   );
 }
@@ -82,6 +84,7 @@ function RoughPatchCard() {
         🫖 Checking in
       </H>
       <T small>{patchSummary(patch)}</T>
+      <PastYouLine slot="rough" />
       <T dim small>
         That&apos;s a lot to carry. No verdict from me, just some slack if you want it:
       </T>

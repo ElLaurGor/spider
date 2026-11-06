@@ -48,7 +48,7 @@ import { isQueued, tapLanded, type ReminderAction } from './reminder-actions';
 import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
 import { bossFor, bossSeasonOf, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questCardBlocker, questInfo, questsFor, reducedDay, reopenQuests, rerollFor, validDraft, weekKey, withBossName, withQuestCard } from './quests';
 import { bossRecap, lastWeekKey } from './boss-recap';
-import { endPause as pauseEnded, pauseOn, startPause as pauseStarted } from './pause';
+import { endPause as pauseEnded, PAUSE_DAYS_PER_MONTH, pauseOn, startPause as pauseStarted } from './pause';
 import { contractProgress, difficultyOk, goalOf, payoutOf, roughWeek, signOptions, targetFor, type Difficulty } from './contracts';
 import { respectFor } from './respect';
 import { rivalTalk } from './rival-talk';
@@ -111,6 +111,9 @@ import type {
   WorkoutDay,
   MoveWhy,
   QuickAdd,
+  FocusSide,
+  SlotPlan,
+  TopWhen,
 } from './types';
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, needsPlaceInfo, samePlace, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
@@ -137,6 +140,12 @@ import { checkCues, cueVars, ON_CUE_RETIRE, onCueNow, planBToday, planText, type
 // step 6: moving a slipping workout
 import { copingPlan, copingWeekday, movedTo, moveDayName, moveTargets, withMove, withoutMove, withWhy } from './workout-move';
 import { quickAddOf } from './quick-add';
+// step 8 days: the owner's days, plans and the app's own records
+import { AWAY_MAX_DAYS, planAway as awayPlanned, withoutPlannedAway } from './away-ahead';
+import { pastYouTail, withoutAsk, withoutNote, withPastYouAsk, withSkipNote, withWin } from './past-you';
+import { keptWhen, slotStart, withGymAt, withoutSlotPlan, withSlotPlan, withTopWhen } from './plan-slots';
+import { finishOf } from './rival-files';
+import { endOffer, extraRound, sideFor, withExtension } from './spotter';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -261,7 +270,7 @@ function checkLeague(s: State, msgs: Msg[]): State {
   const key = r.tier > old.tier ? 'leaguePromoted' : r.tier < old.tier ? 'leagueDemoted' : 'leagueStayed';
   msgs.push({ text: L(s, key, vars) + (r.prize ? ` +${r.prize} 🪙` : ''), tone: r.tier > old.tier ? 'epic' : r.tier < old.tier ? 'bad' : 'info' });
   if (r.nemesis?.beaten) msgs.push({ text: L(s, 'nemesisBeaten', { rival: `${r.nemesis.emoji} ${r.nemesis.name}`, coins: r.nemesisPrize }), tone: 'good' });
-  const history = [...old.history, { week: old.week, tier: old.tier, rank: r.rank, xp: r.xp }].slice(-26);
+  const history = [...old.history, { week: old.week, tier: old.tier, rank: r.rank, xp: r.xp, ...finishOf(s) }].slice(-26); // step 8 days: each rival's finish, for the rival files
   const coins = r.prize + r.nemesisPrize;
   const league = withRivalNames(newLeague(r.tier, week, history), s.rivalNames); // renamed rivals keep the names you gave them
   return withNemesis({ ...s, league, coins: s.coins + coins, coinsEarned: s.coinsEarned + coins }, old.week, r.nemesis);
@@ -727,7 +736,7 @@ function comebackBonus(s: State, msgs: Msg[], key = dayKey()): State {
       : since >= dayKey(addDays(new Date(), -6))
         ? dayName(since)
         : new Date(`${since}T12:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
-  msgs.push({ text: L(next, 'comebackWorkout', { day, min: COMEBACK.min, dmg }), tone: 'epic' });
+  msgs.push({ text: L(next, 'comebackWorkout', { day, min: COMEBACK.min, dmg }) + pastYouTail(next, key, 'comeback'), tone: 'epic' }); // step 8 days: with a note from past you
   return next;
 }
 
@@ -746,6 +755,28 @@ function undoWorkout(s: State, msgs: Msg[], key = dayKey()): State {
   }
   msgs.push({ text: 'Nothing logged for training today anymore, so the workout is off the books.', tone: 'info' });
   return next;
+}
+
+/**
+ * step 8 days: the spotter's extra round is over (spotter.ts). Done to the end, its minutes go on the session it
+ * extends, with the XP and bonus minutes that adds, and the bot gets roasted for tapping out first. Stopped
+ * early (or snapped), it costs nothing: no snapped web, no roast, and the session before still counts.
+ */
+function finishExtra(s: State, msgs: Msg[], f: NonNullable<State['activeFocus']>, side: FocusSide, end: number, snapped?: string): State {
+  const ext = side.extends;
+  const next: State = { ...s, activeFocus: null };
+  const rival = side.spotter ? `${side.spotter.emoji} ${side.spotter.name}` : 'Your spotter';
+  if (!ext) return next;
+  if (snapped) {
+    msgs.push({ text: L(next, 'spotterStopped', { rival }), tone: 'info' });
+    return next;
+  }
+  const total = ext.minutes + f.minutes;
+  const xp = focusXp(total) - focusXp(ext.minutes);
+  const bonus = focusBonusMin(s, total) - focusBonusMin(s, ext.minutes);
+  const longer = withExtension(next, ext.day, ext.id, f.minutes, end);
+  msgs.push({ text: `🕸️ ${L(longer, 'spotterOutlasted', { rival, minutes: total })}${bonus ? ` +${bonus} min gaming` : ''}`, tone: 'epic' });
+  return xp > 0 || bonus > 0 ? reward(longer, msgs, Math.max(0, xp), Math.max(0, bonus)) : longer;
 }
 
 function recomputePr(s: State, exercise: string): State {
@@ -1134,7 +1165,8 @@ function useStoreValue() {
       const cued = checkCues(prev, scored);
       // Silk Track tiers wait for the next ordinary action after body or photo logging (no fanfare there).
       // The hour's running XP total is noted too, for the ghost of last week (xp-timeline.ts).
-      const next = withXpHour(quiet ? checkDiary(cued.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(cued.state, msgs), msgs), msgs), msgs), msgs));
+      // step 8 days: a good moment (workout, won contract, good check-in) asks for a note from past you, once a week (past-you.ts).
+      const next = withPastYouAsk(prev, withXpHour(quiet ? checkDiary(cued.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(cued.state, msgs), msgs), msgs), msgs), msgs)));
       commit(next);
       msgs.forEach((m) => say(m.text, m.tone, m.action));
       const cue = cued.prompts.at(-1);
@@ -2348,7 +2380,8 @@ function useStoreValue() {
 
       /** Tonight's picks for tomorrow's top 3 (the evening debrief). */
       setTopTomorrow(ids: string[]) {
-        run((s) => ({ ...s, topTomorrow: { day: tomorrowKey(), ids: ids.slice(0, 3) } }));
+        // step 8 days: picks still in keep their booked "when" (plan-slots.ts)
+        run((s) => ({ ...s, topTomorrow: { day: tomorrowKey(), ids: ids.slice(0, 3), when: keptWhen(s.topTomorrow, tomorrowKey(), ids.slice(0, 3)) } }));
       },
 
       renameTask(id: string, title: string) {
@@ -2756,6 +2789,8 @@ function useStoreValue() {
           const f = s.activeFocus;
           if (!f) return s;
           const end = Math.min(Date.now(), f.start + f.minutes * MIN);
+          const extra = extraRound(s, f); // step 8 days: the spotter's extra round adds to the session before it (spotter.ts)
+          if (extra) return finishExtra(s, msgs, f, extra, end, snapped);
           const entry = { id: uid(), start: f.start, end, minutes: f.minutes, label: f.label, snapped };
           const next = patchDay({ ...s, activeFocus: null }, dayKey(f.start), (d) => ({ ...d, focus: [...(d.focus ?? []), entry] }));
           if (snapped === 'gave up') {
@@ -2854,7 +2889,7 @@ function useStoreValue() {
       },
 
       // --- countdowns ---
-      addCountdown(c: { title: string; emoji: string; date: string; yearly: boolean }) {
+      addCountdown(c: { title: string; emoji: string; date: string; yearly: boolean; until?: string }) {
         run((s) => ({ ...s, countdowns: [...s.countdowns, { ...c, id: uid(), createdAt: Date.now() }] }));
       },
 
@@ -3021,6 +3056,117 @@ function useStoreValue() {
         disk.current.allowShrink = true;
         setLineMemory(undefined);
         commit(defaultState());
+      },
+
+      // --- step 8 days ---
+      /** Plan: today's gym time moved to a free slot's start (null: back to the usual time). The gym reminders, shame slot and slip time follow it. */
+      setGymAt(key: string, at: number | null) {
+        if (!isDayKey(key)) return;
+        run((s, msgs) => {
+          const next = withGymAt(s, key, at);
+          if (next === s) return s;
+          if (at == null) msgs.push({ text: `🏋️ Back to the usual gym time, ${fmtTime(atTime(new Date(), 0, s.settings.gymHour, s.settings.gymMinute))}.`, tone: 'info' });
+          else msgs.push({ text: L(next, 'gymSlotSet', { time: fmtTime(slotStart(at).at) }), tone: 'info' });
+          return next;
+        });
+      },
+
+      /** Plan: a free slot given a job, a focus block or a task, with a reminder at its start (plan-slots.ts). */
+      planSlot(plan: { day: string; at: number; end: number; kind: SlotPlan['kind']; taskId?: string }) {
+        if (!isDayKey(plan.day)) return;
+        run((s, msgs) => {
+          const next = withSlotPlan(s, plan);
+          if (next === s) return s;
+          const task = plan.taskId ? s.tasks.find((t) => t.id === plan.taskId)?.title : null;
+          msgs.push({ text: task ? `📌 "${task}" booked for ${fmtTime(plan.at)}. I'll ping you then.` : `🕸️ Focus block at ${fmtTime(plan.at)}. I'll ping you with a Focus button.`, tone: 'info' });
+          return next;
+        });
+      },
+
+      unplanSlot(id: string) {
+        run((s) => withoutSlotPlan(s, id));
+      },
+
+      /** The debrief: when a picked top-3 task is booked for tomorrow (null: not booked). */
+      bookTop(id: string, when: TopWhen | null) {
+        run((s) => withTopWhen(s, tomorrowKey(), id, when));
+      },
+
+      /** A line for the you who's about to skip, answering the week's ask (past-you.ts). No XP: it's a note. */
+      savePastNote(text: string) {
+        run((s, msgs) => {
+          const next = withSkipNote(s, text);
+          if (next === s) return s;
+          msgs.push({ text: L(next, 'pastYouSaved'), tone: 'good' });
+          return next;
+        });
+      },
+
+      skipPastAsk() {
+        commit(withoutAsk(stateRef.current));
+      },
+
+      /** The evening debrief's "glad I did this" for tonight (empty takes it back). */
+      setWin(text: string) {
+        run((s) => withWin(s, eveningKey(), text));
+      },
+
+      deletePastNote(id: string) {
+        run((s) => withoutNote(s, id));
+      },
+
+      /** Web Focus with a spotter from the league working alongside (spotter.ts), and the Plan task it's about. */
+      startFocusWith(minutes: number, label?: string, taskId?: string) {
+        if (stateRef.current.activeFocus) return;
+        const start = Date.now();
+        const next = run((s) => ({ ...s, activeFocus: { start, minutes, label: label?.trim() || undefined }, focusSide: sideFor(s, start, minutes, taskId) }));
+        void scheduleFocusDone(next, start + minutes * MIN);
+      },
+
+      /** "I'm in": the spotter's extra round, added to the session that just finished when it's done. */
+      extendFocus() {
+        const s = stateRef.current;
+        const offer = endOffer(s);
+        const side = s.focusSide;
+        if (s.activeFocus || !side || !offer?.more) return;
+        const start = Date.now();
+        const minutes = offer.more;
+        const extendsIt = { day: dayKey(offer.entry.start), id: offer.entry.id, minutes: offer.entry.minutes };
+        const next = run((x) => ({ ...x, activeFocus: { start, minutes, label: offer.entry.label }, focusSide: { ...side, start, extends: extendsIt } }));
+        void scheduleFocusDone(next, start + minutes * MIN);
+      },
+
+      /** The end-of-session offers answered (or waved off). */
+      closeFocusOffer() {
+        const s = stateRef.current;
+        if (s.focusSide && !s.focusSide.closed) commit({ ...s, focusSide: { ...s.focusSide, closed: true } });
+      },
+
+      /** Away mode planned ahead, from–to (away-ahead.ts). The month's cap of paused days still holds. */
+      planAway(from: string, to: string) {
+        if (!isDayKey(from) || !isDayKey(to)) return;
+        run((s, msgs) => {
+          const r = awayPlanned(s, from, to);
+          const day = (k: string) => new Date(`${k}T12:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+          if (r.result === 'cap') msgs.push({ text: `That month already has ${PAUSE_DAYS_PER_MONTH} paused days. That is the limit, sorry.`, tone: 'info' });
+          else if (r.result === 'paused') msgs.push({ text: 'Some of those days are already paused. Change that pause first.', tone: 'info' });
+          else if (r.result === 'past') msgs.push({ text: `Away mode can be planned up to ${AWAY_MAX_DAYS} days at a time, from today on.`, tone: 'info' });
+          else if (r.to) {
+            const until = day(r.to);
+            const short = r.result === 'short' ? ` The month's ${PAUSE_DAYS_PER_MONTH} paused days run out there.` : '';
+            msgs.push({ text: `🏖️ ${L(r.state, 'awayPlanned', { day: day(from), until })}${short}`, tone: 'info' });
+          }
+          return r.state;
+        });
+      },
+
+      /** A planned away period taken back before it starts. */
+      cancelAway(from: string) {
+        run((s, msgs) => {
+          const next = withoutPlannedAway(s, from);
+          if (next.pauses?.length !== s.pauses?.length) msgs.push({ text: 'Trip off the calendar. Those days count as normal again.', tone: 'info' });
+          return next;
+        });
       },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],

@@ -1,6 +1,8 @@
+import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { AwayOffers } from '@/components/away-ahead';
 import { CountdownsCard } from '@/components/countdowns-card';
 import { EntryEditor } from '@/components/entry-editor';
 import { HabitsCard } from '@/components/habits-card';
@@ -8,9 +10,10 @@ import { HiddenEgg, ValborgBonfire } from '@/components/swedish-year';
 import { Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, T } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
-import { addDays, fmtTime, WEEKDAYS } from '@/lib/dates';
+import { addDays, dayKey, fmtTime, pad, WEEKDAYS } from '@/lib/dates';
 import { IMMORTAL_DAYS, taskAgeDays } from '@/lib/memory';
-import { eventsOn, freeSlots, workoutFor } from '@/lib/selectors';
+import { slotPlansOn, slotStart } from '@/lib/plan-slots';
+import { dayOf, eventsOn, freeSlots, trainedOn, workoutFor } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { Task } from '@/lib/types';
 import { BONUS_MIN, XP } from '@/lib/xp';
@@ -21,6 +24,8 @@ export default function Plan() {
   const [draft, setDraft] = useState('');
   const [showDone, setShowDone] = useState(false);
   const [renaming, setRenaming] = useState<Task | null>(null);
+  const [slot, setSlot] = useState<{ start: number; end: number } | null>(null); // step 8 days: a free slot being given a job
+  const [taskPick, setTaskPick] = useState(false);
 
   const todayKey = useToday();
   const date = addDays(noonOf(todayKey), offset);
@@ -34,6 +39,28 @@ export default function Plan() {
 
   const open = state.tasks.filter((t) => !t.done);
   const done = state.tasks.filter((t) => t.done);
+  // step 8 days: free slots that do something (plan-slots.ts)
+  const shownKey = dayKey(date);
+  const booked = slotPlansOn(state, shownKey);
+  const gymMoved = offset === 0 ? state.days[todayKey]?.gymAt : undefined;
+  const canGymHere = offset === 0 && !!plan && !trainedOn(dayOf(state, todayKey));
+  const pickSlot = (sl: { start: number; end: number }) => {
+    setTaskPick(false);
+    setSlot(slot?.start === sl.start ? null : sl);
+  };
+  const book = (kind: 'focus' | 'task', taskId?: string) => {
+    if (!slot) return;
+    actions.planSlot({ day: shownKey, at: slotStart(slot.start).at, end: slot.end, kind, taskId });
+    setSlot(null);
+    setTaskPick(false);
+  };
+  const markOf = (sl: { start: number }) => {
+    const at = slotStart(sl.start).at;
+    const job = booked.find((p) => p.at === at);
+    if (job) return job.kind === 'focus' ? ' · 🕸️' : ' · 📌';
+    const g = slotStart(sl.start);
+    return gymMoved && gymMoved.hour === g.hour && gymMoved.minute === g.minute ? ' · 🏋️' : '';
+  };
 
   const add = () => {
     actions.addTask(draft);
@@ -79,7 +106,10 @@ export default function Plan() {
                     key={i}
                     label={i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : `${WEEKDAYS[d.getDay()]} ${d.getDate()}`}
                     active={offset === i}
-                    onPress={() => setOffset(i)}
+                    onPress={() => {
+                      setOffset(i);
+                      setSlot(null);
+                    }}
                   />
                 );
               })}
@@ -108,9 +138,71 @@ export default function Plan() {
                 </T>
                 <Row gap={6} style={{ flexWrap: 'wrap' }}>
                   {slots.map((sl) => (
-                    <Chip key={sl.start} label={`${fmtTime(sl.start)}–${fmtTime(sl.end)}`} />
+                    <Chip key={sl.start} label={`${fmtTime(sl.start)}–${fmtTime(sl.end)}${markOf(sl)}`} active={slot?.start === sl.start} onPress={() => pickSlot(sl)} />
                   ))}
                 </Row>
+                {slot ? (
+                  <View style={styles.sheet}>
+                    <T small>
+                      {fmtTime(slot.start)}–{fmtTime(slot.end)}: what goes here?
+                    </T>
+                    <Row gap={8} style={{ flexWrap: 'wrap' }}>
+                      {canGymHere ? (
+                        <Btn
+                          small
+                          label="Gym here today"
+                          icon="fitness_center"
+                          onPress={() => {
+                            actions.setGymAt(todayKey, slot.start);
+                            setSlot(null);
+                          }}
+                        />
+                      ) : null}
+                      <Btn small kind="ghost" label="Focus block" icon="timer" onPress={() => book('focus')} />
+                      <Btn small kind="ghost" label="Put a task here" icon="task_alt" onPress={() => setTaskPick(!taskPick)} />
+                    </Row>
+                    {taskPick ? (
+                      open.length ? (
+                        <Row gap={6} style={{ flexWrap: 'wrap' }}>
+                          {open.slice(0, 12).map((t) => (
+                            <Chip key={t.id} label={t.title} onPress={() => book('task', t.id)} />
+                          ))}
+                        </Row>
+                      ) : (
+                        <T dim small>
+                          No open tasks yet. Add one below first.
+                        </T>
+                      )
+                    ) : null}
+                    <T dim small>
+                      One reminder when the slot starts. A focus block&apos;s comes with the Focus 25 min button.
+                    </T>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            {gymMoved || booked.length ? (
+              <View style={{ gap: 4 }}>
+                {gymMoved ? (
+                  <Row>
+                    <T small style={{ flex: 1 }}>
+                      🏋️ Gym today at {pad(gymMoved.hour)}:{pad(gymMoved.minute)}
+                    </T>
+                    <Pressable onPress={() => actions.setGymAt(todayKey, null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back to the usual gym time">
+                      <Icon name="close" size={18} color={C.faint} />
+                    </Pressable>
+                  </Row>
+                ) : null}
+                {booked.map((p) => (
+                  <Row key={p.id}>
+                    <T small style={{ flex: 1 }}>
+                      {p.kind === 'focus' ? '🕸️ Focus block' : `📌 ${state.tasks.find((t) => t.id === p.taskId)?.title ?? p.title ?? 'A task'}`} · {fmtTime(p.at)}
+                    </T>
+                    <Pressable onPress={() => actions.unplanSlot(p.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Remove from the slot">
+                      <Icon name="close" size={18} color={C.faint} />
+                    </Pressable>
+                  </Row>
+                ))}
               </View>
             ) : null}
           </>
@@ -120,6 +212,8 @@ export default function Plan() {
       <HabitsCard />
 
       <CountdownsCard />
+
+      <AwayOffers />
 
       <Card>
         <H right={<T dim small>{open.length} open</T>}>Tasks</H>
@@ -144,6 +238,7 @@ export default function Plan() {
             onToggle={() => actions.toggleTask(t.id)}
             onEdit={() => setRenaming(t)}
             onDelete={() => actions.deleteTask(t.id)}
+            onFocus={() => router.push({ pathname: '/focus', params: { task: t.id } })}
           />
         ))}
         {done.length > 0 ? (
@@ -197,6 +292,7 @@ function TaskRow({
   onToggle,
   onEdit,
   onDelete,
+  onFocus,
 }: {
   title: string;
   done: boolean;
@@ -204,6 +300,7 @@ function TaskRow({
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onFocus?: () => void; // step 8 days: "Focus on this" starts Web Focus labelled with the task
 }) {
   return (
     <Row>
@@ -218,6 +315,11 @@ function TaskRow({
           </T>
         ) : null}
       </Pressable>
+      {onFocus ? (
+        <Pressable onPress={onFocus} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Focus on ${title}`}>
+          <Icon name="timer" size={18} color={C.dim} />
+        </Pressable>
+      ) : null}
       <Pressable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${title}`}>
         <Icon name="close" size={18} color={C.faint} />
       </Pressable>
@@ -228,4 +330,5 @@ function TaskRow({
 const styles = StyleSheet.create({
   event: { backgroundColor: C.card2, borderRadius: 12, padding: 10, alignItems: 'stretch' },
   bar: { width: 4, borderRadius: 2 },
+  sheet: { gap: 8, backgroundColor: C.card2, borderRadius: 12, padding: 10 },
 });

@@ -5,7 +5,8 @@ import { Btn, Card, Field, H, Icon, Row, Stepper, T } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { COUNTDOWN_EMOJIS, daysInMonth, daysLabel, daysLeft, defaultDate, nextDate, toKey, upcoming } from '@/lib/countdowns';
-import { pad } from '@/lib/dates';
+import { rangeText } from '@/lib/away-ahead';
+import { addDays, dayKey, pad } from '@/lib/dates';
 import { useStore } from '@/lib/store';
 
 /** Plan tab: list and add countdowns (vacations, birthdays, game releases…). */
@@ -19,6 +20,7 @@ export function CountdownsCard() {
   const [month, setMonth] = useState(start.getMonth() + 1);
   const [day, setDay] = useState(start.getDate());
   const [yearly, setYearly] = useState(false);
+  const [length, setLength] = useState(1); // step 8 days: a trip's days, so away mode can be offered for it (away-ahead.ts)
   const today = useToday(); // the card stays mounted on Plan for days
   const now = noonOf(today);
   const list = upcoming(state, now);
@@ -26,9 +28,12 @@ export function CountdownsCard() {
 
   const add = () => {
     if (!title.trim()) return;
-    actions.addCountdown({ title: title.trim(), emoji, date: toKey(year, month, Math.min(day, daysInMonth(year, month))), yearly });
+    const date = toKey(year, month, Math.min(day, daysInMonth(year, month)));
+    const until = !yearly && length > 1 ? dayKey(addDays(new Date(`${date}T12:00`), length - 1)) : undefined;
+    actions.addCountdown({ title: title.trim(), emoji, date, yearly, ...(until ? { until } : {}) });
     setTitle('');
     setYearly(false);
+    setLength(1);
     setAdding(false);
   };
 
@@ -57,6 +62,7 @@ export function CountdownsCard() {
               <T dim small>
                 {nextDate(c, now).toLocaleDateString('sv-SE')}
                 {c.yearly ? ' · every year' : ''}
+                {!c.yearly && c.until ? ` · trip ${rangeText(c.date, c.until)}` : ''}
               </T>
             </View>
             <Text style={[styles.days, n <= 7 && { color: C.yellow }]}>{n === 0 ? 'TODAY' : `${n}d`}</Text>
@@ -89,6 +95,12 @@ export function CountdownsCard() {
             <Row style={{ justifyContent: 'space-between' }}>
               <T small>Year</T>
               <Stepper value={year} min={thisYear} max={thisYear + 5} onChange={setYear} />
+            </Row>
+          ) : null}
+          {!yearly ? (
+            <Row style={{ justifyContent: 'space-between' }}>
+              <T small>A trip? It lasts</T>
+              <Stepper value={length} min={1} max={14} onChange={setLength} format={(v) => (v === 1 ? 'one day' : `${v} days`)} label="trip length" />
             </Row>
           ) : null}
           <Row style={{ justifyContent: 'space-between' }}>

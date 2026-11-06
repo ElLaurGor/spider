@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Bar, Card, H, Icon, Row, SpiderSays, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, WEEKDAYS, WEEKDAYS_LONG } from '@/lib/dates';
+import { doneBetween, doneTitle } from '@/lib/done-list';
 import { ledgerOn } from '@/lib/ledger';
 import { gradeOf, weekReport, type Grade } from '@/lib/report';
 import { useStore } from '@/lib/store';
@@ -88,6 +89,8 @@ export default function ReportScreen() {
 
       <XpLedger monday={r.monday} />
 
+      <DoneThisWeek monday={r.monday} />
+
       {r.best ? (
         <Card>
           <H>Highlights</H>
@@ -106,6 +109,39 @@ export default function ReportScreen() {
         </Card>
       ) : null}
     </ScrollView>
+  );
+}
+
+/** step 8 days: the week's finished tasks by title, kept after Plan's Clear (done-list.ts). A list, not a grade. */
+function DoneThisWeek({ monday }: { monday: Date }) {
+  const { state } = useStore();
+  const [open, setOpen] = useState(false);
+  const today = dayKey();
+  const sunday = dayKey(addDays(monday, 6));
+  const items = doneBetween(state, dayKey(monday), sunday < today ? sunday : today);
+  if (!items.length) return null;
+  const shown = open ? items : items.slice(-5);
+  return (
+    <Card>
+      <H right={<T dim small mono>{String(items.length)}</T>}>✅ Done this week ({items.length})</H>
+      {shown.map((x) => (
+        <Row key={`${x.day}:${x.id}`}>
+          <T small style={{ width: 36 }} dim>
+            {WEEKDAYS[new Date(`${x.day}T12:00`).getDay()]}
+          </T>
+          <T small style={{ flex: 1 }} dim={!x.title}>
+            {doneTitle(x)}
+          </T>
+        </Row>
+      ))}
+      {items.length > 5 ? (
+        <Pressable onPress={() => setOpen(!open)} hitSlop={6}>
+          <T dim small>
+            {open ? '▾ Show fewer' : `▸ All ${items.length}`}
+          </T>
+        </Pressable>
+      ) : null}
+    </Card>
   );
 }
 

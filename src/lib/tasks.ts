@@ -11,7 +11,10 @@ import { BONUS_MIN, XP } from './xp';
 /** The day's own record of finished tasks (what contracts and the boss weakness count, even after Clear). */
 export function recordTask(s: State, id: string, key: string, at: number | null): State {
   const d = dayOf(s, key);
-  const doneTasks = [...(d.doneTasks ?? []).filter((t) => t.id !== id), ...(at == null ? [] : [{ id, at }])];
+  // step 8 days: with its title and when it was added, so the done list still names it after Clear (done-list.ts)
+  const task = s.tasks.find((t) => t.id === id);
+  const named = task ? { title: task.title, since: task.createdAt } : {};
+  const doneTasks = [...(d.doneTasks ?? []).filter((t) => t.id !== id), ...(at == null ? [] : [{ id, at, ...named }])];
   return { ...s, days: { ...s.days, [key]: { ...d, doneTasks } } };
 }
 

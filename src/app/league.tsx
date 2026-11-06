@@ -1,5 +1,6 @@
+import { router } from 'expo-router';
 import { Fragment, useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useNemesis } from '@/components/hq-extras';
 import { Bar, Card, H, Row, SpiderSays, T, useNow } from '@/components/ui';
@@ -7,6 +8,7 @@ import { C, MONO } from '@/constants/theme';
 import { COOP_COINS, coopCheer, coopStatus, GOALS, isCoopWeek } from '@/lib/coop';
 import { addDays, dayKey } from '@/lib/dates';
 import { DEMOTE, NEMESIS_PRIZE, PROMOTE, standings, TIERS } from '@/lib/league';
+import { knownRivals } from '@/lib/rival-files';
 import { useStore } from '@/lib/store';
 import { quietDay } from '@/lib/tone';
 import { ghostOf, ghostText } from '@/lib/xp-timeline';
@@ -61,21 +63,27 @@ export default function LeagueScreen() {
             <Fragment key={r.id}>
               {promoteLine ? <Text style={[styles.zone, { color: C.green }]}>▲ promotion zone</Text> : null}
               {demoteLine ? <Text style={[styles.zone, { color: C.red }]}>▼ demotion zone</Text> : null}
-              <Row style={[styles.row, r.me && styles.me]}>
-                <Text style={styles.rank}>{rank}</Text>
-                <Text style={{ fontSize: 20 }}>{r.emoji}</Text>
-                <T style={[{ flex: 1 }, r.me && { fontWeight: '800' }]}>
-                  {r.me ? `${r.name} (you)` : r.name}
-                  {r.id === nemesis?.id ? <Text style={{ color: C.red }}> 😈 nemesis</Text> : null}
-                  {!r.me && r.name === partner ? <Text style={{ color: C.green }}> 🤝 partner</Text> : null}
-                </T>
-                <Text style={styles.xp}>{r.xp}</Text>
-              </Row>
+              <Pressable
+                disabled={r.me}
+                onPress={() => router.push({ pathname: '/rival', params: { name: r.base ?? r.name } })}
+                accessibilityRole={r.me ? undefined : 'button'}
+                accessibilityLabel={r.me ? undefined : `${r.name}'s file`}>
+                <Row style={[styles.row, r.me && styles.me]}>
+                  <Text style={styles.rank}>{rank}</Text>
+                  <Text style={{ fontSize: 20 }}>{r.emoji}</Text>
+                  <T style={[{ flex: 1 }, r.me && { fontWeight: '800' }]}>
+                    {r.me ? `${r.name} (you)` : r.name}
+                    {r.id === nemesis?.id ? <Text style={{ color: C.red }}> 😈 nemesis</Text> : null}
+                    {!r.me && r.name === partner ? <Text style={{ color: C.green }}> 🤝 partner</Text> : null}
+                  </T>
+                  <Text style={styles.xp}>{r.xp}</Text>
+                </Row>
+              </Pressable>
             </Fragment>
           );
         })}
         <T dim small>
-          Rivals earn XP through the day, like you. Prizes: #1 300 🪙, #2 200 🪙, #3 100 🪙.
+          Rivals earn XP through the day, like you. Prizes: #1 300 🪙, #2 200 🪙, #3 100 🪙. Tap a rival for their file.
         </T>
       </Card>
 
@@ -151,6 +159,8 @@ export default function LeagueScreen() {
         </Card>
       ) : null}
 
+      <RivalFiles />
+
       {league.history.length > 0 ? (
         <Card>
           <H>Past weeks</H>
@@ -174,7 +184,29 @@ export default function LeagueScreen() {
   );
 }
 
+/** step 8 days: the rivals met in earlier weeks, each with a file (rival-files.ts). Only the ones not in this week's table. */
+function RivalFiles() {
+  const { state } = useStore();
+  const here = new Set((state.league?.rivals ?? []).map((r) => r.base ?? r.name));
+  const others = knownRivals(state).filter((r) => !here.has(r.base) && r.weeks > 0);
+  if (!others.length) return null;
+  return (
+    <Card>
+      <H>🗂️ Rival files</H>
+      <Row gap={6} style={{ flexWrap: 'wrap' }}>
+        {others.map((r) => (
+          <Pressable key={r.base} onPress={() => router.push({ pathname: '/rival', params: { name: r.base } })} style={styles.file} accessibilityRole="button">
+            <Text style={{ fontSize: 16 }}>{r.emoji}</Text>
+            <T small>{r.name}</T>
+          </Pressable>
+        ))}
+      </Row>
+    </Card>
+  );
+}
+
 const styles = StyleSheet.create({
+  file: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1, borderColor: C.border, backgroundColor: C.card2 },
   tier: { color: C.text, fontSize: 24, fontWeight: '900' },
   zone: { fontSize: 11, fontWeight: '800', letterSpacing: 1, textAlign: 'center', marginVertical: 2 },
   row: { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 10 },

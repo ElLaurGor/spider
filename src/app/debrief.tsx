@@ -2,21 +2,24 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Btn, Card, Field, H, Icon, Row, SpiderSays, T } from '@/components/ui';
+import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { dayKey } from '@/lib/dates';
+import { dayKey, fmtTime } from '@/lib/dates';
+import { doneOn, doneTitle } from '@/lib/done-list';
+import { winOn } from '@/lib/past-you';
+import type { TopWhen } from '@/lib/types';
 import { habitsDone, habitsFor } from '@/lib/habits';
 import { nightVerdictKey } from '@/lib/line-context';
 import { eveningKey, tomorrowKey } from '@/lib/memory';
 import { MOOD_LEVELS, moodInfo } from '@/lib/mood';
 import { dayScoreFor, gradeOf } from '@/lib/report';
-import { dayOf, moodsOf } from '@/lib/selectors';
+import { dayOf, freeSlots, moodsOf, workoutFor } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { gentleDay, toneOn } from '@/lib/tone';
 
 /** The evening debrief: mood, loose ends, tomorrow's top 3, then the day's verdict. */
 export default function Debrief() {
-  const { state, actions, quip } = useStore();
+  const { state, actions, quip, cal } = useStore();
   const [intro] = useState(() => quip('debriefIntro'));
   const [verdict, setVerdict] = useState<{ text: string; done: string; kind: boolean } | null>(null);
   const [flip] = useState(() => new Animated.Value(0));
@@ -32,6 +35,12 @@ export default function Debrief() {
   const tomorrow = tomorrowKey();
   const picks = state.topTomorrow?.day === tomorrow ? state.topTomorrow.ids.filter((id) => state.tasks.some((t) => t.id === id && !t.done)) : [];
   const open = state.tasks.filter((t) => !t.done);
+  // step 8 days: what got done today (titles kept after Clear), and when tomorrow's picks are booked for
+  const doneToday = doneOn(state, key);
+  const tomorrowDate = new Date(`${tomorrow}T12:00`);
+  const slots = cal.status === 'granted' ? freeSlots(cal.events, tomorrowDate, state.settings.wakeHour + 1, state.settings.sleepHour - 1) : [];
+  const booked = state.topTomorrow?.day === tomorrow ? (state.topTomorrow.when ?? {}) : {};
+  const gymTomorrow = !!workoutFor(state, tomorrowDate);
   const score = dayScoreFor(state, date);
   // A low-mood (an awful check-in a minute ago included), sick, away or period day gets no grade at all.
   const kind = toneOn(state, key).kind || gentleDay(state, key);
@@ -111,6 +120,23 @@ export default function Debrief() {
         ))}
       </Card>
 
+      {doneToday.length > 0 ? (
+        <Card>
+          <H right={<T dim small>{doneToday.length}</T>}>✅ Done today</H>
+          {doneToday.map((x) => (
+            <Row key={x.id}>
+              <Icon name="check_circle" size={18} color={C.green} />
+              <T style={{ flex: 1 }} dim={!x.title}>
+                {doneTitle(x)}
+              </T>
+              <T dim small mono>
+                {fmtTime(x.at)}
+              </T>
+            </Row>
+          ))}
+        </Card>
+      ) : null}
+
       <Card>
         <H right={<T dim small>{picks.length}/3</T>}>3 · Tomorrow&apos;s top 3</H>
         <T dim small>
@@ -119,21 +145,31 @@ export default function Debrief() {
         {open.map((t) => {
           const n = picks.indexOf(t.id);
           return (
-            <Pressable key={t.id} onPress={() => pick(t.id)} style={{ opacity: n < 0 && picks.length >= 3 ? 0.4 : 1 }}>
-              <Row>
-                <View style={[styles.slot, n >= 0 && { backgroundColor: C.cyan, borderColor: C.cyan }]}>
-                  <Text style={styles.slotNum}>{n >= 0 ? n + 1 : ''}</Text>
-                </View>
-                <T style={{ flex: 1 }}>{t.title}</T>
-              </Row>
-            </Pressable>
+            <View key={t.id} style={{ gap: 6 }}>
+              <Pressable onPress={() => pick(t.id)} style={{ opacity: n < 0 && picks.length >= 3 ? 0.4 : 1 }}>
+                <Row>
+                  <View style={[styles.slot, n >= 0 && { backgroundColor: C.cyan, borderColor: C.cyan }]}>
+                    <Text style={styles.slotNum}>{n >= 0 ? n + 1 : ''}</Text>
+                  </View>
+                  <T style={{ flex: 1 }}>{t.title}</T>
+                </Row>
+              </Pressable>
+              {n >= 0 ? <WhenPicker id={t.id} current={booked[t.id] ?? null} slots={slots} gym={gymTomorrow} /> : null}
+            </View>
           );
         })}
+        {picks.length ? (
+          <T dim small>
+            Book a pick into one of tomorrow&apos;s free gaps, after gym or after the first coffee. A gap can ping you when it starts.
+          </T>
+        ) : null}
         <Row>
           <Field value={draft} onChangeText={setDraft} placeholder="Add a task for tomorrow…" onSubmitEditing={add} returnKeyType="done" style={{ flex: 1 }} />
           <Btn icon="add" onPress={add} disabled={!draft.trim()} />
         </Row>
       </Card>
+
+      <GladCard day={key} />
 
       <Card accent={C.yellow}>
         <H>4 · The verdict</H>
@@ -160,6 +196,81 @@ export default function Debrief() {
         )}
       </Card>
     </ScrollView>
+  );
+}
+
+/** step 8 days: when a picked task is booked for tomorrow (plan-slots.ts): a free gap (with an optional ping), after gym or after the first coffee. */
+function WhenPicker({ id, current, slots, gym }: { id: string; current: TopWhen | null; slots: { start: number; end: number }[]; gym: boolean }) {
+  const { actions } = useStore();
+  const options: TopWhen[] = slots.map((sl) => ({ kind: 'slot', at: sl.start, end: sl.end }));
+  if (current?.kind === 'slot' && !options.some((o) => o.kind === 'slot' && o.at === current.at)) options.unshift({ kind: 'slot', at: current.at, end: current.end });
+  if (gym) options.push({ kind: 'gym' });
+  options.push({ kind: 'coffee' });
+  const same = (w: TopWhen) => !!current && current.kind === w.kind && (w.kind !== 'slot' || (current.kind === 'slot' && current.at === w.at));
+  const label = (w: TopWhen) => (w.kind === 'slot' ? `${fmtTime(w.at)}–${fmtTime(w.end)}` : w.kind === 'gym' ? 'after gym' : 'after first coffee');
+  return (
+    <Row gap={6} style={{ flexWrap: 'wrap', paddingLeft: 34 }}>
+      {options.map((w) => (
+        <Chip key={w.kind === 'slot' ? String(w.at) : w.kind} label={label(w)} color={C.cyan} active={same(w)} onPress={() => actions.bookTop(id, same(w) ? null : w)} />
+      ))}
+      {current?.kind === 'slot' ? (
+        <Chip label={current.ping ? '🔔 ping on' : '🔕 ping me then'} color={C.cyan} active={!!current.ping} onPress={() => actions.bookTop(id, { ...current, ping: !current.ping })} />
+      ) : null}
+    </Row>
+  );
+}
+
+/** step 8 days: tonight's "glad I did this" (past-you.ts). Past you hands it back on a harder day. */
+function GladCard({ day }: { day: string }) {
+  const { state, actions } = useStore();
+  const [text, setText] = useState('');
+  const [showNotes, setShowNotes] = useState(false);
+  const win = winOn(state, day);
+  const notes = [...(state.pastYou?.notes ?? [])].reverse();
+  const save = () => {
+    actions.setWin(text);
+    setText('');
+  };
+  return (
+    <Card>
+      <H>🌱 Glad I did this</H>
+      <T dim small>
+        Optional: one thing from today you&apos;re glad you did. On a harder day, past you hands it back.
+      </T>
+      {win ? (
+        <Row>
+          <T style={{ flex: 1 }}>&quot;{win.text}&quot;</T>
+          <Pressable onPress={() => actions.setWin('')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Take it back">
+            <Icon name="close" size={18} color={C.faint} />
+          </Pressable>
+        </Row>
+      ) : (
+        <Row>
+          <Field value={text} onChangeText={setText} placeholder="e.g. went for the walk anyway" maxLength={140} onSubmitEditing={save} returnKeyType="done" style={{ flex: 1 }} />
+          <Btn icon="check" onPress={save} disabled={!text.trim()} />
+        </Row>
+      )}
+      {notes.length ? (
+        <Pressable onPress={() => setShowNotes(!showNotes)} hitSlop={6}>
+          <T dim small>
+            {showNotes ? '▾' : '▸'} Notes from past you ({notes.length})
+          </T>
+        </Pressable>
+      ) : null}
+      {showNotes
+        ? notes.map((n) => (
+            <Row key={n.id}>
+              <Text style={{ fontSize: 14 }}>{n.kind === 'win' ? '🌱' : '📝'}</Text>
+              <T small style={{ flex: 1 }}>
+                {n.text}
+              </T>
+              <Pressable onPress={() => actions.deletePastNote(n.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete note">
+                <Icon name="close" size={16} color={C.faint} />
+              </Pressable>
+            </Row>
+          ))
+        : null}
+    </Card>
   );
 }
 

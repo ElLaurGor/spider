@@ -16,7 +16,7 @@ export function wrappedReminder(now = new Date()) {
 }
 
 /** Reminders planned again on every app change, by id prefix. Gaming, rest, focus, snooze, the status line and warnings are managed apart. */
-export const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-', 'ifthen-', 'prizes-'];
+export const PLANNED_PREFIXES = ['water-', 'gym-', 'morning-', 'evening-', 'comeback-', 'mood-', 'habit-', 'report-', 'backup-', 'sleep-', 'cycle-', 'countdown-', 'wrapped-', 'winddown-', 'league-', 'pollen-', 'air-', 'move-', 'weekendboss-', 'ifthen-', 'prizes-', 'slot-', 'top3-']; // slot-, top3-: step 8 days (plan-slots.ts)
 export const isPlanned = (id: string) => PLANNED_PREFIXES.some((p) => id.startsWith(p));
 
 /**

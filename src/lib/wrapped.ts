@@ -2,6 +2,7 @@
 import { activityInfo, sleepInfo } from './body';
 import { dayKey, fmtDuration, fmtTime, MIN } from './dates';
 import { countedDay, firstDataDay, roughDay, usedOn } from './day-filters';
+import { monthDone } from './done-list';
 import { emotionEmoji, moodInfo } from './mood';
 import { BOSSES } from './quests';
 import { dayScoreFor, gradeOf, type Grade } from './report';
@@ -228,6 +229,23 @@ export function monthWrapped(s: State, year: number, month: number, now = new Da
       sub: topEmotion ? `most felt: ${emotionEmoji(topEmotion[0])} ${topEmotion[0]} (×${topEmotion[1]})` : `${moods.length} days checked in`,
       quip: m >= 4 ? 'A good month, emotionally. Love that for you.' : m >= 3 ? 'Ups and downs. Mostly steady.' : 'A heavy month. Be gentle with yourself. I mean it.',
       color: 'cyan',
+    });
+  }
+
+  // Tasks (step 8 days, done-list.ts): the month's total, and the one that waited longest before it was finally done
+  const done = monthDone(s, year, month, now);
+  if (done.items.length) {
+    const oldest = done.oldest;
+    slides.push({
+      id: 'tasks',
+      emoji: '✅',
+      title: 'Tasks',
+      big: plural(done.items.length, 'task'),
+      sub: oldest ? `finally done: "${oldest.item.title}", after ${plural(oldest.days, 'day')}` : 'ticked off this month',
+      quip: oldest
+        ? pick('That one aged like milk, and you still finished it. Respect.', 'Even the old one got done. Nice.')
+        : pick('Ticked, cleared, forgotten. As it should be.', 'Things got done this month.'),
+      color: 'green',
     });
   }
 

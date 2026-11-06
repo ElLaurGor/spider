@@ -173,6 +173,17 @@ import { QUEST_SLOTS, questCardBlocker, questSlotsOn, withBossName, withQuestCar
 import { voiceOf } from '../src/lib/rival-talk';
 import { buildPiece, createWorld, planRoute, spots3d, TANK } from '../src/lib/terrarium-3d';
 import { pauseOn } from '../src/lib/pause';
+// step 8 days
+import { awayOffers, offerKey, planAway, plannedAways, rangeText as awayRange, withoutPlannedAway } from '../src/lib/away-ahead';
+import { doneBetween, doneOn, doneTitle, monthDone } from '../src/lib/done-list';
+import { focusBreakdown, focusMinutes } from '../src/lib/focus-log';
+import { journalEmotions, journalMonth } from '../src/lib/mood-journal';
+import { ASK_OPEN_MS, goodMoment, openAsk, pastYouFor, pastYouTail, winOn, withoutAsk, withoutNote, withPastYouAsk, withSkipNote, withWin } from '../src/lib/past-you';
+import { phoneWeek } from '../src/lib/phone-week';
+import { gymTimeOn, keptWhen, slotPlansOn, slotReminders, whenLabel, whenNow, withGymAt, withoutSlotPlan, withSlotPlan, withTopWhen } from '../src/lib/plan-slots';
+import { finishOf, knownRivals, rivalFile } from '../src/lib/rival-files';
+import { endOffer, extraRound, OFFER_MS, sideFor, spotterFor, usualFocus, withExtension } from '../src/lib/spotter';
+import { recordTask } from '../src/lib/tasks';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -5097,6 +5108,297 @@ void (async () => {
   assert.equal(widgetLines({ ...snap, gameLeftMin: -75 }).game, '1h 15m over');
   assert.equal(widgetLines({ ...snap, gaming: true }).game, 'playing');
 }
+
+// step 8 days: the owner's days, plans and the app's own records
+function step8DaysTests() {
+  type Pools = Record<string, { mild: string[]; savage: string[] }>;
+  for (const k of ['gymSlotSet', 'pastYouAsk', 'pastYouSaved', 'spotterOutlasted', 'spotterStopped', 'slotFocusPing', 'slotTaskPing', 'topSlotPing', 'awayPlanned', 'phoneWeekDoom', 'phoneWeekHeavy', 'phoneWeekChill']) {
+    const pool = (LINES as Pools)[k];
+    assert.ok(pool && pool.mild.length > 0 && pool.savage.length > 0, k);
+  }
+  assert.ok(isPlanned('slot-focus-p1') && isPlanned('slot-task-p2') && isPlanned('top3-2027-01-14-T1'));
+
+  // 22: free slots that do something, and 16: tomorrow's top 3 booked (plan-slots.ts)
+  {
+    const key = '2027-01-13';
+    const t = (h: number, m = 0, d = 13) => new Date(2027, 0, d, h, m).getTime();
+    const s = { ...defaultState(), onboarded: true, tasks: [{ id: 'T1', title: 'Taxes', done: false, createdAt: 0 }] };
+    assert.deepEqual(gymTimeOn(s, key), { hour: 18, minute: 0 });
+    const moved = withGymAt(s, key, t(7, 42), key);
+    assert.deepEqual(gymTimeOn(moved, key), { hour: 7, minute: 45 }, 'rounded up to 5 minutes');
+    assert.deepEqual(gymTimeOn(moved, '2027-01-14'), { hour: 18, minute: 0 }, 'today only');
+    assert.equal(slipAt(moved, key), t(9, 45), 'the slip time follows the moved gym time');
+    assert.equal(withGymAt(s, '2027-01-12', t(7), key), s, 'never a past day');
+    assert.equal(withGymAt(moved, key, null, key).days[key].gymAt, undefined);
+
+    const now = new Date(2027, 0, 13, 8);
+    const a = withSlotPlan(s, { day: key, at: t(10), end: t(11), kind: 'focus' }, key, 'p1');
+    const b = withSlotPlan(a, { day: key, at: t(11), end: t(12), kind: 'task', taskId: 'T1' }, key, 'p2');
+    assert.equal(withSlotPlan(b, { day: key, at: t(13), end: t(14), kind: 'task', taskId: 'gone' }, key, 'p3'), b, 'no task, no booking');
+    assert.equal(withSlotPlan(b, { day: '2027-01-12', at: t(10, 0, 12), end: t(11, 0, 12), kind: 'focus' }, key, 'p3'), b, 'never a past day');
+    assert.deepEqual(slotPlansOn(b, key).map((p) => p.id), ['p1', 'p2']);
+    assert.deepEqual(slotReminders(b, now).map((r) => [r.id, r.kind, r.title]), [['slot-focus-p1', 'focus', 'Focus block'], ['slot-task-p2', 'task', 'Taxes']]);
+    assert.deepEqual(slotReminders(b, new Date(2027, 0, 13, 10, 30)).map((r) => r.id), ['slot-task-p2'], 'a slot already started is past');
+    assert.deepEqual(slotReminders({ ...b, tasks: [{ ...b.tasks[0], done: true }] }, now).map((r) => r.id), ['slot-focus-p1'], 'a done task stays quiet');
+    assert.deepEqual(slotReminders({ ...b, pauses: [{ from: key, to: key, kind: 'away' }] }, now), [], 'nothing on a paused day');
+    const c = withSlotPlan(b, { day: key, at: t(10), end: t(11), kind: 'task', taskId: 'T1' }, key, 'p4');
+    assert.deepEqual(slotPlansOn(c, key).map((p) => p.id), ['p4', 'p2'], 'one job per slot start');
+    assert.deepEqual(slotPlansOn(withoutSlotPlan(c, 'p4'), key).map((p) => p.id), ['p2']);
+
+    const tom = '2027-01-14';
+    const top = { ...s, tasks: [...s.tasks, { id: 'T2', title: 'Call the bank', done: false, createdAt: 0 }], topTomorrow: { day: tom, ids: ['T1', 'T2'] } };
+    const slot = { kind: 'slot' as const, at: t(9, 0, 14), end: t(11, 30, 14), ping: true };
+    const booked = withTopWhen(withTopWhen(top, tom, 'T1', slot), tom, 'T2', { kind: 'coffee' });
+    assert.equal(whenLabel(booked.topTomorrow!.when!.T1), '09:00–11:30 🔔');
+    assert.equal(whenLabel({ kind: 'gym' }), 'after gym');
+    assert.equal(withTopWhen(top, tom, 'T9', { kind: 'gym' }), top, 'only a picked task');
+    assert.deepEqual(slotReminders(booked, now).map((r) => [r.id, r.title]), [['top3-2027-01-14-T1', 'Taxes']]);
+    assert.deepEqual(slotReminders(withTopWhen(booked, tom, 'T1', { ...slot, ping: false }), now), [], 'no ping asked, none sent');
+    assert.deepEqual(keptWhen(booked.topTomorrow, tom, ['T2']), { T2: { kind: 'coffee' } }, 're-picking keeps the bookings still picked');
+    assert.equal(keptWhen(booked.topTomorrow, '2027-01-15', ['T2']), undefined);
+    assert.equal(withTopWhen(booked, tom, 'T2', null).topTomorrow?.when?.T2, undefined);
+    assert.ok(!whenNow(booked, { kind: 'coffee' }, tom));
+    const coffee = { ...booked, days: { [tom]: { ...emptyDay(), coffee: [{ id: 'c', mg: 80, at: t(8, 0, 14) }] } } };
+    assert.ok(whenNow(coffee, { kind: 'coffee' }, tom));
+    assert.ok(whenNow(booked, slot, tom, t(10, 0, 14)) && !whenNow(booked, slot, tom, t(12, 0, 14)));
+  }
+
+  // 17: notes from past you (past-you.ts)
+  {
+    const key = '2027-01-13'; // a Wednesday
+    const k2 = '2027-01-14';
+    const at = new Date(2027, 0, 13, 18).getTime();
+    const s0 = { ...defaultState(), onboarded: true };
+    const trained = { ...s0, days: { [key]: { ...emptyDay(), workoutCounted: true } } };
+    assert.equal(goodMoment(s0, trained, at), 'workout');
+    const asked = withPastYouAsk(s0, trained, at);
+    assert.equal(asked.pastYou?.ask?.why, 'workout');
+    assert.equal(asked.pastYou?.askedWeek, '2027-01-11');
+    assert.equal(withPastYouAsk(s0, s0, at), s0, 'no good moment, no ask');
+    const meh = { ...s0, days: { [key]: { ...emptyDay(), moods: [{ id: 'm0', level: 3 as const, emotions: [], at }] } } };
+    assert.equal(goodMoment(s0, meh, at), null, 'a 3 is not a good moment');
+    const won = { ...s0, contract: { week: '2027-01-11', from: key, goal: 'water' as const, target: 5, stake: 20, status: 'won' as const } };
+    assert.equal(goodMoment({ ...won, contract: { ...won.contract, status: 'open' } }, won, at), 'contract');
+    const sick = { ...trained, pauses: [{ from: key, to: key, kind: 'sick' as const }] };
+    assert.equal(withPastYouAsk(s0, sick, at), sick, 'never on a sick day');
+    // at most once a week: a good check-in the next day doesn't ask again, the next week does
+    const later = at + 86_400_000;
+    const calm = withoutAsk(asked);
+    const happy = { ...calm, days: { ...calm.days, [k2]: { ...emptyDay(), moods: [{ id: 'm', level: 5 as const, emotions: [], at: later }] } } };
+    assert.equal(goodMoment(calm, happy, later), 'mood');
+    assert.equal(withPastYouAsk(calm, happy, later).pastYou?.ask, null);
+    const weekLater = new Date(2027, 0, 20, 18).getTime();
+    const again = { ...happy, days: { ...happy.days, '2027-01-20': { ...emptyDay(), workoutCounted: true } } };
+    assert.equal(withPastYouAsk(happy, again, weekLater).pastYou?.askedWeek, '2027-01-18');
+    assert.ok(openAsk(asked, at + 1000));
+    assert.equal(openAsk(asked, at + ASK_OPEN_MS + 1), null, 'an ask lets go after a while');
+    // the line answers the ask; the debrief's win is one a night
+    const noted = withSkipNote(asked, '  20 minutes in, you   always feel better  ', at, 'n1');
+    assert.equal(noted.pastYou?.ask, null);
+    assert.deepEqual(noted.pastYou?.notes.map((n) => [n.text, n.kind, n.after]), [['20 minutes in, you always feel better', 'skip', 'workout']]);
+    assert.equal(withSkipNote(asked, '   ', at), asked);
+    const glad = withWin(withWin(noted, key, 'went for the walk', at, 'w1'), key, 'went for the walk anyway', at, 'w2');
+    assert.deepEqual(glad.pastYou?.notes.map((n) => n.id), ['n1', 'w2']);
+    assert.equal(winOn(glad, key)?.text, 'went for the walk anyway');
+    assert.equal(winOn(withWin(glad, key, ''), key), null);
+    // served on a normal day: the lines for the you about to skip first; on a kind day and in the rough-patch card only wins
+    const morning = new Date(2027, 0, 14, 9);
+    assert.equal(pastYouFor(glad, k2, 'gym', morning)?.kind, 'skip');
+    assert.equal(pastYouFor(glad, k2, 'rough', morning)?.kind, 'win');
+    const low = { ...glad, days: { ...glad.days, [k2]: { ...emptyDay(), moods: [{ id: 'l', level: 1 as const, emotions: [], at: morning.getTime() - 1000 }] } } };
+    assert.equal(pastYouFor(low, k2, 'gym', morning)?.kind, 'win');
+    assert.equal(pastYouFor(withoutNote(low, 'w2'), k2, 'gym', morning), null, 'a kind day with no wins shows nothing');
+    assert.equal(pastYouFor(glad, '2027-01-12', 'gym', new Date(2027, 0, 12, 9)), null, 'never before it was written');
+    assert.equal(pastYouFor(glad, k2, 'gym', morning)?.id, pastYouFor(glad, k2, 'gym', new Date(2027, 0, 14, 20))?.id, 'the same note all day');
+    assert.ok(pastYouTail(glad, k2, 'gym', morning).startsWith(' 📝 '));
+    assert.equal(pastYouTail(s0, k2, 'gym', morning), '');
+  }
+
+  // 20: the spotter in Web Focus (spotter.ts)
+  {
+    const now = new Date(2027, 0, 13, 10);
+    const day = '2027-01-13';
+    const s0 = { ...defaultState(), onboarded: true, league: newLeague(1, weekKeyOf(now)) };
+    const sp = spotterFor(s0, 25, now)!;
+    assert.equal(sp.name, nemesisOf(s0)!.name, "this week's nemesis first");
+    assert.equal(sp.minutes, 35, 'no history: the session plus 10');
+    assert.equal(spotterFor(defaultState(), 25, now), null, 'no league, no spotter');
+    const f = (id: string, minutes: number, snapped?: string) => ({ id, start: 0, end: 0, minutes, snapped });
+    const hist = { ...s0, days: { '2027-01-12': { ...emptyDay(), focus: [f('a', 50), f('b', 50), f('c', 90, 'TikTok')] }, '2027-01-11': { ...emptyDay(), focus: [f('d', 25)] } } };
+    assert.equal(usualFocus(hist, 25, now), 50, 'the median of finished sessions');
+    assert.equal(spotterFor(hist, 25, now)!.minutes, 60, 'a bit past her usual');
+    const start = now.getTime();
+    const side = sideFor(s0, start, 25);
+    const done = { ...s0, focusSide: side, days: { [day]: { ...emptyDay(), focus: [{ id: 'e1', start, end: start + 25 * MIN, minutes: 25 }] } } };
+    assert.equal(endOffer(done, start + 26 * MIN)?.more, 10, '"I\'m doing 10 more, you in?"');
+    assert.equal(endOffer(done, start + 25 * MIN + OFFER_MS + 1), null, 'the offer goes stale');
+    const snapped = { ...done, days: { [day]: { ...emptyDay(), focus: [{ id: 'e1', start, end: start + 5 * MIN, minutes: 25, snapped: 'TikTok' }] } } };
+    assert.equal(endOffer(snapped, start + 6 * MIN), null, 'no extra round after a snapped web');
+    const extraAt = start + 26 * MIN;
+    const extra = { ...done, activeFocus: { start: extraAt, minutes: 10 }, focusSide: { ...side, start: extraAt, extends: { day, id: 'e1', minutes: 25 } } };
+    assert.ok(extraRound(extra));
+    assert.equal(extraRound({ ...done, activeFocus: { start: extraAt, minutes: 25 } }), null, 'a plain session is no extra round');
+    const longer = withExtension({ ...extra, activeFocus: null }, day, 'e1', 10, extraAt + 10 * MIN);
+    assert.deepEqual(longer.days[day].focus!.map((x) => [x.minutes, x.end]), [[35, extraAt + 10 * MIN]], 'the extra round adds to the session, not a new one');
+    const after = endOffer(longer, extraAt + 11 * MIN)!;
+    assert.ok(after.outlasted && after.more == null);
+    assert.equal(focusXp(35) - focusXp(25), 2, 'the extra minutes pay what the longer session pays on top');
+    const tasked = { ...done, tasks: [{ id: 'T', title: 'Thesis', done: false, createdAt: 0 }], focusSide: { ...sideFor({ ...s0, tasks: [{ id: 'T', title: 'Thesis', done: false, createdAt: 0 }] }, start, 25, 'T') } };
+    assert.equal(tasked.focusSide.taskId, 'T');
+    assert.equal(endOffer(tasked, start + 60 * MIN)?.task?.id, 'T', 'offers to tick the task off');
+    assert.equal(endOffer({ ...tasked, focusSide: { ...tasked.focusSide, closed: true } }, start + 26 * MIN), null);
+    assert.equal(sideFor(s0, start, 25, 'nope').taskId, undefined);
+  }
+
+  // 26: where focus went (focus-log.ts)
+  {
+    const now = new Date(2027, 0, 13, 20); // a Wednesday
+    const at = (d: number, h: number) => new Date(2027, 0, d, h).getTime();
+    const s = defaultState();
+    s.days['2027-01-11'] = { ...emptyDay(), focus: [{ id: 'a', start: at(11, 9), end: at(11, 10), minutes: 60, label: 'Thesis' }, { id: 'b', start: at(11, 13), end: at(11, 13) + 20 * MIN, minutes: 50, label: 'thesis ', snapped: 'Instagram' }] };
+    s.days['2027-01-12'] = {
+      ...emptyDay(),
+      focus: [
+        { id: 'c', start: at(12, 9), end: at(12, 9) + 50 * MIN, minutes: 50, label: 'Taxes' },
+        { id: 'd', start: at(12, 10), end: at(12, 10) + 5 * MIN, minutes: 25, snapped: 'Instagram' },
+        { id: 'e', start: at(12, 11), end: at(12, 11), minutes: 25, snapped: 'gave up' },
+      ],
+    };
+    s.days['2027-01-03'] = { ...emptyDay(), focus: [{ id: 'f', start: at(3, 9), end: at(3, 10), minutes: 60, label: 'Old' }] };
+    const w = focusBreakdown(s, 'week', now);
+    assert.deepEqual(w.rows.map((r) => [r.label, r.min, r.n]), [['thesis', 80, 2], ['Taxes', 50, 1], ['No label', 5, 2]]);
+    assert.deepEqual(w.snapper, { app: 'Instagram', n: 2 }, '"gave up" is not an app');
+    assert.equal(w.total, 135);
+    assert.ok(focusBreakdown(s, 'month', now).rows.some((r) => r.label === 'Old'));
+    assert.ok(!w.rows.some((r) => r.label === 'Old'));
+    assert.equal(focusMinutes({ id: 'x', start: 0, end: 7 * MIN, minutes: 25, snapped: 'X' }), 7);
+  }
+
+  // 23: away planned ahead (away-ahead.ts)
+  {
+    const today = '2027-01-13';
+    const now = new Date(2027, 0, 13, 9);
+    const s = { ...defaultState(), onboarded: true };
+    const r = planAway(s, '2027-01-20', '2027-01-23', today);
+    assert.equal(r.result, 'ok');
+    assert.deepEqual(r.state.pauses, [{ from: '2027-01-20', to: '2027-01-23', kind: 'away' }]);
+    assert.ok(pausedOn(r.state, '2027-01-21') && !pausedOn(r.state, '2027-01-24') && !pausedOn(r.state, today));
+    assert.deepEqual(plannedAways(r.state, today).map((p) => p.from), ['2027-01-20']);
+    const capped = planAway(r.state, '2027-01-26', '2027-01-30', today);
+    assert.deepEqual([capped.result, capped.to], ['short', '2027-01-28'], "the month's 7 paused days still hold");
+    assert.equal(planAway(capped.state, '2027-01-30', '2027-01-31', today).result, 'cap');
+    assert.equal(planAway(r.state, '2027-01-22', '2027-01-25', today).result, 'paused');
+    assert.equal(planAway(s, '2027-01-10', '2027-01-12', today).result, 'past');
+    assert.equal(planAway(s, '2027-01-20', '2027-02-10', today).result, 'past', 'at most two weeks at a time');
+    const fromToday = planAway(s, today, '2027-01-14', today);
+    assert.equal(fromToday.result, 'ok');
+    assert.equal(pauseOn(fromToday.state, today)?.to, '2027-01-14');
+    assert.deepEqual(withoutPlannedAway(r.state, '2027-01-20', today).pauses, []);
+    assert.equal(withoutPlannedAway(fromToday.state, today, today), fromToday.state, 'a running pause ends with "I\'m back" instead');
+    assert.ok(pausedOn(startPause(r.state, 'sick', 2, today), '2027-01-21'), 'sick mode today keeps the trip');
+    const ev = (title: string, from: number, to: number) => ({ key: title, title, start: new Date(2027, 0, from).getTime(), end: new Date(2027, 0, to).getTime(), allDay: true, location: null, calendarId: 'c' });
+    const trip = ev('Kiruna', 16, 19);
+    const oneDay = ev('Dentist', 15, 16);
+    const spain = { id: 'c1', title: 'Spain', emoji: '🏖️', date: '2027-02-12', until: '2027-02-16', yearly: false, createdAt: 0 };
+    const offers = awayOffers({ ...s, countdowns: [spain] }, [trip, oneDay], now);
+    assert.deepEqual(offers.map((o) => [o.from, o.to, o.title]), [['2027-01-16', '2027-01-18', 'Kiruna'], ['2027-02-12', '2027-02-16', '🏖️ Spain']]);
+    assert.deepEqual(awayOffers({ ...s, dismissed: [offerKey('2027-01-16', '2027-01-18')] }, [trip], now), [], 'closed with No');
+    assert.deepEqual(awayOffers(planAway(s, '2027-01-16', '2027-01-18', today).state, [trip], now), [], 'already planned');
+    assert.equal(awayRange('2027-02-12', '2027-02-16'), '12–16 Feb');
+    assert.equal(awayRange('2027-12-30', '2028-01-02'), '30 Dec – 2 Jan');
+  }
+
+  // 24: the done list keeps its titles (tasks.ts, done-list.ts)
+  {
+    const key = '2027-01-13';
+    const at = new Date(2027, 0, 13, 15).getTime();
+    const since = new Date(2026, 11, 1).getTime();
+    const s = { ...defaultState(), tasks: [{ id: 'T1', title: 'Renew passport', done: true, createdAt: since, doneAt: at }] };
+    const rec = recordTask(s, 'T1', key, at);
+    assert.deepEqual(rec.days[key].doneTasks, [{ id: 'T1', at, title: 'Renew passport', since }]);
+    assert.deepEqual(recordTask(rec, 'T1', key, null).days[key].doneTasks, []);
+    const cleared = { ...rec, tasks: [] };
+    assert.deepEqual(doneOn(cleared, key).map((x) => [x.id, x.title]), [['T1', 'Renew passport']], 'Clear keeps the title');
+    const older = { ...defaultState(), days: { [key]: { ...emptyDay(), doneTasks: [{ id: 'gone', at }] } } };
+    assert.equal(doneTitle(doneOn(older, key)[0]), 'A cleared task', 'old records fall back gracefully');
+    assert.equal(doneOn({ ...rec, tasks: [{ ...rec.tasks[0], title: 'Passport!' }] }, key)[0].title, 'Passport!', 'a renamed task shows its name');
+    assert.equal(doneBetween(cleared, '2027-01-11', '2027-01-17').length, 1);
+    const m = monthDone(cleared, 2027, 0, new Date(2027, 0, 20));
+    assert.deepEqual([m.items.length, m.oldest?.item.title, m.oldest?.days], [1, 'Renew passport', 43]);
+    const quick = recordTask({ ...defaultState(), tasks: [{ id: 'Q', title: 'Quick', done: true, createdAt: at - 3_600_000, doneAt: at }] }, 'Q', key, at);
+    assert.equal(monthDone(quick, 2027, 0, new Date(2027, 0, 20)).oldest, null, 'a quick one is not "finally done"');
+    const slide = monthWrapped(cleared, 2027, 0, new Date(2027, 1, 2)).slides.find((x) => x.id === 'tasks');
+    assert.ok(slide?.sub.includes('Renew passport'), slide?.sub ?? 'no tasks slide');
+  }
+
+  // 27: rival files (rival-files.ts)
+  {
+    const week = '2027-01-04';
+    const s0 = { ...defaultState(), onboarded: true, league: newLeague(1, week) };
+    const nem = nemesisOf(s0)!;
+    const r0 = s0.league.rivals.find((r) => r.id !== nem.id)!;
+    const base = rosterName(r0);
+    s0.league.peels = { [r0.id]: 2 };
+    for (let i = 0; i < 7; i++) s0.days[dayKey(addDays(new Date(`${week}T12:00`), i))] = { ...emptyDay(), xpEarned: 30 };
+    const fin = finishOf(s0);
+    assert.equal(fin.table?.length, 9);
+    const row = fin.table!.find((r) => r.base === base)!;
+    assert.equal(row.peels, 2);
+    assert.equal(fin.nemesis, rosterName(nem));
+    assert.equal(fin.coop, undefined);
+    assert.equal(finishOf({ ...s0, coop: { week, partner: { name: r0.name, emoji: r0.emoji }, goal: 'water', base: 5 } }).coop, base);
+    const st = settle(s0);
+    const history = [{ week, tier: 1, rank: st.rank, xp: st.xp, ...fin }];
+    const next = { ...s0, league: withRivalNames(newLeague(1, '2027-01-11', history), { [base]: 'Bob' }), rivalNames: { [base]: 'Bob' } };
+    const file = rivalFile(next, base, new Date(2027, 0, 13, 12));
+    assert.equal(file.name, 'Bob', 'a renamed rival keeps their file');
+    assert.ok(file.renamed);
+    assert.deepEqual(file.weeks.map((w) => [w.week, w.theirs, w.above, w.nemesis, w.peels]), [[week, row.xp, st.xp >= row.xp, false, 2]]);
+    assert.equal(file.above + file.below, 1);
+    assert.equal(file.peels, 2);
+    assert.equal(rivalFile(next, rosterName(nem), new Date(2027, 0, 13, 12)).weeks[0].nemesis, true);
+    const older = { ...next, nemesisLog: { '2026-12-28': { name: base, emoji: r0.emoji, beaten: true } } };
+    const of = rivalFile(older, base, new Date(2027, 0, 13, 12));
+    assert.deepEqual(of.weeks.find((w) => w.week === '2026-12-28'), { week: '2026-12-28', mine: null, theirs: null, above: null, nemesis: true, beaten: true, peels: 0, coop: false }, 'older weeks show what is known');
+    assert.equal(of.nemesisBeaten, 1);
+    assert.ok(knownRivals(next).some((r) => r.base === base && r.weeks === 1));
+  }
+
+  // 29: the mood journal (mood-journal.ts): words only, never a grade
+  {
+    const s = defaultState();
+    s.days['2027-01-05'] = { ...emptyDay(), moods: [{ id: 'a', level: 2, emotions: ['Tired'], note: 'long day', at: 1 }, { id: 'b', level: 4, emotions: [], at: 2 }] };
+    s.days['2027-01-09'] = { ...emptyDay(), moods: [{ id: 'c', level: 4, emotions: ['Calm', 'Tired'], at: 3 }] };
+    s.days['2027-02-01'] = { ...emptyDay(), moods: [{ id: 'd', level: 3, emotions: [], note: 'February', at: 4 }] };
+    assert.deepEqual(journalMonth(s, 2027, 0).map((d) => [d.key, d.entries.map((m) => m.id)]), [['2027-01-09', ['c']], ['2027-01-05', ['a']]]);
+    assert.deepEqual(journalMonth(s, 2027, 0, 'Calm').map((d) => d.key), ['2027-01-09']);
+    assert.deepEqual(journalEmotions(s, 2027, 0), [{ emotion: 'Tired', n: 2 }, { emotion: 'Calm', n: 1 }]);
+    assert.deepEqual(journalMonth(s, 2027, 1).map((d) => d.key), ['2027-02-01']);
+  }
+
+  // 30: phone week (phone-week.ts)
+  {
+    const now = new Date(2027, 0, 13, 20);
+    const s = defaultState();
+    const day = (total: number, doom: number, unlocks?: number) => ({
+      ...emptyDay(),
+      screen: { totalMin: total, doomMin: doom, gamesMin: 0, top: [{ label: 'TikTok', min: doom, game: false, doom: true }, { label: 'Maps', min: total - doom, game: false, doom: false }], unlocks },
+    });
+    assert.equal(phoneWeek(s, now).lineKey, null);
+    s.days['2027-01-11'] = day(200, 90, 50);
+    s.days['2027-01-12'] = day(180, 80, 40);
+    s.days['2027-01-13'] = day(100, 60);
+    const w = phoneWeek(s, now);
+    assert.deepEqual([w.days.length, w.days[6].key, w.days[0].screen], [7, '2027-01-13', null]);
+    assert.deepEqual(w.top.map((a) => [a.label, a.min]), [['Maps', 250], ['TikTok', 230]]);
+    assert.deepEqual([w.avgMin, w.avgUnlocks, w.doom?.perDay, w.lineKey], [160, 45, 77, 'phoneWeekDoom']);
+    const quiet = { ...s, days: { '2027-01-11': day(200, 20), '2027-01-12': day(220, 20), '2027-01-13': day(240, 20) } };
+    assert.equal(phoneWeek(quiet, now).lineKey, 'phoneWeekHeavy', 'over the daily limit on average');
+    const calm = { ...s, days: { '2027-01-11': day(60, 10), '2027-01-12': day(70, 10), '2027-01-13': day(80, 10) } };
+    assert.equal(phoneWeek(calm, now).lineKey, 'phoneWeekChill');
+  }
+}
+step8DaysTests();
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.
 console.log('synchronous logic tests passed');

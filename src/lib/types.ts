@@ -116,7 +116,14 @@ export type Purchase = { id: string; title: string; emoji: string; cost: number;
 /** `base`: the roster name, once the owner renamed them (league.ts rosterName): their voice and co-op goal hang on it. */
 export type Rival = { id: string; name: string; emoji: string; power: number; base?: string };
 /** `peels`: rival id -> banana peels thrown at them this week (each takes PEEL_XP off their week). */
-export type League = { tier: number; week: string; rivals: Rival[]; history: { week: string; tier: number; rank: number; xp: number }[]; peels?: Record<string, number> };
+export type League = { tier: number; week: string; rivals: Rival[]; history: LeagueWeek[]; peels?: Record<string, number> };
+/**
+ * A settled league week. step 8 days: `table` (each rival's finish, under their roster name), `nemesis` and `coop`
+ * (roster names) are saved from then on, for the rival files (rival-files.ts); older weeks have only your own result.
+ */
+export type LeagueWeek = { week: string; tier: number; rank: number; xp: number; table?: FinishRow[]; nemesis?: string; coop?: string };
+/** A rival's finish in a settled league week: roster name (league.ts rosterName), the name shown then, XP and peels taken. */
+export type FinishRow = { base: string; name: string; emoji: string; xp: number; peels?: number };
 /** What a co-op week asks of both partners (coop.ts). */
 export type CoopGoal = 'water' | 'train' | 'steps' | 'tasks' | 'quests';
 /**
@@ -218,13 +225,15 @@ export type DayLog = {
   xpUndone?: number; // XP taken back by undos and deletions
   paid?: { mood?: number; photo?: boolean; body?: boolean }; // XP already paid today, so delete-and-relog can't pay again
   bonusEarnedMin?: number; // bonus gaming minutes earned (not bought or from a chest): the bonus-minutes quest counts these
-  doneTasks?: { id: string; at: number }[]; // tasks finished that day, kept when the task is later deleted or cleared
+  doneTasks?: { id: string; at: number; title?: string; since?: number }[]; // tasks finished that day, kept when the task is later deleted or cleared (step 8 days: with its title and creation time, done-list.ts)
   critBy?: Record<string, { id: string; dmg: number }>; // crit key -> the entry that rolled it, so undoing it takes the damage back; dropped at rollover
   // step 2b
   xpHours?: Record<number, number>; // hour (0–23) -> the day's xpEarned as last seen in that hour, for the ghost of last week (lib/xp-timeline.ts); kept 14 days
   // step 4
   cues?: Record<string, number>; // if-then cues that went off in the app that day: habit id (or 'gym') -> when (if-then.ts)
   comeback?: string; // the missed planned gym day this day's first workout came back from (comeback.ts), so undoing it takes the bonus back
+  // step 8 days
+  gymAt?: { hour: number; minute: number }; // that day's gym time, moved to a free slot on Plan (plan-slots.ts gymTimeOn): the gym reminders, the shame slot and the slip time follow it
 };
 
 /** A finished day's goals: settings, plan and habits as they were that day. */
@@ -278,7 +287,7 @@ export type BodyEntry = {
   bodyFat?: number; // %
 };
 
-export type Countdown = { id: string; title: string; emoji: string; date: string; yearly: boolean; createdAt: number };
+export type Countdown = { id: string; title: string; emoji: string; date: string; yearly: boolean; createdAt: number; until?: string }; // until (step 8 days): a trip's last day, offered as away days (away-ahead.ts)
 
 export type Habit = {
   id: string;
@@ -368,7 +377,7 @@ export type State = {
   backupFolderUri?: string | null; // folder picked for automatic daily backups (a persisted SAF uri)
   // cluster E
   rivalTalk?: { week: string; rank: number; day: string; n: number } | null; // last league rank seen and today's rival remarks (rival-talk.ts)
-  topTomorrow?: { day: string; ids: string[] } | null; // task ids picked in an evening debrief for that day's top 3 (memory.ts)
+  topTomorrow?: { day: string; ids: string[]; when?: Record<string, TopWhen> } | null; // task ids picked in an evening debrief for that day's top 3 (memory.ts); when (step 8 days): task id -> when it's booked (plan-slots.ts)
   // step 2
   maxLevel?: number; // the highest level ever reached: only a new one gets the level-up toasts
   fixes?: string[]; // one-time repairs already applied to this save (lib/fixes.ts)
@@ -386,6 +395,33 @@ export type State = {
   trek?: Trek | null; // the virtual trek walked with watch steps (lib/trek.ts); unset = none started
   treksDone?: TrekRoute[]; // routes walked to the end, in order
   storm?: StormAlert[]; // storm.ts: the orange/red SMHI warnings and VMAs last seen for the owner's area (the Storm protocol)
+  // step 8 days
+  slotPlans?: SlotPlan[]; // free slots on Plan given a job: a focus block or a task, each with its reminder (plan-slots.ts)
+  pastYou?: PastYou; // notes from past you (past-you.ts): lines for the you who's about to skip, and the debrief's wins
+  focusSide?: FocusSide | null; // the Web Focus session's spotter and task, running or just finished (spotter.ts)
+};
+
+// step 8 days
+/** When a top-3 task is booked for: a free calendar gap (with an optional ping at its start), after gym, or after the first coffee. */
+export type TopWhen = { kind: 'slot'; at: number; end: number; ping?: boolean } | { kind: 'gym' } | { kind: 'coffee' };
+/** A free slot on Plan given a job (plan-slots.ts): a reminder at `at` with the Focus 25 min button, or one for a task. */
+export type SlotPlan = { id: string; day: string; at: number; end: number; kind: 'focus' | 'task'; taskId?: string; title?: string };
+/** One line from past you (past-you.ts): `skip` for the you who's about to skip, `win` a "glad I did this" from the debrief. */
+export type PastNote = { id: string; text: string; at: number; day: string; kind: 'skip' | 'win'; after?: 'workout' | 'contract' | 'mood' | 'debrief' };
+/** `askedWeek`: the week (its Monday) whose one ask was made; `ask`: a good moment's ask, waiting for its line. */
+export type PastYou = { notes: PastNote[]; askedWeek?: string; ask?: { why: 'workout' | 'contract' | 'mood'; at: number } | null };
+/** A league rival working alongside in Web Focus (spotter.ts): their name as shown, roster name and planned minutes. */
+export type Spotter = { base: string; name: string; emoji: string; minutes: number };
+/**
+ * The Web Focus session started at `start`: its spotter, the Plan task it's about, and for the spotter's extra
+ * round the session it adds to (`extends`). `closed`: the end-of-session offers were answered.
+ */
+export type FocusSide = {
+  start: number;
+  spotter?: Spotter;
+  taskId?: string;
+  extends?: { day: string; id: string; minutes: number };
+  closed?: boolean;
 };
 
 /** An alert that holds the Storm protocol (storm.ts): kept in State so every day's tone, notifications included, can see it. */

@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { DayPicker } from '@/components/day-picker';
 import { SleepEditor } from '@/components/sleep-checkin';
 import { TrackersCard } from '@/components/trackers-card';
 import { Btn, Card, Chip, Field, H, Icon, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { addDays, dayKey, fmtDuration, fmtTime, WEEKDAYS } from '@/lib/dates';
+import { addDays, dayKey, fmtDuration, fmtTime, isDayKey, WEEKDAYS } from '@/lib/dates';
 import { sleepInfo } from '@/lib/body';
 import { EMOTIONS, emotionEmoji, MOOD_LEVELS, moodInfo } from '@/lib/mood';
 import { avgMood, dayOf, effectiveSavage, emotionCounts, moodsOf } from '@/lib/selectors';
@@ -21,7 +21,9 @@ export default function MoodScreen() {
   const [emotions, setEmotions] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [sleepDay, setSleepDay] = useState<string | null>(null); // night being logged, by its morning's key
-  const [picked, setPicked] = useState<string | null>(null); // a past day being fixed; null = today
+  // step 8 days: the mood journal opens a day here (?day=YYYY-MM-DD)
+  const params = useLocalSearchParams<{ day?: string }>();
+  const [picked, setPicked] = useState<string | null>(() => (isDayKey(params.day) && params.day < dayKey() ? params.day : null)); // a past day being fixed; null = today
   const [editing, setEditing] = useState<MoodEntry | null>(null); // a check-in being fixed
   const day = picked ?? dayKey();
 
@@ -111,7 +113,14 @@ export default function MoodScreen() {
       <TrackersCard day={day} />
 
       <Card>
-        <H>{day === dayKey() ? 'Today' : 'That day'}</H>
+        <H
+          right={
+            <Text style={styles.link} onPress={() => router.push('/journal')}>
+              journal →
+            </Text>
+          }>
+          {day === dayKey() ? 'Today' : 'That day'}
+        </H>
         {today.length === 0 ? (
           <T dim small>
             {day === dayKey() ? 'No check-ins yet today.' : 'No check-ins that day.'}
@@ -231,6 +240,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   moodLabel: { color: C.dim, fontSize: 11, fontWeight: '700' },
+  link: { color: C.purple, fontWeight: '700', fontSize: 13 },
   time: { color: C.dim, fontFamily: MONO, fontSize: 12, marginTop: 4 },
   entry: { flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   dayLabel: { color: C.dim, fontSize: 11, fontWeight: '700' },

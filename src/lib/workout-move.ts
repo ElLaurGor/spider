@@ -6,6 +6,7 @@
 // plans alone (Sniehotta et al. 2006). Pure, so logic-test can check it.
 import { addDays, atTime, dayKey, MIN, startOfWeek, WEEKDAYS_LONG } from './dates';
 import { pausedOn } from './pause';
+import { gymTimeOn } from './plan-slots';
 import { dayOf, trainedOn, workoutFor } from './selectors';
 import { holidayOn } from './swedish-days';
 import type { IfThen, MoveWhy, State, Weekday, WorkoutMove } from './types';
@@ -84,8 +85,9 @@ export function withoutMove(s: State, from: string, today = dayKey()): State {
 
 /** When today's workout counts as slipping: two hours after gym time, or an hour before bedtime if that's sooner. */
 export function slipAt(s: State, key: string) {
-  const { gymHour, gymMinute, sleepHour } = s.settings;
-  const gymAt = atTime(noon(key), 0, gymHour, gymMinute).getTime();
+  const { sleepHour } = s.settings;
+  const gym = gymTimeOn(s, key); // step 8 days: a gym time moved to a free slot that day
+  const gymAt = atTime(noon(key), 0, gym.hour, gym.minute).getTime();
   const bed = atTime(noon(key), sleepHour < 12 ? 1 : 0, sleepHour).getTime();
   return Math.max(gymAt, Math.min(gymAt + SLIP_AFTER_MIN * MIN, bed - 60 * MIN));
 }

@@ -7,6 +7,7 @@
 import { addDays, atTime, dayKey, MIN, pad } from './dates';
 import { habitsDone, isScheduled, rangeWeek } from './habits';
 import { pausedOn } from './pause';
+import { gymTimeOn } from './plan-slots';
 import { activitiesOf, coffeeOf, dayOf, trainedOn, workoutFor } from './selectors';
 import type { CalEvent, Cue, CueEvent, Habit, IfThen, State, WorkoutDay } from './types';
 import type { Weather } from './weather';
@@ -165,8 +166,9 @@ export function cueReminders(s: State, offset: number, now: Date, events: CalEve
   const p = plan?.plan;
   if (plan && p?.then.trim() && !(offset === 0 && trainedOn(dayOf(s, key)))) {
     if (p.cue.kind === 'rain') {
-      if (rainAtGym(weather, date, s.settings.gymHour, s.settings.gymMinute)) {
-        out.push({ id: `ifthen-gym-${key}`, at: atTime(date, 0, s.settings.gymHour, s.settings.gymMinute).getTime() - 60 * MIN, gym: plan, planB: true, key });
+      const gym = gymTimeOn(s, key); // step 8 days: a gym time moved to a free slot that day
+      if (rainAtGym(weather, date, gym.hour, gym.minute)) {
+        out.push({ id: `ifthen-gym-${key}`, at: atTime(date, 0, gym.hour, gym.minute).getTime() - 60 * MIN, gym: plan, planB: true, key });
       }
     } else cueTimes(s, p, date, events).forEach((at, n) => out.push({ id: `ifthen-gym-${key}-${n}`, at, gym: plan, key }));
   }
@@ -178,8 +180,9 @@ export function planBToday(s: State, weather: Weather | null, now = new Date()) 
   const plan = workoutFor(s, now);
   const p = plan?.plan;
   if (!plan || p?.cue.kind !== 'rain' || !p.then.trim() || trainedOn(dayOf(s, dayKey(now))) || pausedOn(s, dayKey(now))) return null;
-  if (!rainAtGym(weather, now, s.settings.gymHour, s.settings.gymMinute)) return null;
-  return { then: p.then.trim(), minutes: planMinutes(p.then), time: clock(s.settings.gymHour, s.settings.gymMinute) };
+  const gym = gymTimeOn(s, dayKey(now));
+  if (!rainAtGym(weather, now, gym.hour, gym.minute)) return null;
+  return { then: p.then.trim(), minutes: planMinutes(p.then), time: clock(gym.hour, gym.minute) };
 }
 
 /** Minutes in a plan B ("20-min home circuit" → 20), 20 when it doesn't say. */
