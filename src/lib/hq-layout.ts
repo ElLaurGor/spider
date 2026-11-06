@@ -9,7 +9,7 @@ export type HqLayout = { order: string[]; hidden: string[] };
  * Saved layouts pick new entries up on their own (hqOrder).
  */
 export const HQ_SECTIONS = [
-  { id: 'care', label: 'Check-ins: name a low mood, rough-patch check (rare)' },
+  { id: 'care', label: 'Check-ins: name a low mood, one small step, the joy menu, rough-patch check (rare)' },
   { id: 'weather', label: 'Weather' },
   { id: 'commute', label: 'SL departures (once a stop is set)' },
   { id: 'weekend', label: 'This weekend in Stockholm (Thu–Sat, once event types are picked)' },
@@ -17,6 +17,7 @@ export const HQ_SECTIONS = [
   { id: 'sleep', label: 'Sleep & energy check-in' },
   { id: 'tiles', label: 'Tiles' },
   { id: 'buttons', label: 'Water & gaming buttons' },
+  { id: 'worry', label: 'Worry parking: park it, the worry slot, shutdown' }, // step 9 care
   { id: 'top3', label: "Today's top 3" },
   { id: 'winddown', label: 'Wind-down (evenings)' },
   { id: 'debrief', label: 'Evening debrief (evenings)' },

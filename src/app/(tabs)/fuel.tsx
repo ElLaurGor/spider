@@ -9,6 +9,7 @@ import { DayPicker } from '@/components/day-picker';
 import { EntryEditor } from '@/components/entry-editor';
 import { FoodSuggestions } from '@/components/food-search';
 import { FoodWeekCard } from '@/components/food-week-card';
+import { MealRhythm } from '@/components/meal-rhythm'; // step 9 care
 import { PhotoViewer } from '@/components/photo-viewer';
 import { ReadinessCard } from '@/components/readiness-card';
 import { Bar, Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
@@ -101,6 +102,7 @@ export default function Fuel() {
       <CoffeeCard day={day} />
       <FoodCard day={day} sharedPhoto={sharedPhoto} />
       <FoodWeekCard onOpenDay={(k) => setPicked(k === todayKey ? null : k)} />
+      <MealRhythm />
       <HiddenEgg id="fuel" align="flex-end" />
     </Screen>
   );

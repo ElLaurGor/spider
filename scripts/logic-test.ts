@@ -222,6 +222,15 @@ import { EGG_CHANCE, EGG_COINS, EGG_KMS, eggDrops, eggKm, hatchEggs, MAX_EGGS } 
 import { asleepAt, daylightAt, DEW_DROPS, dressingFor, grewSince, growthOf, hatShape, IDLE_LIFE, lighting, MOLT_GROWTH_MAX, moltState, NO_WEATHER, PET_MOTION, plantGrowth, sizeAfter, SPROUT, sunTimes } from '../src/lib/tank-life';
 import { TANK_EVENT_MS, TANK_QUEUE, tankEventsOf, tankLifeOf, tankMode, tankSnapsFor, tankWeather, webFor, withMolt, withTankEvents, type TankLife } from '../src/lib/tank-life';
 import type { DayForecast } from '../src/lib/weather';
+// step 9 care
+import { careOffer, OFFER_FOR_MS, STEP_OF, stepFor, withCareSeen } from '../src/lib/care-step';
+import { energyCap, JOY_ASK_FOR_MS, joyAsk, joyPick, joyReminders, joySlot, liftText, withJoyAnswer, withJoyItem, withJoyTry, withoutJoyItem } from '../src/lib/joy';
+import { lastKindWord, slipCard, slipsOn, withKindWord } from '../src/lib/slips';
+import { quietUntil, shutdownQuiet, slotAt, withShutdown, withWorry, withWorrySettled, worriesDue, worryPings } from '../src/lib/worry';
+import { NIGHT_WORDS, nightShiftNow, nightWord, thoughtsOf } from '../src/lib/night-shift';
+import { fuelBeforeGym, logsFoodMostDays, mealRhythm } from '../src/lib/gym-fuel';
+import { marathonGap, movePingOf } from '../src/lib/marathon';
+import type { MoodEntry } from '../src/lib/types';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -6790,5 +6799,241 @@ function step8FixTests() {
   assert.ok(eventsUrl(['music'], ['2026-11-06', '2026-11-07', '2026-11-08'], 1, '2026-11-07').includes('date_from=2026-11-07&date_to=2026-11-08'));
 }
 step8FixTests();
+
+// ---------- step 9 care ----------
+// The joy menu, the night shift, the self-compassion break, worry parking and the shutdown, name it then one step,
+// fuel before gym and the meal rhythm, the meeting-marathon reset.
+function step9CareTests() {
+  const T0 = new Date(2027, 2, 2, 10).getTime(); // Tuesday 2 March 2027, 10:00
+  const care = () => ({ ...defaultState(), onboarded: true });
+  const water = (at: number) => [{ id: `w${at}`, ml: 250, at }];
+  const ev = (key: string, start: number, end: number, allDay = false) => ({ key, title: key, start, end, allDay, location: null, calendarId: 'c' });
+  const at = (d: number, h: number, m = 0) => new Date(2027, 2, d, h, m).getTime();
+
+  // ---- joy menu: offers fit today's energy, the best lifter first, stable per offer, never XP ----
+  let j = care();
+  j = withJoyItem(j, { title: '  Call Mia ', size: 2 }, T0, 'a');
+  j = withJoyItem(j, { title: 'Bake', size: 15 }, T0, 'b');
+  j = withJoyItem(j, { title: 'Djurgården loop', size: 60, social: true }, T0, 'c');
+  assert.equal(withJoyItem(j, { title: 'call mia', size: 15 }, T0, 'd'), j, 'no item twice');
+  assert.equal(withJoyItem(j, { title: '   ', size: 15 }, T0, 'd'), j, 'no empty item');
+  assert.equal(j.joy?.items[0].title, 'Call Mia');
+  j = { ...j, joy: { items: j.joy!.items.map((x) => (x.id === 'a' ? { ...x, tries: 4, lifted: 1 } : x.id === 'b' ? { ...x, tries: 4, lifted: 4 } : x)) } };
+  const withEnergy = (s: typeof j, e: number | undefined) => ({ ...s, days: { ...s.days, '2027-03-02': { ...emptyDay(), energy: e as DayLog['energy'] } } });
+  assert.equal(energyCap(withEnergy(j, 2), '2027-03-02'), 2);
+  assert.equal(energyCap(withEnergy(j, 3), '2027-03-02'), 15);
+  assert.equal(energyCap(j, '2027-03-02'), 15, 'an unrated morning: up to 15 minutes');
+  assert.equal(energyCap(withEnergy(j, 5), '2027-03-02'), 60);
+  assert.equal(joyPick(withEnergy(j, 2), { key: '2027-03-02', seed: 's' })?.id, 'a', 'low battery: only the 2-minute things');
+  assert.equal(joyPick(j, { key: '2027-03-02', seed: 's' })?.id, 'b', 'the one that lifted most often, if it fits');
+  assert.equal(joyPick(withEnergy(j, 5), { key: '2027-03-02', seed: 's' })?.id, 'b');
+  assert.equal(joyPick(withEnergy(j, 5), { key: '2027-03-02', seed: 's', social: true })?.id, 'c', 'lonely: social items only');
+  assert.equal(joyPick(j, { key: '2027-03-02', seed: 's', social: true }), null, 'nothing social fits a 15-minute day');
+  assert.equal(joyPick(j, { key: '2027-03-02', seed: 's', skip: 1 })?.id, 'a', 'something else');
+  assert.equal(joyPick(j, { key: '2027-03-02', seed: 'x' })?.id, joyPick(j, { key: '2027-03-02', seed: 'x' })?.id, 'stable for one offer');
+  assert.equal(joyPick(care(), { seed: 's' }), null, 'an empty menu offers nothing');
+  // done now: asked about once its time has passed, then let go after a day
+  let t = withJoyTry(j, 'a', null, T0);
+  assert.deepEqual(t.joy?.open, { id: 'a', at: T0, askAt: T0 + 2 * MIN });
+  assert.equal(joyAsk(t, T0 + MIN), null);
+  assert.equal(joyAsk(t, T0 + 3 * MIN)?.item.id, 'a');
+  assert.equal(joyAsk(t, T0 + 2 * MIN + JOY_ASK_FOR_MS + 1), null, 'a stale question lets go');
+  assert.equal(joyReminders(t, T0).length, 0, 'done now: no ping');
+  const better = withJoyAnswer(t, true);
+  assert.deepEqual([better.joy?.items[0].tries, better.joy?.items[0].lifted, better.joy?.open], [5, 2, null]);
+  assert.equal(liftText(better.joy!.items[0]), 'lifted you 2 of 5 times');
+  const same = withJoyAnswer(t, false);
+  assert.deepEqual([same.joy?.items[0].tries, same.joy?.items[0].lifted], [5, 1]);
+  assert.deepEqual(withJoyAnswer(t, null).joy?.items, t.joy?.items, 'waved off: nothing counted');
+  assert.equal(liftText(j.joy!.items[2]), 'not tried yet');
+  assert.equal(liftText({ id: 'z', title: 'z', size: 2, at: 0, tries: 1, lifted: 1 }), 'lifted you 1 of 1 time');
+  for (const x of [t, better, same]) assert.equal(x.xp, j.xp, 'no XP in the joy menu');
+  // booked into a free slot: a ping at its start, the question after it
+  const events = [ev('m1', at(2, 10), at(2, 12)), ev('m2', at(2, 12, 10), at(2, 15)), ev('all', at(2, 0), at(3, 0), true)];
+  const now = new Date(at(2, 9, 50));
+  assert.deepEqual(joySlot(events, 2, 7, 23, now), { at: at(2, 9, 50), end: at(2, 10), day: '2027-03-02' }, 'a 2-minute thing fits a 10-minute gap');
+  assert.equal(joySlot(events, 15, 7, 23, now)?.at, at(2, 15), 'a 15-minute one waits for the first gap that long');
+  assert.equal(joySlot([ev('long', at(2, 9), at(2, 23, 30))], 60, 7, 23, now)?.at, at(3, 8), 'no room today: tomorrow, an hour after waking');
+  t = withJoyTry(j, 'b', at(2, 15), now.getTime());
+  assert.deepEqual(t.joy?.open, { id: 'b', at: at(2, 15), askAt: at(2, 15, 15), booked: true });
+  assert.deepEqual(joyReminders(t, now.getTime()), [{ id: 'joy-2027-03-02-b', day: '2027-03-02', at: at(2, 15), title: 'Bake' }]);
+  assert.deepEqual(joyReminders(t, at(2, 15, 1)), [], 'never a past slot');
+  assert.equal(withoutJoyItem(t, 'b').joy?.open, null, 'removing the item drops its try');
+
+  // ---- name it, then one matched step ----
+  for (const e of EMOTIONS.filter((x) => x.low)) assert.ok(STEP_OF[e.name], `${e.name} has a step`);
+  for (const name of Object.keys(STEP_OF)) assert.ok(EMOTIONS.some((e) => e.name === name), `${name} is a saved emotion name`);
+  assert.equal(stepFor(['Stressed']), 'breathe');
+  assert.equal(stepFor(['Overwhelmed']), 'breathe');
+  assert.equal(stepFor(['Restless']), 'breathe');
+  assert.equal(stepFor(['Anxious']), 'park');
+  assert.equal(stepFor(['Lonely']), 'social');
+  assert.equal(stepFor(['Sad']), 'joy');
+  assert.equal(stepFor(['Numb']), 'joy');
+  assert.equal(stepFor(['Bored']), 'joy');
+  assert.equal(stepFor(['Tired']), 'rest');
+  assert.equal(stepFor(['Angry']), 'move');
+  assert.equal(stepFor(['Irritable']), 'move');
+  assert.equal(stepFor(['Happy', 'Calm']), null);
+  assert.equal(stepFor(['Sad', 'Tired', 'Anxious']), 'park', 'the lightest lift first');
+  assert.equal(stepFor(['Bored', 'Tired']), 'rest');
+  const checkIn = (level: number, emotions: string[], extra: Partial<MoodEntry> = {}) => {
+    const s = care();
+    s.days['2027-03-02'] = { ...emptyDay(), moods: [{ id: 'm1', level: level as MoodEntry['level'], emotions, at: at(2, 9, 30), ...extra }] };
+    return s;
+  };
+  assert.equal(careOffer(checkIn(2, []), T0), null, '"Want to name it?" comes first');
+  assert.equal(careOffer(checkIn(2, [], { asked: true }), T0), null, 'no joy offer without a menu');
+  const menu = (s: typeof j) => ({ ...s, joy: j.joy });
+  assert.deepEqual(careOffer(menu(checkIn(2, [], { asked: true })), T0), { key: 'joy:m1', mood: menu(checkIn(2, [], { asked: true })).days['2027-03-02'].moods![0], step: null });
+  assert.equal(careOffer(menu(checkIn(3, [], { asked: true })), T0), null, 'an okay check-in without words gets nothing');
+  assert.equal(careOffer(checkIn(2, ['Anxious']), T0)?.step, 'park');
+  assert.equal(careOffer(checkIn(3, ['Stressed']), T0)?.step, 'breathe', 'named on the Mood screen: okay is enough');
+  assert.equal(careOffer(checkIn(4, ['Stressed']), T0), null);
+  assert.equal(careOffer(withCareSeen(checkIn(2, ['Anxious']), 'step:m1'), T0), null, 'offered once');
+  assert.equal(careOffer(checkIn(2, ['Anxious']), at(2, 9, 30) + OFFER_FOR_MS + 1), null, 'hours later it is a different moment');
+  assert.equal(careOffer(checkIn(2, ['Anxious'], { late: true }), T0), null, 'never for a check-in added afterwards');
+  assert.equal(withCareSeen(withCareSeen(care(), 'a'), 'a').careSeen?.length, 1);
+
+  // ---- self-compassion break: the morning after a real slip, opt-in, once per event ----
+  const slip = care();
+  slip.days['2027-03-01'] = { ...emptyDay(), water: water(at(1, 9)) }; // Monday: Push, not trained
+  assert.equal(slipCard(slip, new Date(T0)), null, 'off unless turned on');
+  slip.settings = { ...slip.settings, selfCompassion: true };
+  const card = slipCard(slip, new Date(T0));
+  assert.deepEqual(card?.slips.map((x) => [x.kind, x.happened]), [['gym', 'Push day slipped by']]);
+  assert.equal(slipCard(withCareSeen(slip, 'slip:gym:2027-03-01'), new Date(T0)), null, 'once per event');
+  assert.equal(slipCard(slip, new Date(at(3, 9))), null, 'only the morning after');
+  for (const [why, patch] of [
+    ['low mood', { moods: [{ id: 'x', level: 2, emotions: [], at: at(1, 9) }] }],
+    ['low battery', { energy: 2 }],
+    ['period', { period: { flow: 'medium', symptoms: [] } }],
+    ['trained', { activities: [{ id: 'a', kind: 'cardio', minutes: 30, at: at(1, 18) }] }],
+  ] as [string, Partial<DayLog>][]) {
+    const s = { ...slip, days: { ...slip.days, '2027-03-01': { ...slip.days['2027-03-01'], ...patch } } };
+    assert.equal(slipsOn(s, '2027-03-01').length, 0, why);
+  }
+  assert.equal(slipsOn({ ...slip, pauses: [{ from: '2027-03-01', to: '2027-03-01', kind: 'sick' }] }, '2027-03-01').length, 0, 'a sick day has no slips');
+  assert.equal(slipsOn(slip, '2027-03-03').length, 0, 'a rest day has none');
+  // a confident call that missed is a slip; a "no chance" that missed (she went) isn't
+  const shot = (call: 'lock' | 'no', p: number) => ({ ...slip, days: { ...slip.days, '2027-03-01': { ...slip.days['2027-03-01'], shot: { q: 'gym' as const, call, p, at: at(1, 8), result: 'miss' as const } } } });
+  assert.deepEqual(slipsOn(shot('lock', 0.95), '2027-03-01').map((x) => x.kind), ['gym', 'shot']);
+  const went = shot('no', 0.1);
+  went.days['2027-03-01'] = { ...went.days['2027-03-01'], activities: [{ id: 'a', kind: 'cardio', minutes: 30, at: at(1, 18) }] };
+  assert.deepEqual(slipsOn(went, '2027-03-01'), []);
+  // the week's slips are dated on its Sunday: a lost contract (a voided one is rest)
+  const week = { ...slip, contractLog: [{ week: '2027-03-01', goal: 'water' as const, difficulty: 'normal' as const, stake: 50, target: 5, status: 'lost' as const, payout: 0, at: at(8, 8) }] };
+  assert.ok(slipsOn(week, '2027-03-07').some((x) => x.key === 'slip:contract:2027-03-01'));
+  assert.ok(!slipsOn({ ...week, contractLog: [{ ...week.contractLog[0], status: 'voided' }] }, '2027-03-07').some((x) => x.kind === 'contract'));
+  assert.ok(slipCard({ ...week, settings: { ...week.settings, selfCompassion: true } }, new Date(at(8, 9)))?.slips.some((x) => x.kind === 'contract'), 'Monday morning');
+  // what she'd tell a friend: optional, kept, shown next time
+  assert.equal(withKindWord(slip, '2027-03-01', '   '), slip);
+  const kind = withKindWord(slip, '2027-03-01', 'You were tired. Tomorrow is fine.', T0);
+  assert.equal(lastKindWord(kind, '2027-03-05')?.text, 'You were tired. Tomorrow is fine.');
+  assert.equal(lastKindWord(kind, '2027-03-01'), null);
+
+  // ---- worry parking, the worry slot and the shutdown ----
+  let w = care();
+  assert.equal(slotAt(w, '2027-03-02'), at(2, 17, 30), '17:30 unless set');
+  w = withWorry(w, ' the dentist bill ', T0, 'w1');
+  assert.deepEqual(w.worries, [{ id: 'w1', text: 'the dentist bill', at: T0, until: '2027-03-02' }]);
+  assert.deepEqual(worriesDue(w, at(2, 17)), [], 'parked: out of sight until the slot');
+  assert.deepEqual(worriesDue(w, at(2, 17, 31)).map((x) => x.id), ['w1']);
+  w = withWorry(w, 'the talk on Friday', at(2, 18), 'w2');
+  assert.equal(w.worries?.[1].until, '2027-03-03', "parked after today's slot: tomorrow's");
+  assert.deepEqual(worriesDue(w, at(2, 18, 1)).map((x) => x.id), ['w1']);
+  assert.deepEqual(withWorrySettled(w, 'w1', 'done', at(2, 18)).worries?.map((x) => x.id), ['w2'], 'a task or let go: off the list');
+  assert.equal(withWorrySettled(w, 'w1', 'tomorrow', at(2, 18)).worries?.[0].until, '2027-03-03');
+  assert.equal(withWorry(w, '  ', T0), w);
+  const sd = withShutdown(w, at(2, 18, 5));
+  assert.deepEqual(sd.shutdown, { day: '2027-03-02', at: at(2, 18, 5) });
+  assert.deepEqual(sd.worries?.map((x) => x.until), ['2027-03-03', '2027-03-03'], "what's left waits for tomorrow");
+  assert.ok(!shutdownQuiet(sd, at(2, 18)) && shutdownQuiet(sd, at(2, 18, 5)) && shutdownQuiet(sd, at(3, 6, 59)), 'quiet until morning');
+  assert.ok(!shutdownQuiet(sd, at(3, 7)), 'the wake-up hour ends it');
+  assert.equal(quietUntil(sd, at(3, 0, 30)), at(3, 7), 'a shutdown after midnight lasts until that morning');
+  assert.ok(!shutdownQuiet(care(), T0));
+  // the slot's reminder: opt-in, only on a day something waits, not after that day's shutdown, not on paused days
+  assert.deepEqual(worryPings(w, T0), []);
+  const ping = { ...w, settings: { ...w.settings, worryPing: true } };
+  assert.deepEqual(worryPings(ping, T0).map((x) => x.id), ['worry-2027-03-02', 'worry-2027-03-03', 'worry-2027-03-04']);
+  assert.deepEqual(worryPings({ ...ping, worries: [ping.worries![1]] }, T0).map((x) => x.id), ['worry-2027-03-03', 'worry-2027-03-04'], 'nothing waits today');
+  assert.deepEqual(worryPings({ ...ping, shutdown: { day: '2027-03-02', at: T0 } }, T0).map((x) => x.id), ['worry-2027-03-03', 'worry-2027-03-04']);
+  assert.deepEqual(worryPings({ ...ping, pauses: [{ from: '2027-03-03', to: '2027-03-03', kind: 'sick' }] }, T0).map((x) => x.id), ['worry-2027-03-02', 'worry-2027-03-04']);
+  assert.deepEqual(worryPings({ ...ping, worries: [] }, T0), []);
+
+  // ---- the night shift ----
+  const night = (h: number, m: number, sleepHour = 23, nightShift?: boolean) => nightShiftNow({ sleepHour, nightShift }, new Date(2027, 2, h < 12 ? 3 : 2, h, m));
+  assert.ok(!night(23, 29) && night(23, 30) && night(2, 0) && night(4, 59), 'bedtime + 30 min until 05:00');
+  assert.ok(!night(5, 0) && !night(12, 0) && !night(19, 0));
+  assert.ok(!night(0, 29, 24) && night(0, 30, 24) && !night(23, 50, 24), 'a midnight bedtime opens at 00:30');
+  assert.ok(night(19, 30, 19) && !night(19, 29, 19));
+  assert.ok(!night(2, 0, 23, false), 'off in Settings');
+  const shuffled = new Set(NIGHT_WORDS.map((_, i) => nightWord(42, i)));
+  assert.equal(shuffled.size, NIGHT_WORDS.length, 'every word once before any repeats');
+  assert.ok(NIGHT_WORDS.every((x) => !/\d/.test(x)), 'no numbers at night');
+  assert.deepEqual(thoughtsOf('- call the bank\n\nbuy milk; Call the bank\n• email Anna '), ['call the bank', 'buy milk', 'email Anna']);
+  assert.deepEqual(thoughtsOf(' \n ; '), []);
+
+  // ---- fuel before gym, and the meal rhythm ----
+  const fed = care();
+  for (let d = 1; d <= 7; d++) fed.days[`2027-03-0${d}`] = { ...emptyDay(), food: d === 3 ? [] : [{ id: `f${d}`, name: 'Lunch', kcal: 500, protein: 30, at: at(d, 12) }] };
+  assert.ok(logsFoodMostDays(fed, '2027-03-08'), '6 of the last 7 days');
+  const sparse = { ...fed, days: { ...fed.days, '2027-03-01': emptyDay(), '2027-03-02': emptyDay(), '2027-03-04': emptyDay() } };
+  assert.ok(!logsFoodMostDays(sparse, '2027-03-08'), 'only 3 of 7: an unlogged meal proves nothing');
+  assert.ok(!logsFoodMostDays({ ...fed, pauses: [{ from: '2027-03-01', to: '2027-03-04', kind: 'away' }] }, '2027-03-08'), 'too few days to tell');
+  const gym = at(8, 18); // Monday 8 March: Push
+  assert.ok(fuelBeforeGym(fed, '2027-03-08', gym, '2027-03-08'), 'nothing logged in the 4 hours before');
+  const snack = (h: number) => ({ ...fed, days: { ...fed.days, '2027-03-08': { ...emptyDay(), food: [{ id: 's', name: 'Banana', kcal: 100, protein: 1, at: at(8, h) }] } } });
+  assert.ok(!fuelBeforeGym(snack(16), '2027-03-08', gym, '2027-03-08'), 'a snack 2 h before: no line');
+  assert.ok(fuelBeforeGym(snack(13), '2027-03-08', gym, '2027-03-08'), 'lunch 5 h before is outside the window');
+  assert.ok(!fuelBeforeGym(fed, '2027-03-07', at(7, 18), '2027-03-08'), 'a rest day');
+  assert.ok(!fuelBeforeGym(sparse, '2027-03-08', gym, '2027-03-08'), 'not while food is rarely logged');
+  const trained = { ...fed, days: { ...fed.days, '2027-03-08': { ...emptyDay(), activities: [{ id: 'a', kind: 'cardio' as const, minutes: 30, at: at(8, 7) }] } } };
+  assert.ok(!fuelBeforeGym(trained, '2027-03-08', gym, '2027-03-08'), 'already trained');
+  const rhythm = care();
+  rhythm.days['2027-03-01'] = { ...emptyDay(), food: [8 * 60, 8 * 60 + 20, 12 * 60 + 30].map((m, i) => ({ id: `r${i}`, name: 'x', kcal: 1, protein: 0, at: at(1, 0, m) })) };
+  rhythm.days['2027-03-02'] = { ...emptyDay(), food: [{ id: 'q', name: 'x', kcal: 1, protein: 0, at: at(2, 19) }] };
+  const strip = mealRhythm(rhythm, new Date(at(3, 12)));
+  assert.deepEqual(strip.map((d) => d.key), ['2027-03-01', '2027-03-02', '2027-03-03', '2027-03-04', '2027-03-05', '2027-03-06', '2027-03-07']);
+  assert.deepEqual(strip[0].meals, [480, 750], 'items 20 minutes apart are one meal');
+  assert.deepEqual(strip[1].meals, [1140]);
+  assert.deepEqual(strip.map((d) => d.future), [false, false, false, true, true, true, true]);
+  assert.ok(Object.keys(strip[0]).every((k) => ['key', 'meals', 'future'].includes(k)), 'times only, no kcal');
+
+  // ---- the meeting-marathon reset, and its cap shared with the move nudge ----
+  const marathon = [ev('a', at(2, 9), at(2, 10)), ev('b', at(2, 10), at(2, 10, 30)), ev('c', at(2, 10, 33), at(2, 11, 5)), ev('d', at(2, 11, 30), at(2, 12))];
+  assert.deepEqual(marathonGap(marathon, new Date(T0)), { at: at(2, 11, 5), from: at(2, 9), gap: 25 * MIN }, 'back to back (3 minutes apart counts) for 2 h 5 min');
+  assert.equal(marathonGap(marathon.slice(0, 2), new Date(T0)), null, 'an hour and a half is no marathon');
+  const broken = [ev('a', at(2, 9), at(2, 10)), ev('b', at(2, 10, 15), at(2, 11, 30))];
+  assert.equal(marathonGap(broken, new Date(T0)), null, 'a 15-minute break in between ends the run');
+  const noGap = [ev('a', at(2, 9), at(2, 11)), ev('b', at(2, 11, 8), at(2, 11, 30)), ev('c', at(2, 14), at(2, 15))];
+  assert.equal(marathonGap(noGap, new Date(T0))?.at, at(2, 11, 30), 'a gap of 8 minutes is back to back, so the run goes on to the real gap');
+  const tooShort = [ev('a', at(2, 9), at(2, 11)), ev('b', at(2, 11, 7), at(2, 12)), ev('c', at(2, 12, 6), at(2, 13)), ev('d', at(2, 13, 9), at(2, 14))];
+  assert.equal(marathonGap(tooShort, new Date(T0))?.at, at(2, 14), 'gaps under 10 minutes leave no room for a reset: the ping waits for the first real gap');
+  assert.equal(marathonGap([ev('x', at(2, 0), at(3, 0), true)], new Date(T0)), null, 'all-day events are no meetings');
+  assert.equal(marathonGap([ev('a', at(2, 13), at(2, 15, 30))], new Date(T0))?.at, at(2, 15, 30), 'one long meeting counts, the day after it is the gap');
+  assert.deepEqual(movePingOf(at(2, 14, 5), at(2, 11, 5), T0), { kind: 'reset', at: at(2, 11, 5) }, 'the earlier one wins');
+  assert.deepEqual(movePingOf(at(2, 14, 5), at(2, 16), T0), { kind: 'move', at: at(2, 14, 5) });
+  assert.equal(movePingOf(at(2, 14, 5), at(2, 16), at(2, 15)), null, 'the move nudge went out: no reset on top');
+  assert.equal(movePingOf(at(2, 9, 5), at(2, 11, 5), T0), null, 'one move ping a day');
+  assert.deepEqual(movePingOf(null, at(2, 11, 5), T0), { kind: 'reset', at: at(2, 11, 5) });
+  assert.equal(movePingOf(null, null, T0), null);
+
+  // ---- reminders: new planned prefixes, kind words only (so the Storm protocol has nothing to take back) ----
+  for (const id of ['joy-2027-03-02-b', 'worry-2027-03-02', 'reset-2027-03-02']) assert.ok(isPlanned(id), id);
+  assert.deepEqual(stormPlan(['joy-2027-03-02-b', 'worry-2027-03-02', 'reset-2027-03-02'], ['2027-03-02']), { cancel: [], soften: [] });
+  assert.ok(HQ_SECTIONS.some((x) => x.id === 'worry') && hqVisible().includes('worry'));
+
+  // ---- the lines: kind in both lists, plain, never about amounts ----
+  const pools = LINES as Record<string, { mild: string[]; savage: string[] }>;
+  const CARE = ['joyOffer', 'joyAsk', 'joyPing', 'joyBooked', 'stepBreathe', 'stepPark', 'stepSocial', 'stepJoy', 'stepRest', 'stepMove', 'slipHard', 'slipEveryone', 'slipFriend', 'worryParked', 'worrySlotPing', 'shutdownDone', 'shutdownQuiet', 'nightShift', 'nightParked', 'gymFuel', 'meetingReset'];
+  for (const k of CARE) assert.deepEqual(pools[k].mild, pools[k].savage, `${k} is kind in both lists`);
+  for (const k of ['joyOffer', 'worrySlotPing', 'shutdownQuiet', 'nightShift', 'gymFuel', 'meetingReset']) assert.ok(pools[k].mild.length >= 6, `${k}: 6+ lines`);
+  for (const k of ['nightShift', 'nightParked']) for (const x of pools[k].mild) assert.ok(!/\d/.test(x), `${k}: no numbers at night: ${x}`);
+  for (const x of pools.gymFuel.mild) assert.ok(!/skip|too late|late|missed|portion|amount|\d|kcal|calorie/i.test(x) && x.includes('{workout}'), x);
+  for (const x of pools.meetingReset.mild) assert.ok(/stand|up/i.test(x) && /window|far away/i.test(x) && /water/i.test(x), x);
+  for (const k of ['worryParked', 'worrySlotPing', 'shutdownDone']) for (const x of pools[k].mild) assert.ok(!/\d/.test(x.replace(/\{\w+\}/g, '')), `${k}: never a count: ${x}`);
+}
+step9CareTests();
 
 console.log('synchronous logic tests passed');

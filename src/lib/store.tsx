@@ -163,6 +163,12 @@ import { landmarkOffer, withChapter } from './chapters';
 import { revealedMult, sealedXp } from './sealed-card';
 import { pickInfo, withBossPick } from './boss-pick';
 import { withLogged } from './contract-log';
+// step 9 care: the joy menu, matched steps, the self-compassion card, worry parking and the shutdown, the night shift
+import { withCareSeen } from './care-step';
+import { bookedText, withJoyAnswer, withJoyEdit, withJoyItem, withJoyTry, withoutJoyItem } from './joy';
+import { thoughtsOf } from './night-shift';
+import { withKindWord } from './slips';
+import { shutdownQuiet, slotText, withShutdown, withWorry, withWorrySettled, worriesOf } from './worry';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -2348,7 +2354,7 @@ function useStoreValue() {
         const t = title.trim();
         if (!t) return;
         run((s, msgs) => {
-          msgs.push({ text: L(s, 'taskAdded'), tone: 'info' });
+          msgs.push({ text: shutdownQuiet(s) ? 'On the list for tomorrow.' : L(s, 'taskAdded'), tone: 'info' }); // step 9 care: no task roasts after the shutdown
           return { ...s, tasks: [{ id: uid(), title: t, done: false, createdAt: Date.now() }, ...s.tasks] };
         });
       },
@@ -2369,7 +2375,8 @@ function useStoreValue() {
             const tasks = s.tasks.map((t) => (t.id === id ? { ...t, done: true, doneAt: now, firstDoneAt: t.firstDoneAt ?? now } : t));
             const age = taskAgeDays(task);
             const undo: ToastAction = { undo: { kind: 'task', id, day: today } };
-            if (age >= IMMORTAL_DAYS) msgs.push({ text: L(s, 'immortalSlain', { task: task.title, days: age }), tone: 'epic', action: undo });
+            if (shutdownQuiet(s)) msgs.push({ text: 'Done. Off the list.', tone: 'good', action: undo }); // step 9 care: quiet after the shutdown
+            else if (age >= IMMORTAL_DAYS) msgs.push({ text: L(s, 'immortalSlain', { task: task.title, days: age }), tone: 'epic', action: undo });
             else msgs.push({ text: L(s, 'taskDone'), tone: 'good', action: undo });
             return reward(recordTask(bump({ ...s, tasks }, 'tasksDone'), id, today, now), msgs, XP.task, BONUS_MIN.task, today, { ref: `t:${id}` });
           }
@@ -3427,6 +3434,93 @@ function useStoreValue() {
           msgs.push({ text: `${b.emoji} ${L(next, 'bossPicked', { boss: b.name, weakness: b.weakness })}`, tone: 'info' });
           return next;
         });
+      },
+
+      // --- step 9 care ---
+      // Wellbeing tools: committed as they are, not through run(), so they never pay XP, count for a quest or roast.
+      /** The joy menu (joy.ts): a small thing that lifts her, added, changed or taken off. */
+      addJoy(item: Parameters<typeof withJoyItem>[1]) {
+        const s = stateRef.current;
+        const next = withJoyItem(s, item);
+        if (next !== s) commit(next);
+      },
+
+      editJoy(id: string, patch: Parameters<typeof withJoyEdit>[2]) {
+        commit(withJoyEdit(stateRef.current, id, patch));
+      },
+
+      removeJoy(id: string) {
+        commit(withoutJoyItem(stateRef.current, id));
+      },
+
+      /** A joy item taken up from offer `seen`: now, or booked into a free slot starting `at` (a ping then). Asked about afterwards. */
+      startJoy(id: string, seen: string, at: number | null = null) {
+        const next = withCareSeen(withJoyTry(stateRef.current, id, at), seen);
+        commit(next);
+        const open = next.joy?.open;
+        const item = next.joy?.items.find((x) => x.id === id);
+        if (open?.booked && item) say(`🌼 ${L(next, 'joyBooked', { title: item.title, time: bookedText(open.at) })}`, 'info');
+      },
+
+      /** "A bit better" (true) or "same" (false) after a joy item; null lets the question go without counting. */
+      answerJoy(better: boolean | null) {
+        commit(withJoyAnswer(stateRef.current, better));
+      },
+
+      /** Care offers answered or waved off: "Not now" says nothing and doesn't come back for that check-in. */
+      seeCare(...keys: string[]) {
+        const s = stateRef.current;
+        const next = withCareSeen(s, ...keys);
+        if (next !== s) commit(next);
+      },
+
+      /** Tired, named: low-battery mode today (energy 2), privately like the rough-patch card's offer, which it leaves open. */
+      restToday(seen: string) {
+        commit(withCareSeen(patchDay(stateRef.current, dayKey(), (d) => ({ ...d, energy: 2 })), seen));
+      },
+
+      /** "Park it": a worry off her mind until the worry slot (worry.ts). */
+      parkWorry(text: string) {
+        const s = stateRef.current;
+        const next = withWorry(s, text);
+        if (next === s) return;
+        commit(next);
+        const w = worriesOf(next).at(-1);
+        const time = w && w.until !== dayKey() ? `tomorrow at ${slotText(next)}` : slotText(next);
+        say(`🅿️ ${L(next, 'worryParked', { time })}`, 'info');
+      },
+
+      /** At the worry slot: a worry becomes a task (no task roast for a worry), is let go, or waits for tomorrow's slot. */
+      settleWorry(id: string, how: 'task' | 'drop' | 'tomorrow') {
+        const s = stateRef.current;
+        const w = worriesOf(s).find((x) => x.id === id);
+        if (!w) return;
+        let next = withWorrySettled(s, id, how === 'tomorrow' ? 'tomorrow' : 'done');
+        if (how === 'task') next = { ...next, tasks: [{ id: uid(), title: w.text, done: false, createdAt: Date.now() }, ...next.tasks] };
+        commit(next);
+        if (how === 'task') say('📌 On the task list. It has a place now.', 'info');
+      },
+
+      /** "Shutdown complete": what's left waits for tomorrow's slot, and task and calendar talk stop until morning. */
+      shutDown() {
+        const next = withShutdown(stateRef.current);
+        commit(next);
+        say(`🌙 ${L(next, 'shutdownDone')}`, 'good');
+      },
+
+      /** The night shift's busy brain: each thought a task for tomorrow, quietly (no toast, no XP). How many went on. */
+      nightDump(text: string) {
+        const thoughts = thoughtsOf(text);
+        if (!thoughts.length) return 0;
+        const s = stateRef.current;
+        const now = Date.now();
+        commit({ ...s, tasks: [...thoughts.map((title, i) => ({ id: uid(), title, done: false, createdAt: now - i })), ...s.tasks] });
+        return thoughts.length;
+      },
+
+      /** The self-compassion card closed (slips.ts): its slips seen, and what she'd tell a friend kept, if she wrote it. */
+      closeSlips(day: string, keys: string[], text = '') {
+        commit(withCareSeen(withKindWord(stateRef.current, day, text), ...keys));
       },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],

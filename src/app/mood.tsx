@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { CareOffers } from '@/components/care-offers'; // step 9 care: the matched step for a named check-in
 import { DayPicker } from '@/components/day-picker';
 import { SleepEditor } from '@/components/sleep-checkin';
 import { TrackersCard } from '@/components/trackers-card';
@@ -109,6 +110,7 @@ export default function MoodScreen() {
         ) : null}
         {today.some((m) => m.level <= 2) ? <Btn label="Need a minute? Breathe with me" icon="air" kind="blue" onPress={() => router.push('/breathe')} /> : null}
       </Card>
+      {day === dayKey() ? <CareOffers here="mood" /> : null}
 
       <TrackersCard day={day} />
 

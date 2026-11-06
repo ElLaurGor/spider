@@ -90,6 +90,12 @@ export type Settings = {
   sthlmEvents?: string[]; // Visit Stockholm categories for HQ's weekend card (lib/sthlm-events.ts); unset or empty = no card
   // step 8 game
   birthday?: string | null; // 'MM-DD': a fresh-start landmark (lib/chapters.ts); unset = none
+  // step 9 care
+  selfCompassion?: boolean; // the morning after a real slip, a self-compassion card (lib/slips.ts); opt-in, unset = off
+  worrySlot?: { hour: number; minute: number }; // when parked worries come back (lib/worry.ts); unset = 17:30
+  worryPing?: boolean; // a reminder at the worry slot when worries are waiting; opt-in, unset = off
+  nightShift?: boolean; // the can't-sleep corner after bedtime (lib/night-shift.ts); unset = on
+  meetingReset?: boolean; // a 2-minute reset ping after 2 h of back-to-back meetings (lib/marathon.ts); unset = on
 };
 
 /** A one-tap food on Fuel's quick-add row. */
@@ -429,6 +435,12 @@ export type State = {
   bossPicks?: Record<string, string>; // week key (its Monday) -> the boss picked for that week (lib/boss-pick.ts)
   chapters?: Chapter[]; // fresh-start chapters, oldest first (lib/chapters.ts)
   contractLog?: ContractEntry[]; // settled contracts, oldest first, the newest 52 (lib/contract-log.ts)
+  // step 9 care
+  joy?: JoyMenu; // the joy menu (lib/joy.ts): small things that lift her, and the one being tried
+  careSeen?: string[]; // care offers answered or waved off, once each (matched steps, joy offers, slips): the newest 120
+  worries?: Worry[]; // parked worries waiting for their slot (lib/worry.ts)
+  shutdown?: { day: string; at: number } | null; // "Shutdown complete": tasks and calendar talk stay quiet until the next morning
+  kindWords?: KindWord[]; // what she'd tell a friend, from the self-compassion card (lib/slips.ts): the newest 10
 };
 
 // step 8 days
@@ -563,3 +575,15 @@ export type ContractEntry = {
   at: number;
   woop?: { obstacle: ObstacleId; showed: number; fired: number };
 };
+// step 9 care
+/** A joy menu size: minutes it takes (2 min, 15 min, 1 h). */
+export type JoySize = 2 | 15 | 60;
+/** Something small that reliably lifts her (joy.ts). `tries`/`lifted`: follow-ups answered, and how many said "a bit better". */
+export type JoyItem = { id: string; title: string; size: JoySize; social?: boolean; at: number; tries?: number; lifted?: number };
+/** The joy item being tried: started now (or booked into a free slot at `at`), asked about from `askAt`. */
+export type JoyTry = { id: string; at: number; askAt: number; booked?: boolean };
+export type JoyMenu = { items: JoyItem[]; open?: JoyTry | null };
+/** A worry parked from HQ (worry.ts): it comes back at the worry slot of day `until`. */
+export type Worry = { id: string; text: string; at: number; until: string };
+/** A line she wrote on the self-compassion card: what she'd tell a friend. */
+export type KindWord = { day: string; text: string; at: number };

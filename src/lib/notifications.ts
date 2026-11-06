@@ -52,6 +52,11 @@ import { deklPings } from './deklaration';
 import { pastYouTail } from './past-you';
 import { gymTimeOn, slotReminders } from './plan-slots';
 import { woopReminders } from './woop'; // step 8 game
+// step 9 care: the snack line before gym, the meeting-marathon reset, a booked joy item, the worry slot, the shutdown's quiet
+import { fuelBeforeGym } from './gym-fuel';
+import { joyReminders } from './joy';
+import { marathonGap, movePingOf } from './marathon';
+import { shutdownQuiet, worryPings } from './worry';
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -99,6 +104,10 @@ const LINKS: [prefix: string, href: Href][] = [
   ['slot-focus-', '/focus'],
   ['slot-', '/plan'],
   ['top3-', '/'],
+  // step 9 care: a booked joy item, the worry slot and the meeting reset open HQ (its care and worry cards)
+  ['joy-', '/'],
+  ['worry-', '/'],
+  ['reset-', '/'],
 ];
 /** The screen a notification opens. Morning, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
@@ -315,7 +324,9 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const gymTime = gymTimeOn(s, key); // step 8 days: a gym time moved to a free slot that day
       const gymAt = atTime(now, d, gymTime.hour, gymTime.minute).getTime();
       // step 8 days: on a kind day there's no shame slot, so the reminder carries past you's win (only wins then)
-      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name }, key) + (tone.kind ? pastYouTail(s, key, 'gym', now, true) : '');
+      // step 9 care: with a word for a snack with some carbs when nothing is logged in the 4 h before (gym-fuel.ts)
+      const fuel = fuelBeforeGym(s, key, gymAt, dayKey(now)) ? ` ${sayOn(s, tone, 'gymFuel', { workout: plan.name }, key)}` : '';
+      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name }, key) + fuel + (tone.kind ? pastYouTail(s, key, 'gym', now, true) : '');
       jobs.push(scheduleAt(`gym-${key}-pre`, gymAt - 30 * MIN, `🏋️ ${plan.name} day`, pre, CH.gym));
       const shameAt = Math.min(gymAt + 3 * 60 * MIN, atTime(now, d, st.sleepHour).getTime() - 30 * MIN);
       // No shaming on a kind day (low mood, sick, period) or in low-battery mode.
@@ -427,12 +438,18 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     // meetings, or under the Storm protocol: "go for a walk" mustn't argue with a warning to stay in. A low mood
     // still gets it, in its kind words: a short walk is one of the kinder things to suggest then.
     const moveHour = st.moveNudgeHour;
+    let moveAt: number | null = null;
     if (moveHour != null && !paused && !period && !tone.storm && date.getDay() >= 1 && date.getDay() <= 5 && moveHour > st.wakeHour && moveHour < st.sleepHour) {
       const when = atTime(now, d, moveHour, 5);
-      if (!(d === 0 && lowBattery(log)) && !(st.respectMeetings && inMeeting(events, when.getTime()))) {
-        jobs.push(scheduleAt(`move-${key}`, when, '🚶 Move break', sayOn(s, tone, 'moveNudge', {}, key), CH.remind));
-      }
+      if (!(d === 0 && lowBattery(log)) && !(st.respectMeetings && inMeeting(events, when.getTime()))) moveAt = when.getTime();
     }
+    // step 9 care: 2 h of back-to-back meetings ending in a gap get a 2-minute reset there (marathon.ts). It shares
+    // the move nudge's cap: one move ping a day, the earlier one. Not on paused or low-battery days.
+    const marathon = st.meetingReset !== false && !paused && !(d === 0 && lowBattery(log)) ? marathonGap(events, date) : null;
+    const resetAt = marathon && marathon.at > atTime(now, d, st.wakeHour).getTime() && marathon.at < atTime(now, d, st.sleepHour).getTime() ? marathon.at : null;
+    const movePing = movePingOf(moveAt, resetAt, now.getTime());
+    if (movePing?.kind === 'move') jobs.push(scheduleAt(`move-${key}`, movePing.at, '🚶 Move break', sayOn(s, tone, 'moveNudge', {}, key), CH.remind));
+    else if (movePing) jobs.push(scheduleAt(`reset-${key}`, movePing.at, '🧍 Two-minute reset', sayOn(s, tone, 'meetingReset', {}, key), CH.remind));
 
     if (st.notify.windDown && !(d === 0 && log.windDownDone)) {
       // With the owner's own wind-down finding, when the data has one (never on a sick day).
@@ -443,7 +460,9 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
 
     // Not on paused days; on a kind day, no running joke about the task that won't die.
     if (st.notify.evening && !paused) {
-      const zombie = tone.kind ? null : immortalTask(s, atTime(now, d, st.sleepHour - 2, 30).getTime());
+      // step 9 care: nor after "Shutdown complete" (worry.ts): the evening is off the clock until morning
+      const eveningAt = atTime(now, d, st.sleepHour - 2, 30).getTime();
+      const zombie = tone.kind || shutdownQuiet(s, eveningAt) ? null : immortalTask(s, eveningAt);
       const body =
         (d === 0 ? sayOn(s, tone, 'eveningReport', { summary: daySummary(s, now) }, key) : sayOn(s, tone, 'eveningReady', {}, key)) +
         (zombie ? ` ${sayOn(s, tone, 'immortalTask', { task: zombie.task.title, days: zombie.days }, key)}` : '');
@@ -554,6 +573,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   // (plan-slots.ts). Only what the owner booked, once each, and nothing on paused days.
   for (const r of slotReminders(s, now, DAYS_AHEAD)) {
     const tone = toneOn(s, r.day, now, cycle);
+    if (r.kind !== 'focus' && shutdownQuiet(s, r.at)) continue; // step 9 care: no task pings after the shutdown, until morning
     if (r.kind === 'focus') {
       jobs.push(scheduleAt(r.id, r.at, '🕸️ Focus block', sayOn(s, tone, 'slotFocusPing', { time: fmtTime(r.at) }, r.day), CH.remind, { category: CATEGORY.focus }));
     } else if (r.kind === 'task') {
@@ -561,6 +581,14 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     } else {
       jobs.push(scheduleAt(r.id, r.at, `🎯 ${r.title}`, sayOn(s, tone, 'topSlotPing', { task: r.title }, r.day), CH.remind));
     }
+  }
+
+  // step 9 care: a joy item booked into a free slot (joy.ts), and the worry slot when worries wait for it (worry.ts, opt-in)
+  for (const r of joyReminders(s, now.getTime())) {
+    jobs.push(scheduleAt(r.id, r.at, `🌼 ${r.title}`, sayOn(s, toneOn(s, r.day, now, cycle), 'joyPing', { title: r.title }, r.day), CH.remind));
+  }
+  for (const r of worryPings(s, now.getTime(), DAYS_AHEAD)) {
+    jobs.push(scheduleAt(r.id, r.at, '🅿️ Worry slot', sayOn(s, toneOn(s, r.day, now, cycle), 'worrySlotPing', {}, r.day), CH.remind));
   }
 
   planned = null;

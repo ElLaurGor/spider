@@ -2416,6 +2416,316 @@ export const LINES = {
     mild: ['The sealed card flips: ×1. {quest} paid its usual +{xp} XP.'],
     savage: ['Sealed card: ×1. Exactly +{xp} XP for {quest}. Perfectly average luck.'],
   },
+  // ---- step 9 care ----
+  // The joy menu (joy.ts): a small thing that lifted her before, offered after a low check-in. Kind in both lists. {title}: the item.
+  joyOffer: {
+    mild: [
+      'Something small that has helped before: {title}.',
+      'From your joy menu, in case it helps: {title}.',
+      'A small lift on offer: {title}. Only if you feel like it.',
+      'Your own list says this tends to help: {title}.',
+      "Here's one from your joy menu: {title}. No pressure either way.",
+      'If you want something small right now: {title}.',
+    ],
+    savage: [
+      'Something small that has helped before: {title}.',
+      'From your joy menu, in case it helps: {title}.',
+      'A small lift on offer: {title}. Only if you feel like it.',
+      'Your own list says this tends to help: {title}.',
+      "Here's one from your joy menu: {title}. No pressure either way.",
+      'If you want something small right now: {title}.',
+    ],
+  },
+  joyAsk: {
+    mild: [
+      'Earlier you went for {title}. Did it help at all?',
+      '{title}: did it lift things a little?',
+      'How was {title}? One tap, if you like.',
+      'After {title}, how do you feel?',
+    ],
+    savage: [
+      'Earlier you went for {title}. Did it help at all?',
+      '{title}: did it lift things a little?',
+      'How was {title}? One tap, if you like.',
+      'After {title}, how do you feel?',
+    ],
+  },
+  joyPing: {
+    mild: [
+      'Booked for now: {title}. Enjoy it.',
+      'This slot is for {title}. Nothing else needed.',
+      'Time for {title}, as booked. Just that.',
+      'Your booked bit of joy: {title}.',
+    ],
+    savage: [
+      'Booked for now: {title}. Enjoy it.',
+      'This slot is for {title}. Nothing else needed.',
+      'Time for {title}, as booked. Just that.',
+      'Your booked bit of joy: {title}.',
+    ],
+  },
+  joyBooked: {
+    mild: [
+      "{title} is booked {time}. I'll give you a nudge.",
+      'Booked: {title}, {time}. Nothing to prepare.',
+    ],
+    savage: [
+      "{title} is booked {time}. I'll give you a nudge.",
+      'Booked: {title}, {time}. Nothing to prepare.',
+    ],
+  },
+  // Name it, then one matched step (care-step.ts). Kind in both lists, offers only. {time}: the worry slot.
+  stepBreathe: {
+    mild: [
+      'Lots going on. Two minutes of slow breathing, or a short walk, can take the edge off.',
+      "When it's all too much, the smallest reset helps: two minutes of breathing, or a walk around the block.",
+      'Stress likes to rush you. Two slow minutes of breathing, or a few minutes outside, push back a little.',
+    ],
+    savage: [
+      'Lots going on. Two minutes of slow breathing, or a short walk, can take the edge off.',
+      "When it's all too much, the smallest reset helps: two minutes of breathing, or a walk around the block.",
+      'Stress likes to rush you. Two slow minutes of breathing, or a few minutes outside, push back a little.',
+    ],
+  },
+  stepPark: {
+    mild: [
+      "Anxious thoughts get louder when they have nowhere to go. Park one here; it comes back at {time}, when there's room for it.",
+      'Want to set that worry down for now? Park it, and it waits for you at {time}.',
+      "Write the worry down and let it wait until {time}. It'll still be there; you don't have to hold it.",
+    ],
+    savage: [
+      "Anxious thoughts get louder when they have nowhere to go. Park one here; it comes back at {time}, when there's room for it.",
+      'Want to set that worry down for now? Park it, and it waits for you at {time}.',
+      "Write the worry down and let it wait until {time}. It'll still be there; you don't have to hold it.",
+    ],
+  },
+  stepSocial: {
+    mild: [
+      'Lonely is a signal, not a flaw. A message to someone you like is enough, no reason needed.',
+      "Maybe send a short hello to someone you like. It doesn't have to lead anywhere.",
+      'One small message to a person you like can shrink the distance a little.',
+    ],
+    savage: [
+      'Lonely is a signal, not a flaw. A message to someone you like is enough, no reason needed.',
+      "Maybe send a short hello to someone you like. It doesn't have to lead anywhere.",
+      'One small message to a person you like can shrink the distance a little.',
+    ],
+  },
+  stepJoy: {
+    mild: [
+      'Low and flat days get a little lighter with something small and good.',
+      'Nothing needs fixing right now. Something small you like might help a bit.',
+      "When it's grey inside, small things count. Here's one, if you want it.",
+    ],
+    savage: [
+      'Low and flat days get a little lighter with something small and good.',
+      'Nothing needs fixing right now. Something small you like might help a bit.',
+      "When it's grey inside, small things count. Here's one, if you want it.",
+    ],
+  },
+  stepRest: {
+    mild: [
+      'Tired is information, not a failing. Rest is allowed today.',
+      "You're tired. That's a reason to go easy, and a good one.",
+      'Permission granted: today can be a slower day.',
+    ],
+    savage: [
+      'Tired is information, not a failing. Rest is allowed today.',
+      "You're tired. That's a reason to go easy, and a good one.",
+      'Permission granted: today can be a slower day.',
+    ],
+  },
+  stepMove: {
+    mild: [
+      'Anger has energy in it. Ten minutes of moving can let some of it out: stairs, a brisk walk, a song at full volume.',
+      'Irritation burns off faster on the move. Ten minutes of anything, at any pace.',
+      'Feeling wound up? Ten minutes of moving tends to loosen it a bit.',
+    ],
+    savage: [
+      'Anger has energy in it. Ten minutes of moving can let some of it out: stairs, a brisk walk, a song at full volume.',
+      'Irritation burns off faster on the move. Ten minutes of anything, at any pace.',
+      'Feeling wound up? Ten minutes of moving tends to loosen it a bit.',
+    ],
+  },
+  // The self-compassion break (slips.ts): Kristin Neff's three steps, mild in both lists. {happened}: the slip, said plainly.
+  slipHard: {
+    mild: [
+      "{happened}. That stings, and that's allowed. It was a hard moment.",
+      '{happened}. Noticing that it hurts a little is the first step, not a failure.',
+      "{happened}. That was hard. You don't have to pretend it wasn't.",
+      '{happened}. Let it be what it is: one rough spot in one day.',
+    ],
+    savage: [
+      "{happened}. That stings, and that's allowed. It was a hard moment.",
+      '{happened}. Noticing that it hurts a little is the first step, not a failure.',
+      "{happened}. That was hard. You don't have to pretend it wasn't.",
+      '{happened}. Let it be what it is: one rough spot in one day.',
+    ],
+  },
+  slipEveryone: {
+    mild: [
+      'Everyone skips. Plans slip for every person who has ever made one.',
+      "You're in good company: nobody keeps every plan. Slips come with having plans at all.",
+      "This happens to everyone who tries. It means you're trying.",
+      "Every routine has gaps in it. Yours is no different, and that's normal.",
+    ],
+    savage: [
+      'Everyone skips. Plans slip for every person who has ever made one.',
+      "You're in good company: nobody keeps every plan. Slips come with having plans at all.",
+      "This happens to everyone who tries. It means you're trying.",
+      "Every routine has gaps in it. Yours is no different, and that's normal.",
+    ],
+  },
+  slipFriend: {
+    mild: [
+      'If a friend told you this, what would you say to them?',
+      'What would you tell a friend in exactly this spot?',
+      'Imagine a good friend had this day. What would you want them to hear?',
+      "What's the kind thing you'd say to someone you love about this?",
+    ],
+    savage: [
+      'If a friend told you this, what would you say to them?',
+      'What would you tell a friend in exactly this spot?',
+      'Imagine a good friend had this day. What would you want them to hear?',
+      "What's the kind thing you'd say to someone you love about this?",
+    ],
+  },
+  // Worry parking and the shutdown (worry.ts). Kind in both lists, never a count. {time}: when the worry comes back.
+  worryParked: {
+    mild: [
+      "Parked. It waits for {time}, so you don't have to carry it until then.",
+      'Got it. That worry is parked until {time}.',
+      'Parked safely. You can pick it up again at {time}.',
+      'Written down and parked until {time}. One less thing to hold.',
+    ],
+    savage: [
+      "Parked. It waits for {time}, so you don't have to carry it until then.",
+      'Got it. That worry is parked until {time}.',
+      'Parked safely. You can pick it up again at {time}.',
+      'Written down and parked until {time}. One less thing to hold.',
+    ],
+  },
+  worrySlotPing: {
+    mild: [
+      'Worry slot. Your parked worries are waiting: sort them, then call it a day.',
+      "It's worry time. A few minutes to sort what you parked, then shut down.",
+      'Your parked worries are back. Each one: a task, let go, or tomorrow.',
+      'Time to look at what you parked. Then the evening is yours.',
+      'Worry slot is open. Short and calm: sort, then shut down.',
+      "The worries you parked earlier are here. Let's give them a few minutes.",
+    ],
+    savage: [
+      'Worry slot. Your parked worries are waiting: sort them, then call it a day.',
+      "It's worry time. A few minutes to sort what you parked, then shut down.",
+      'Your parked worries are back. Each one: a task, let go, or tomorrow.',
+      'Time to look at what you parked. Then the evening is yours.',
+      'Worry slot is open. Short and calm: sort, then shut down.',
+      "The worries you parked earlier are here. Let's give them a few minutes.",
+    ],
+  },
+  shutdownDone: {
+    mild: [
+      'Shutdown complete. Tasks and calendar can wait for the morning.',
+      "Shut down for the day. I'll keep quiet about tasks until morning.",
+      'Done for today. The list will still be there tomorrow.',
+      'Shutdown complete. The evening is off the clock.',
+    ],
+    savage: [
+      'Shutdown complete. Tasks and calendar can wait for the morning.',
+      "Shut down for the day. I'll keep quiet about tasks until morning.",
+      'Done for today. The list will still be there tomorrow.',
+      'Shutdown complete. The evening is off the clock.',
+    ],
+  },
+  shutdownQuiet: {
+    mild: [
+      "Shut down for today. Tasks and meetings are tomorrow's business.",
+      'Work is parked until morning. Nothing to see here.',
+      'Off duty. The calendar can talk to you tomorrow.',
+      'Shutdown is on. Not a word about tasks from me tonight.',
+      'Evening mode: the list is resting too.',
+      'All quiet until morning. You closed the day properly.',
+    ],
+    savage: [
+      "Shut down for today. Tasks and meetings are tomorrow's business.",
+      'Work is parked until morning. Nothing to see here.',
+      'Off duty. The calendar can talk to you tomorrow.',
+      'Shutdown is on. Not a word about tasks from me tonight.',
+      'Evening mode: the list is resting too.',
+      'All quiet until morning. You closed the day properly.',
+    ],
+  },
+  // The night shift (night-shift.ts): no clock, no numbers, no roasts. Kind in both lists.
+  nightShift: {
+    mild: [
+      "Can't sleep? That happens. No clock here, nothing to check.",
+      "Still awake. That's okay. Let's keep it dim and slow.",
+      'Awake at night is normal. Nothing needs doing right now.',
+      'Hey. The day is over and nothing here is urgent.',
+      'Night shift. Soft light, slow breaths, no tasks.',
+      "Can't switch off? Pick something quiet below, or nothing at all.",
+    ],
+    savage: [
+      "Can't sleep? That happens. No clock here, nothing to check.",
+      "Still awake. That's okay. Let's keep it dim and slow.",
+      'Awake at night is normal. Nothing needs doing right now.',
+      'Hey. The day is over and nothing here is urgent.',
+      'Night shift. Soft light, slow breaths, no tasks.',
+      "Can't switch off? Pick something quiet below, or nothing at all.",
+    ],
+  },
+  nightParked: {
+    mild: [
+      'Parked on your list for tomorrow. Your head can let go of them now.',
+      "All written down. They'll keep until morning.",
+      'Safe on the list. Nothing more to do with them tonight.',
+      'Out of your head and onto the list. Tomorrow-you has it.',
+    ],
+    savage: [
+      'Parked on your list for tomorrow. Your head can let go of them now.',
+      "All written down. They'll keep until morning.",
+      'Safe on the list. Nothing more to do with them tonight.',
+      'Out of your head and onto the list. Tomorrow-you has it.',
+    ],
+  },
+  // Fuel before gym (gym-fuel.ts): only ever encouraging, never an amount, never "skipped". Kind in both lists. {workout}: the planned workout.
+  gymFuel: {
+    mild: [
+      'A snack with some carbs an hour or so before {workout} gives the session something to run on.',
+      'Fuel tip: a banana, toast or yoghurt before {workout} makes the sets feel easier.',
+      'Something small with carbs before {workout} is a good idea. Fruit counts.',
+      "If there's time, grab a snack before {workout}. Carbs are your friend here.",
+      "A little fuel before {workout} helps: bread, fruit, a bar, whatever's around.",
+      'Pre-gym snack idea: something with carbs, about an hour before {workout}.',
+    ],
+    savage: [
+      'A snack with some carbs an hour or so before {workout} gives the session something to run on.',
+      'Fuel tip: a banana, toast or yoghurt before {workout} makes the sets feel easier.',
+      'Something small with carbs before {workout} is a good idea. Fruit counts.',
+      "If there's time, grab a snack before {workout}. Carbs are your friend here.",
+      "A little fuel before {workout} helps: bread, fruit, a bar, whatever's around.",
+      'Pre-gym snack idea: something with carbs, about an hour before {workout}.',
+    ],
+  },
+  // The meeting-marathon reset (marathon.ts): one ping at the gap. Kind in both lists.
+  meetingReset: {
+    mild: [
+      'Long meeting run done. Two minutes: stand up, look out of a window, sip some water.',
+      'That was a lot of back-to-back. Stand, stretch, window, water. Two minutes.',
+      'Meeting marathon over. Two minutes for you: up, window, water.',
+      "You've been in meetings a long while. Quick reset: stand, look far away, drink some water.",
+      'A gap at last. Stand up, find a window, have some water. Two minutes is plenty.',
+      'Back-to-back meetings behind you. Two minutes: stand, window, water, breathe.',
+    ],
+    savage: [
+      'Long meeting run done. Two minutes: stand up, look out of a window, sip some water.',
+      'That was a lot of back-to-back. Stand, stretch, window, water. Two minutes.',
+      'Meeting marathon over. Two minutes for you: up, window, water.',
+      "You've been in meetings a long while. Quick reset: stand, look far away, drink some water.",
+      'A gap at last. Stand up, find a window, have some water. Two minutes is plenty.',
+      'Back-to-back meetings behind you. Two minutes: stand, window, water, breathe.',
+    ],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

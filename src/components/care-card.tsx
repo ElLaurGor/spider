@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Linking, Pressable, Text } from 'react-native';
 
+import { CareOffers, PatchJoy } from '@/components/care-offers'; // step 9 care
 import { PastYouAsk, PastYouLine } from '@/components/past-you';
 import { PauseCard } from '@/components/pause-card';
 import { Btn, Card, Chip, H, Icon, Row, T } from '@/components/ui';
@@ -17,6 +18,7 @@ export function CareCard() {
   return (
     <>
       <NameItCard />
+      <CareOffers />
       <RoughPatchCard />
       <PastYouAsk />
     </>
@@ -100,6 +102,7 @@ function RoughPatchCard() {
       ) : null}
       <Btn label={pausing ? 'Not now' : 'Take a sick or away pause'} icon="healing" kind="ghost" small onPress={() => setPausing(!pausing)} />
       {pausing ? <PauseCard /> : null}
+      <PatchJoy />
       <Btn
         label="Breathe for two minutes"
         icon="air"

@@ -16,6 +16,7 @@ import { slotPlansOn, slotStart } from '@/lib/plan-slots';
 import { dayOf, eventsOn, freeSlots, trainedOn, workoutFor } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { Task } from '@/lib/types';
+import { shutdownQuiet } from '@/lib/worry'; // step 9 care
 import { BONUS_MIN, XP } from '@/lib/xp';
 
 export default function Plan() {
@@ -33,7 +34,7 @@ export default function Plan() {
   const slots = freeSlots(cal.events, date, state.settings.wakeHour + 1, state.settings.sleepHour - 1);
   const plan = workoutFor(state, date);
   const timed = dayEvents.filter((e) => !e.allDay).length;
-  const calKey = timed > 0 ? 'calBusy' : 'calFree';
+  const calKey = shutdownQuiet(state) ? 'shutdownQuiet' : timed > 0 ? 'calBusy' : 'calFree'; // step 9 care: quiet after the shutdown
   const calLine = useMemo(() => quip(calKey, { count: timed }), [quip, calKey, timed]);
   const emptyLine = useMemo(() => quip('tasksEmpty'), [quip]);
 

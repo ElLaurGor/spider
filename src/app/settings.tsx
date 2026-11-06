@@ -23,6 +23,7 @@ import { sendTestRoast } from '@/lib/notifications';
 import { cleanBirthday } from '@/lib/chapters'; // step 8 game
 import { useStore } from '@/lib/store';
 import { toneOn } from '@/lib/tone';
+import { CareSettings } from '@/components/care-settings'; // step 9 care
 import { PauseCard } from '@/components/pause-card';
 import { StepsCheckPanel } from '@/components/steps-check';
 import { SwedenSettings } from '@/components/sweden-settings';
@@ -365,6 +366,8 @@ export default function SettingsScreen() {
         <Toggle label="Stay quiet during meetings" value={s.respectMeetings} onChange={(v) => set({ respectMeetings: v })} />
         <Btn label="Send me a test roast" icon="notifications" kind="ghost" onPress={testRoast} />
       </Card>
+
+      <CareSettings />
 
       <Card>
         <H>Weather</H>

@@ -6,6 +6,7 @@ import { View } from "react-native";
 
 import { AutoUpdate, noteTouch } from "@/components/auto-update";
 import { CuePromptHost } from "@/components/cue-prompt";
+import { NightGate } from "@/components/night-gate";
 import { Recovery } from "@/components/recovery";
 import { ShareInbox } from "@/components/share-inbox";
 import { ToastHost } from "@/components/toast";
@@ -312,6 +313,21 @@ export default function RootLayout() {
                   headerShadowVisible: false,
                 }}
               />
+              {/* step 9 care: the joy menu and the night shift (dim, no header, no clock) */}
+              <Stack.Screen
+                name="joy"
+                options={{
+                  headerShown: true,
+                  title: "Joy menu",
+                  headerStyle: { backgroundColor: C.bg },
+                  headerTintColor: C.text,
+                  headerShadowVisible: false,
+                }}
+              />
+              <Stack.Screen
+                name="night"
+                options={{ animation: "fade" }}
+              />
               <Stack.Screen
                 name="onboarding"
                 options={{ gestureEnabled: false, animation: "fade" }}
@@ -322,6 +338,7 @@ export default function RootLayout() {
           <CuePromptHost />
           <AutoUpdate />
           <ShareInbox />
+          <NightGate />
         </ThemeProvider>
       </StoreProvider>
     </ShareIntentProvider>

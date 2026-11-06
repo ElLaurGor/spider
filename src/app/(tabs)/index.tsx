@@ -31,6 +31,8 @@ import { SlCard } from '@/components/sl-card';
 import { SthlmClimateSync } from '@/components/sthlm-climate-sync';
 import { WeekendCard } from '@/components/weekend-card';
 import { WeekCard } from '@/components/week-card';
+import { WorryCard } from '@/components/worry-card'; // step 9 care
+import { shutdownQuiet } from '@/lib/worry';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { bedtimeOn, lastCallOn } from '@/lib/caffeine';
@@ -142,13 +144,14 @@ export default function HQ() {
   const kindToday = toneOn(state, todayKey).kind || gentleDay(state, todayKey);
   const vKey = verdictLineKey(score, new Date(now).getHours(), kindToday);
   const verdict = useMemo(() => quip(vKey), [quip, vKey]);
-  const emptyKey = cal.status === 'granted' ? 'calFree' : 'tasksEmpty';
+  // step 9 care: after "Shutdown complete" no calendar or task lines until morning
+  const emptyKey = shutdownQuiet(state, now) ? 'shutdownQuiet' : cal.status === 'granted' ? 'calFree' : 'tasksEmpty';
   const emptyLine = useMemo(() => quip(emptyKey), [quip, emptyKey]);
   const visible = hqVisible(s.hq);
 
   // A tap on the spider: a random jab, its opinion of your week, or a word about the task that won't die.
   const tapSpider = () => {
-    const zombie = immortalTask(state);
+    const zombie = shutdownQuiet(state) ? null : immortalTask(state);
     if (zombie && Math.random() < 0.3) return setBubble({ text: quip('immortalTask', { task: zombie.task.title, days: zombie.days }), savage });
     setBubble({ text: quip(respect && Math.random() < 0.4 ? respect.line : 'spiderTap'), savage });
   };
@@ -398,6 +401,7 @@ export default function HQ() {
     lair: () => <LairCard />,
     weekend: () => <WeekendCard />, // step 8 stockholm
     chapter: () => <ChapterCard />, // step 8 game: a fresh-start chapter on a landmark
+    worry: () => <WorryCard />, // step 9 care: worry parking, the worry slot and the shutdown
     // NEW HQ CARD: add `<id>: () => <YourCard />,` here and `{ id, label }` to HQ_SECTIONS in lib/hq-layout.ts.
   };
 
