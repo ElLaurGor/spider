@@ -182,6 +182,11 @@ import { nextSirenTest, PREP_COINS, PREP_ITEMS, prepWeek, prepWeekOn, sirenPing,
 import { deklarationFor, deklarationOn, deklDone, deklPings } from '../src/lib/deklaration';
 import type { PlannedPing } from '../src/lib/people-days';
 import type { State as SweState, StormAlert as SweStorm } from '../src/lib/types';
+// step 8 stockholm
+import { buildClimateTable, daysInMonth, doyOf, joinObs, monthMeanOf, parseSmhiCsv, parseSmhiLatest, type DayObs } from '../src/lib/climate-table';
+import { CLIMATE, climateDue, climateUpdate, dateLabel, factsOn, GLITCH_C, monthLine, monthMeans, nearStockholm, recordsBroken, recordText, triviaLine } from '../src/lib/sthlm-climate';
+import { cleanStation, dayText, decodeEntities, EVENTS_MAX_PAGES, eventsRetryMs, eventsUrl, fetchWeekend, nextSlot, outingsIn, outingTask, parsePage, pickWeekend, planned } from '../src/lib/sthlm-events';
+import { slotsOf, weekendEvent, weekendKey, weekendOf, whenText, type RawEvent, type RawPage } from '../src/lib/sthlm-events';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -5342,6 +5347,299 @@ function step8SwedenTests() {
   assert.deepEqual(fuel.days, {}); // offering a food logs nothing
 }
 step8SwedenTests();
+
+// step 8 stockholm: the weekend card (Visit Stockholm) and Stockholm's weather since 1859 (SMHI)
+function step8StockholmTests() {
+  // the climate table: day-of-year slots in a leap calendar, records keep the first year to reach them
+  {
+    assert.equal(doyOf('01-01'), 0);
+    assert.equal(doyOf('2024-02-29'), 59);
+    assert.equal(doyOf('2026-03-01'), 60);
+    assert.equal(doyOf('2026-11-06'), 310);
+    assert.equal(doyOf('2026-12-31'), 365);
+    assert.equal(daysInMonth('2026-02'), 28);
+    assert.equal(daysInMonth('2024-02'), 29);
+    const fixture: DayObs[] = [
+      { day: '1859-11-06', mean: -5.04 },
+      { day: '1995-11-06', mean: 8, max: 11.2, min: 4 },
+      { day: '2000-11-06', mean: 8, max: 11.2, min: -6.5 }, // ties: the record stays 1995's
+      { day: '2010-11-06', mean: 6, max: 14.4, min: -6.5 },
+      { day: '1980-11-07', mean: 3 },
+    ];
+    const t = buildClimateTable(fixture, { source: 'fixture' });
+    const i = doyOf('11-06');
+    assert.deepEqual([t.warm[i], t.warmY[i], t.cold[i], t.coldY[i]], [80, 1995, -50, 1859]);
+    assert.deepEqual([t.hi[i], t.hiY[i], t.lo[i], t.loY[i]], [144, 2010, -65, 2000]);
+    assert.deepEqual([t.from, t.extremesFrom, t.through], [1859, 1995, '2010-11-06']);
+    assert.equal(t.hi[doyOf('11-07')], null); // no max that day: no record to quote
+    assert.equal(t.mean.length, 366);
+
+    // the normal: a smooth curve over 1991–2020 only (a hot year outside it changes nothing), months with ≤ 2 days missing
+    const curve = (doy: number) => 6 + 10 * Math.sin((2 * Math.PI * (doy - 110)) / 366);
+    const days: DayObs[] = [];
+    for (const y of [1991, 1992, 1993]) {
+      for (let d = new Date(y, 0, 1, 12); d.getFullYear() === y; d.setDate(d.getDate() + 1)) {
+        const day = dayKey(d);
+        days.push({ day, mean: curve(doyOf(day)) });
+      }
+    }
+    for (let d = 1; d <= 31; d++) days.push({ day: `1980-07-${String(d).padStart(2, '0')}`, mean: 40 });
+    const n = buildClimateTable(days, { source: 'fixture' });
+    for (const k of [0, 59, 120, 200, 310, 365]) assert.ok(Math.abs(n.mean[k] / 10 - curve(k)) <= 0.15, `normal at ${k}: ${n.mean[k]} vs ${curve(k).toFixed(2)}`);
+    assert.deepEqual([n.months.warm[6], n.months.warmY[6]], [400, 1980]); // July 1980: the record month, outside the normal
+    assert.ok(Math.abs(n.months.mean[6] / 10 - 15.5) < 1, String(n.months.mean[6])); // July's normal comes from 1991–1993 only
+    assert.equal(monthMeanOf(days, '1980-07'), 40);
+    assert.equal(monthMeanOf(days.filter((o) => o.day !== '1991-03-01' && o.day !== '1991-03-02'), '1991-03') != null, true); // 2 missing: still a month
+    assert.equal(monthMeanOf(days.filter((o) => !/^1991-03-0[123]$/.test(o.day)), '1991-03'), null); // 3 missing: not a month
+
+    // SMHI's CSV (BOM, header block, extra columns) and latest-months JSON
+    const csv = [
+      '﻿Stationsnamn;Stationsnummer;Stationsnät;Mäthöjd (meter över marken)',
+      'Stockholm-Observatoriekullen;98210;SMHIs stationsnät;2.0',
+      '',
+      'Från Datum Tid (UTC);Till Datum Tid (UTC);Representativt dygn;Lufttemperatur;Kvalitet;;Tidsutsnitt:',
+      '1859-01-01 00:00:01;1859-01-02 00:00:00;1859-01-01;0.2;Y;;Kvalitetskontrollerade historiska data',
+      '1859-01-02 00:00:01;1859-01-03 00:00:00;1859-01-02;-3.1;Y;;Tidsperiod (fr.o.m.) = 1859-01-01',
+      '1859-01-03 00:00:01;1859-01-04 00:00:00;1859-01-03;;Y',
+      '',
+    ].join('\r\n');
+    assert.deepEqual([...parseSmhiCsv(csv)], [['1859-01-01', 0.2], ['1859-01-02', -3.1]]);
+    const latest = parseSmhiLatest({ value: [{ ref: '2026-11-04', value: '7.4' }, { ref: '2026-11-05', value: '7.0' }, { ref: 'bad', value: '1' }] });
+    assert.deepEqual([...latest], [['2026-11-04', 7.4], ['2026-11-05', 7]]);
+    assert.throws(() => parseSmhiLatest({ value: null }));
+    assert.deepEqual(joinObs(latest, new Map([['2026-11-06', 6.6]]), new Map(), '2026-11-05'), [
+      { day: '2026-11-04', mean: 7.4, max: undefined, min: undefined },
+      { day: '2026-11-05', mean: 7, max: undefined, min: undefined },
+    ]); // today's still-running max is left out
+  }
+
+  // the lookup: a date's facts, records set since the table, the HQ line, the toast's sentence, a month's line
+  {
+    const october = (y: number, mean: number): DayObs[] => Array.from({ length: 31 }, (_, k) => ({ day: `${y}-10-${String(k + 1).padStart(2, '0')}`, mean }));
+    const t = buildClimateTable(
+      [
+        { day: '1859-11-06', mean: -6.6 },
+        { day: '1938-11-06', mean: 11.4, max: 12.3, min: 9 },
+        { day: '1970-11-06', mean: 1, max: 3, min: -6.7 },
+        { day: '2020-11-06', mean: 9, max: 14.4, min: 5 },
+        { day: '1938-11-07', mean: 5, max: 7, min: 2 },
+        { day: '1939-11-08', mean: 5, max: 7, min: 2 },
+        ...october(1900, 5), // the coldest October
+        ...october(1990, 10), // the warmest, just before the normal period
+        ...october(2001, 7.7), // the normal period's only October
+      ],
+      { source: 'fixture' },
+    );
+    const f = factsOn('2026-11-06', [], t);
+    assert.deepEqual([f.warm, f.cold, f.hi, f.lo], [{ v: 11.4, year: 1938 }, { v: -6.6, year: 1859 }, { v: 14.4, year: 2020 }, { v: -6.7, year: 1970 }]);
+    const extra = [
+      { day: '2026-11-06', kind: 'warm' as const, v: 12.1 },
+      { day: '2025-11-06', kind: 'hi' as const, v: 13 }, // not above the table's record: ignored
+      { day: '2026-11-07', kind: 'cold' as const, v: -20 }, // another date
+    ];
+    const g = factsOn('2027-11-06', extra, t);
+    assert.deepEqual([g.warm, g.hi, g.cold], [{ v: 12.1, year: 2026 }, { v: 14.4, year: 2020 }, { v: -6.6, year: 1859 }]);
+    // broken: strictly beyond the record (a tie isn't one), and never by more than a glitch
+    assert.deepEqual(recordsBroken({ day: '2026-11-06', mean: 11.9, max: 14.4, min: 0 }, f), [{ kind: 'warm', v: 11.9, old: { v: 11.4, year: 1938 } }]);
+    assert.deepEqual(recordsBroken({ day: '2026-11-06', mean: 11.4, max: 14.5, min: -7 }, f).map((b) => b.kind), ['hi', 'lo']);
+    assert.deepEqual(recordsBroken({ day: '2026-11-06', mean: 11.4 + GLITCH_C + 0.1 }, f), []);
+    assert.deepEqual(recordsBroken({ day: '2026-11-06' }, f), []);
+    // HQ's line: a different fact by date (310 % 3 = 1: the coldest; 311: high and low; 312: the warmest)
+    assert.equal(dateLabel('2026-11-06'), '6 Nov');
+    const normal = f.normal.toFixed(1);
+    assert.equal(triviaLine('2026-11-06', [], t), `6 Nov usually averages ${normal}° in Stockholm; the coldest on record (since 1859) averaged -6.6° in 1859.`);
+    assert.equal(triviaLine('2026-11-07', [], t), "Stockholm's records for 7 Nov (since 1938): a high of 7.0° in 1938 and a low of 2.0° in 1938.");
+    assert.match(triviaLine('2026-11-08', [], t) ?? '', /^8 Nov usually averages -?\d+\.\d° in Stockholm; the warmest on record \(since 1859\) averaged 5\.0° in 1939\.$/);
+    assert.equal(triviaLine('2026-11-09', [], t), null); // a date with nothing in the table
+    assert.ok(!/\byou/i.test(triviaLine('2026-11-06', [], t) ?? '')); // about the city, never the owner
+    assert.equal(
+      recordText('2026-11-05', { kind: 'warm', v: 12.1, old: { v: 11.4, year: 1938 } }, t),
+      'Yesterday averaged 12.1°, the warmest 5 Nov in Stockholm since 1859 (the old record: 11.4° in 1938).',
+    );
+    assert.match(recordText('2026-11-05', { kind: 'lo', v: -8, old: { v: -6.7, year: 1970 } }, t), /^Yesterday fell to -8\.0°, Stockholm's lowest for 5 Nov since 1938 \(the old record: -6\.7° in 1970\)\.$/);
+    // a month against its normal (October here: normal 7.7°, records 10.0° in 1990 and 5.0° in 1900)
+    assert.deepEqual(monthLine('2026-10', 8.9, t), { delta: 1.2, text: 'October ran 1.2° warm in Stockholm: 8.9° against a normal 7.7°.' });
+    assert.equal(monthLine('2026-10', 7.5, t).text, 'October ran close to normal in Stockholm: 7.5° against 7.7°.');
+    assert.equal(monthLine('2026-10', 6.5, t).delta, -1.2);
+    assert.match(monthLine('2026-10', 6.5, t).text, /ran 1\.2° cold/);
+    assert.match(monthLine('2026-10', 10.5, t).text, / The warmest October since 1859\.$/);
+    assert.match(monthLine('2026-10', 4.9, t).text, / The coldest October since 1859\.$/);
+    assert.deepEqual(monthMeans([{ day: '2026-10-01', mean: 5 }], '2026-11-06'), {}); // a month with a day in it isn't a month
+
+    // folding in SMHI's latest readings: new records once, a toast for yesterday's once, fetchedDay once yesterday is in
+    const obs = (day: string, mean?: number, max?: number, min?: number): DayObs => ({ day, mean, max, min });
+    const after = '2026-11-07'; // t.through is 2020-11-06, so these days are all new
+    let r = climateUpdate(undefined, [obs('2026-11-05', 5, 7, 2), obs('2026-11-06', 12, 14, 9), obs('2026-11-07', 4, 6)], after, t);
+    assert.match(r.toast ?? '', /^Yesterday averaged 12\.0°, the warmest 6 Nov in Stockholm since 1859/);
+    assert.deepEqual(r.next.records, [{ day: '2026-11-06', kind: 'warm', v: 12 }]);
+    assert.deepEqual([r.next.toasted, r.next.checked, r.next.fetchedDay], ['2026-11-06', '2026-11-06', after]);
+    r = climateUpdate(r.next, [obs('2026-11-06', 12, 14, 9)], after, t);
+    assert.equal(r.toast, null); // once
+    // yesterday not all in yet: no toast, no fetchedDay, and it's checked once it is
+    let p = climateUpdate(undefined, [obs('2026-11-06', 12, 14)], after, t);
+    assert.deepEqual([p.toast, p.next.fetchedDay, p.next.checked], [null, undefined, undefined]);
+    p = climateUpdate(p.next, [obs('2026-11-06', 12, 14, 9)], after, t);
+    assert.ok(p.toast && p.next.fetchedDay === after);
+    // an older record (the app was closed that day) is kept quietly; days inside the table aren't checked again
+    const q = climateUpdate(undefined, [obs('2020-11-06', 30, 30, 30), obs('2025-11-06', 12, 14, 9)], after, t);
+    assert.equal(q.toast, null);
+    assert.deepEqual(q.next.records?.map((x) => x.day), ['2025-11-06']);
+    // month means: finished months only, the newest 24 kept
+    const oct = Array.from({ length: 31 }, (_, k) => obs(`2026-10-${String(k + 1).padStart(2, '0')}`, k < 15 ? 8 : 9, 10, 5));
+    const m = climateUpdate({ months: { '2026-09': 11.2 } }, [...oct, obs('2026-11-01', 3, 4, 1)], after, t);
+    assert.deepEqual(m.next.months, { '2026-09': 11.2, '2026-10': 8.5 });
+    assert.ok(climateDue(undefined, true, after) && !climateDue({ fetchedDay: after }, true, after) && !climateDue(undefined, false, after));
+    assert.ok(nearStockholm({ lat: 59.33, lon: 18.07 }) && nearStockholm({ lat: 59.36, lon: 18.0 })); // Stockholm, Solna
+    assert.ok(!nearStockholm({ lat: 59.86, lon: 17.64 }) && !nearStockholm({ lat: 57.7, lon: 11.97 }) && !nearStockholm(null)); // Uppsala, Göteborg
+  }
+
+  // the shipped table: since 1859, every date filled, small enough to bundle
+  {
+    assert.equal(CLIMATE.from, 1859);
+    assert.equal(CLIMATE.extremesFrom, 1941);
+    assert.ok(isDayKey(CLIMATE.through));
+    for (const k of ['mean', 'warm', 'warmY', 'cold', 'coldY', 'hi', 'hiY', 'lo', 'loY'] as const) assert.equal(CLIMATE[k].length, 366, k);
+    for (let k = 0; k < 366; k++) {
+      assert.ok(CLIMATE.warm[k] > CLIMATE.mean[k] && CLIMATE.mean[k] > CLIMATE.cold[k], `day ${k}`);
+      assert.ok(CLIMATE.hi[k] != null && CLIMATE.lo[k] != null && (CLIMATE.hi[k] as number) > (CLIMATE.lo[k] as number), `day ${k}`);
+      assert.ok(CLIMATE.warmY[k] >= 1859 && CLIMATE.coldY[k] >= 1859);
+    }
+    assert.ok(CLIMATE.months.mean[6] > 150 && CLIMATE.months.mean[0] < 0); // July near 18°, January below 0
+    const bytes = statSync(join(process.cwd(), 'src', 'lib', 'sthlm-climate.json')).size;
+    assert.ok(bytes > 10_000 && bytes < 30_000, `${bytes} bytes`);
+  }
+
+  // the weekend card: Thursday to Saturday, events on the weekend's days, shows before runs, one per category first
+  {
+    assert.equal(weekendOf(new Date(2026, 10, 4, 12)), null); // Wednesday
+    assert.deepEqual(weekendOf(new Date(2026, 10, 5, 12)), { friday: '2026-11-06', days: ['2026-11-06', '2026-11-07', '2026-11-08'] }); // Thursday
+    assert.equal(weekendOf(new Date(2026, 10, 6, 23))?.friday, '2026-11-06'); // Friday
+    assert.equal(weekendOf(new Date(2026, 10, 7, 8))?.friday, '2026-11-06'); // Saturday
+    assert.equal(weekendOf(new Date(2026, 10, 8, 12)), null); // Sunday
+    assert.equal(weekendOf(new Date(2026, 11, 31, 12))?.friday, '2027-01-01'); // across the year
+    assert.equal(cleanStation("T-bana Blå: Kungsträdgården | Buss 65: Arkes/Moderna Museet | Buss 2: Karl XII's torg"), 'Kungsträdgården');
+    assert.equal(cleanStation('Kärrtorp Subway Station'), 'Kärrtorp');
+    assert.equal(cleanStation('Rådhuset Tunnelbana'), 'Rådhuset');
+    assert.equal(cleanStation('t-bana Gamla Stan'), 'Gamla Stan');
+    assert.equal(cleanStation('Nearest bus stop: Flatenbadet (SL bus stop)'), 'Flatenbadet');
+    assert.equal(cleanStation('undefined'), null);
+    assert.equal(cleanStation(null), null);
+    assert.ok((cleanStation('Roslagsbanan till Täby Centrum eller Tibble station, bussar från Mörby centrum') ?? '').length <= 40);
+    assert.equal(decodeEntities('Sweden&#x27;s &amp; Co &quot;30&quot;'), 'Sweden\'s & Co "30"');
+
+    const days = ['2026-11-06', '2026-11-07', '2026-11-08'];
+    const raw = (o: Partial<RawEvent> & { id: string }): RawEvent => ({ title: { en: o.id }, categories: [{ slug: 'music' }], start_date: '2026-11-06', end_date: '2026-11-06', ...o });
+    const dated = (id: string, dates: [string, string][], extra: Partial<RawEvent> = {}) =>
+      raw({ id, schedule: { range: null, dates: dates.map(([date, start_time]) => ({ date, start_time })) }, start_date: dates[0][0], end_date: dates[dates.length - 1][0], ...extra });
+    const run = (id: string, start: string, end: string, excluded: string[] = [], extra: Partial<RawEvent> = {}) =>
+      raw({ id, schedule: { range: { start, end, excluded }, dates: [{ date: '2026-11-02' }, { date: '2026-11-03' }] }, start_date: start, end_date: end, ...extra });
+    // a run goes by its range minus excluded days (its own dates are a weekday template); shows by their dates
+    assert.deepEqual(slotsOf(run('x', '2026-11-06', '2027-01-31', ['2026-11-07']), days), [{ day: '2026-11-06', time: null }, { day: '2026-11-08', time: null }]);
+    assert.deepEqual(slotsOf(dated('y', [['2026-11-04', '19:00'], ['2026-11-07', '19:30'], ['2026-11-07', '13:00'], ['2026-11-14', '19:00']]), days), [
+      { day: '2026-11-07', time: '13:00' },
+      { day: '2026-11-07', time: '19:30' },
+    ]);
+    assert.deepEqual(slotsOf(raw({ id: 'z', start_date: '2026-11-07', end_date: '2026-11-08', start_time: '9:00' }), days), [{ day: '2026-11-07', time: '09:00' }, { day: '2026-11-08', time: '09:00' }]);
+    assert.deepEqual(slotsOf(raw({ id: 'z2', start_date: '2026-11-07', end_date: '2026-11-07', start_time: '9:30:00' }), days), [{ day: '2026-11-07', time: '09:30' }]);
+    assert.deepEqual(slotsOf(raw({ id: 'z3', start_date: '2026-11-07', end_date: '2026-11-07', start_time: 'soon' }), days), [{ day: '2026-11-07', time: null }]);
+    assert.equal(weekendEvent(dated('later', [['2026-11-14', '19:00']]), days), null); // not this weekend
+    assert.equal(weekendEvent(raw({ id: 'untitled', title: { en: '', sv: '' } }), days), null);
+    assert.equal(weekendEvent(raw({ id: 'sv', title: { en: null, sv: 'Julmarknad' } }), days)?.title, 'Julmarknad');
+    const ranks = [
+      dated('once', [['2026-11-07', '19:00']]),
+      dated('long show', [['2026-11-07', '19:00']], { start_date: '2026-11-06', end_date: '2026-12-13' }),
+      run('festival', '2026-11-06', '2026-11-08'),
+      run('exhibition', '2026-11-06', '2027-03-01', [], { categories: [{ slug: 'exhibitions' }] }),
+    ].map((e) => weekendEvent(e, days)?.rank);
+    assert.deepEqual(ranks, [0, 1, 2, 3]);
+    const full = weekendEvent(
+      dated('Icona Pop', [['2026-11-07', '19:00']], { venue_name: 'Annexet', closest_station: 'Globen', external_website_url: 'https://example.com/x', categories: [{ slug: 'music' }, { slug: 'clubs-parties' }] }),
+      days,
+    );
+    assert.deepEqual(full, { id: 'Icona Pop', title: 'Icona Pop', url: 'https://example.com/x', venue: 'Annexet', station: 'Globen', cats: ['music', 'clubs-parties'], rank: 0, slots: [{ day: '2026-11-07', time: '19:00' }] });
+    assert.equal(weekendEvent(dated('ftp', [['2026-11-07', '19:00']], { external_website_url: 'javascript:alert(1)' }), days)?.url, null);
+    assert.throws(() => parsePage({ count: 3 } as RawPage, days));
+    assert.deepEqual(parsePage({ next: 2, results: [dated('a', [['2026-11-07', '19:00']]), dated('b', [['2026-11-20', '19:00']])] }, days).events.map((e) => e.id), ['a']);
+    assert.equal(parsePage({ next: null, results: [] }, days).next, false);
+    assert.equal(weekendKey(['music', 'exhibitions'], '2026-11-06'), weekendKey(['exhibitions', 'music'], '2026-11-06'));
+    assert.equal(eventsUrl(['music', 'stage-film'], days, 2), 'https://api.visitstockholm.com/api/public-v1/events/?categories=music&categories=stage-film&date_from=2026-11-06&date_to=2026-11-08&page=2');
+    assert.deepEqual([1, 2, 3, 4].map((k) => eventsRetryMs(k) / 60_000), [15, 30, 60, 60]);
+
+    // picks, on Friday at 20:00: tonight's 19:00 show and today's run are over; one per category first; a title once
+    const events = [
+      dated('Tonight early', [['2026-11-06', '19:00']]),
+      dated('Tonight late', [['2026-11-06', '21:00']]),
+      dated('Saturday gig', [['2026-11-07', '20:00']]),
+      dated('Saturday gig dup', [['2026-11-07', '20:30']], { title: { en: 'saturday GIG' } }), // the same show listed twice
+      dated('Sunday matinee', [['2026-11-08', '15:00']]),
+      run('Gallery', '2026-11-06', '2027-02-01', [], { categories: [{ slug: 'exhibitions' }] }),
+      dated('Brunch', [['2026-11-08', '11:00']], { categories: [{ slug: 'eat-drink' }] }),
+    ]
+      .map((e) => weekendEvent(e, days))
+      .filter((e): e is NonNullable<typeof e> => !!e);
+    const fri8pm = new Date(2026, 10, 6, 20, 0);
+    const pick = pickWeekend(events, ['music', 'exhibitions'], fri8pm);
+    assert.deepEqual(pick.map((x) => [x.event.id, x.slot.day, x.slot.time]), [
+      ['Tonight late', '2026-11-06', '21:00'],
+      ['Saturday gig', '2026-11-07', '20:00'],
+      ['Gallery', '2026-11-07', null], // the exhibition gets its place, from Saturday (it's after 16:00 on Friday)
+    ]);
+    assert.deepEqual(pickWeekend(events, ['music'], fri8pm).map((x) => x.event.id), ['Tonight late', 'Saturday gig', 'Sunday matinee']);
+    assert.deepEqual(pickWeekend(events, ['eat-drink'], fri8pm).map((x) => x.event.id), ['Brunch']);
+    assert.deepEqual(pickWeekend(events, ['family'], fri8pm), []);
+    assert.equal(nextSlot(events.find((e) => e.id === 'Gallery')!, new Date(2026, 10, 6, 10))?.day, '2026-11-06'); // a run today, in the morning
+    const [late, gig, gallery] = pick;
+    assert.equal(whenText(late, fri8pm), 'Today · 21:00');
+    assert.equal(whenText(gig, fri8pm), 'Sat 7 Nov · 20:00');
+    assert.equal(whenText(gallery, fri8pm), 'Sat–Sun · open');
+    assert.equal(whenText({ event: { ...gallery.event, slots: [{ day: '2026-11-08', time: null }] }, slot: { day: '2026-11-08', time: null } }, fri8pm), 'Sun 8 Nov · open');
+    assert.equal(outingTask(gig), 'Sat 7 Nov 20:00: Saturday gig');
+    assert.equal(outingTask({ event: full!, slot: full!.slots[0] }), 'Sat 7 Nov 19:00: Icona Pop @ Annexet');
+    assert.equal(outingTask({ event: { ...full!, venue: null }, slot: full!.slots[0] }), 'Sat 7 Nov 19:00: Icona Pop (near Globen)');
+    assert.equal(dayText('2026-11-07', '2026-11-07'), 'Today');
+
+    // the Plan and Wrapped: planned once per event and day; the month's total counts by the event's day
+    const s0 = defaultState();
+    const outing = (id: string, day: string) => ({ id, day, title: id, task: `t-${id}`, at: 1 });
+    const withOutings = { ...s0, sthlmOutings: [outing('a', '2026-10-31'), outing('b', '2026-11-07'), outing('c', '2026-11-08')] };
+    assert.ok(planned(withOutings, 'b', '2026-11-07') && !planned(withOutings, 'b', '2026-11-08') && !planned(s0, 'b', '2026-11-07'));
+    assert.deepEqual([outingsIn(withOutings, '2026-10'), outingsIn(withOutings, '2026-11'), outingsIn(s0, '2026-11')], [1, 2, 0]);
+    const sthlm = { name: 'Stockholm, Sverige', lat: 59.33, lon: 18.07 };
+    const wrappedOf = (st: typeof s0) => monthWrapped(st, 2026, 9, new Date(2026, 10, 6, 12)).slides.find((x) => x.id === 'stockholm');
+    const city = { ...withOutings, settings: { ...s0.settings, weather: sthlm }, sthlmClimate: { months: { '2026-10': CLIMATE.months.mean[9] / 10 + 1.2 } } };
+    const slide = wrappedOf(city);
+    assert.equal(slide?.big, '1 outing');
+    assert.match(slide?.sub ?? '', /^1 weekend event added to your plan · October ran 1\.2° warm in Stockholm: /);
+    assert.equal(wrappedOf({ ...city, sthlmOutings: [] })?.big, '+1.2°');
+    assert.equal(wrappedOf({ ...city, settings: { ...city.settings, weather: { name: 'Göteborg', lat: 57.7, lon: 11.97 } } })?.sub, '1 weekend event added to your plan'); // not Stockholm: no city weather
+    assert.equal(wrappedOf(s0), undefined);
+  }
+
+  // fetching a weekend: every page until there's no next, an event once however often pages repeat it, unknown categories skipped
+  void (async () => {
+    const days = ['2026-11-06', '2026-11-07', '2026-11-08'];
+    const ev = (id: string) => ({ id, title: { en: id }, categories: [{ slug: 'music' }], schedule: { range: null, dates: [{ date: '2026-11-07', start_time: '19:00' }] }, start_date: '2026-11-07', end_date: '2026-11-07' });
+    const asked: string[] = [];
+    const pages: Record<number, RawPage> = { 1: { next: 2, results: [ev('a'), ev('b')] }, 2: { next: 3, results: [ev('b'), ev('c')] }, 3: { next: null, results: [ev('a')] } };
+    const got = await fetchWeekend(['music', 'nonsense'], days, async (url) => {
+      asked.push(url);
+      return pages[Number(/page=(\d+)/.exec(url)?.[1])];
+    });
+    assert.deepEqual(got.map((e) => e.id), ['a', 'b', 'c']);
+    assert.equal(asked.length, 3);
+    assert.ok(asked.every((u) => u.includes('categories=music&date_from') && !u.includes('nonsense')));
+    assert.deepEqual(await fetchWeekend(['nonsense'], days, async () => assert.fail('no call without a known category')), []);
+    let calls = 0;
+    await fetchWeekend(['music'], days, async () => (calls++, { next: 99, results: [] }));
+    assert.equal(calls, EVENTS_MAX_PAGES); // a page cap
+    await assert.rejects(fetchWeekend(['music'], days, async (url) => (url.includes('page=2') ? Promise.reject(new Error('down')) : pages[1])));
+    console.log('step 8 stockholm fetch checks passed');
+  })().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+step8StockholmTests();
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.
 console.log('synchronous logic tests passed');

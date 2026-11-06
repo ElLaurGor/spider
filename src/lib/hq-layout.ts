@@ -12,6 +12,7 @@ export const HQ_SECTIONS = [
   { id: 'care', label: 'Check-ins: name a low mood, rough-patch check (rare)' },
   { id: 'weather', label: 'Weather' },
   { id: 'commute', label: 'SL departures (once a stop is set)' },
+  { id: 'weekend', label: 'This weekend in Stockholm (Thu–Sat, once event types are picked)' },
   { id: 'sleep', label: 'Sleep & energy check-in' },
   { id: 'tiles', label: 'Tiles' },
   { id: 'buttons', label: 'Water & gaming buttons' },

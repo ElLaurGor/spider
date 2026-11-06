@@ -6,6 +6,7 @@ import { Icon, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, MIN } from '@/lib/dates';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel } from '@/lib/outside';
+import { nearStockholm, triviaLine } from '@/lib/sthlm-climate';
 import { useStore } from '@/lib/store';
 import { daylightGain, describe, forecastText, rainNote, staleNote, weatherKey } from '@/lib/weather';
 
@@ -26,6 +27,8 @@ export function WeatherRow() {
   const comment = useMemo(() => (key ? quip(key, { forecast: '', sunrise, sunset }).replace(/^[.\s]+/, '') : ''), [quip, key, sunrise, sunset]);
   const gain = w ? daylightGain(w.days, todayKey) : null;
   const rain = w ? rainNote(w.soon) : null;
+  // Step 8: Stockholm's weather since 1859, as trivia about the date (only for a Stockholm weather place).
+  const trivia = nearStockholm(state.settings.weather) ? triviaLine(todayKey, state.sthlmClimate?.records) : null;
 
   if (!state.settings.weather) {
     return (
@@ -62,6 +65,7 @@ export function WeatherRow() {
             {outside.warnings.length ? ` · \u26A0\uFE0F ${outside.warnings.length} warning${outside.warnings.length > 1 ? 's' : ''}` : ''}
           </Text>
         ) : null}
+        {trivia ? <Text style={styles.dim}>📜 {trivia}</Text> : null}
       </View>
       <Icon name="chevron_right" color={C.dim} />
     </Pressable>
