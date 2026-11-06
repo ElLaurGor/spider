@@ -12,25 +12,34 @@ import { DEKL_TASK, deklarationOn, deklDayLabel, deklTaskKey } from '@/lib/dekla
 import { fikaBannerKey, fikaOn } from '@/lib/fika';
 import { nameDayText, type YearNames } from '@/lib/name-days';
 import { cachedNameDays, loadNameDays } from '@/lib/name-days-cache';
-import { addedTask, peopleSoon } from '@/lib/people-days';
+import { addedTask, peopleSoon, taskUsed } from '@/lib/people-days';
 import { useStore } from '@/lib/store';
 import { stormOn } from '@/lib/storm';
+
+/** How long a missing almanac waits before it's tried again (name-days-cache.ts also waits 10 minutes after a failure). */
+const NAME_DAYS_RETRY_MS = 11 * 60_000;
 
 /** The year's almanac: from the phone's copy, or fetched once (name-days-cache.ts). Null until it's there. */
 export function useNameDays(year: number) {
   const [data, setData] = useState<YearNames | null>(() => cachedNameDays(year));
+  const [tries, setTries] = useState(0);
   useEffect(() => {
     let live = true;
-    loadNameDays(year).then(
-      (d) => {
-        if (live && d) setData(d);
-      },
-      () => {},
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Missing (offline at start, a timeout): try again in a while; HQ stays mounted for days.
+    const later = () => {
+      if (live) timer = setTimeout(() => setTries((n) => n + 1), NAME_DAYS_RETRY_MS);
+    };
+    loadNameDays(year).then((d) => {
+      if (!live) return;
+      if (d) setData(d);
+      else later();
+    }, later);
     return () => {
       live = false;
+      if (timer) clearTimeout(timer);
     };
-  }, [year]);
+  }, [year, tries]);
   return data?.year === year ? data : null;
 }
 
@@ -90,10 +99,7 @@ export function SwedenCard() {
   const siren = sirenToday(state, new Date(now));
   if (!soon.length && !dekl && !prep && !siren) return null;
   const year = Number(today.slice(0, 4));
-  const onList = (key: string) => {
-    const id = addedTask(state, key);
-    return !!id && state.tasks.some((t) => t.id === id);
-  };
+  const onList = (key: string) => taskUsed(state, addedTask(state, key));
   const ticked = prepTicked(state, year);
 
   return (

@@ -9,6 +9,7 @@ import { addDays, atTime, dayKey, MIN, startOfWeek } from './dates';
 import { roughDay, usedOn } from './day-filters';
 import { goalOf } from './contracts';
 import { cueTimes, firedEvents, rainAtGym, type CuePrompt } from './if-then';
+import { gymTimeOn } from './plan-slots';
 import { pausedOn } from './pause';
 import { DOOM_FREE_MIN } from './quests';
 import { dayOf, eventsOn, gamingBudgetMin, gamingUsedMs, workoutFor } from './selectors';
@@ -216,7 +217,7 @@ export function woopReminders(s: State, offset: number, now: Date, events: CalEv
   const plan = c.woop.plan;
   const out: WoopReminder[] = [];
   if (plan.cue.kind === 'rain') {
-    const { gymHour, gymMinute } = s.settings;
+    const { hour: gymHour, minute: gymMinute } = gymTimeOn(s, key); // the day's own gym time, moved or not
     if ((c.goal !== 'train' || workoutFor(s, date)) && rainAtGym(weather, date, gymHour, gymMinute)) {
       out.push({ id: `ifthen-woop-${key}`, at: atTime(date, 0, gymHour, gymMinute).getTime() - 60 * MIN, plan, key, planB: true });
     }

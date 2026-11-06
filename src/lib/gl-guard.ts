@@ -25,6 +25,13 @@ export function glLive(on: boolean) {
 /** Whether the last session ended while a 3D view was drawing: read once per app start, before any view writes. */
 export const crashedInGl = () => (checked ??= AsyncStorage.getItem(KEY).then((v) => v === '1').catch(() => false));
 
+/** Before the app reloads itself (an update, a theme switch): no React cleanup runs then, so the flag goes down here. */
+export async function glReset() {
+  written = '0';
+  live = 0;
+  await AsyncStorage.setItem(KEY, '0').catch(() => {});
+}
+
 /** The owner asked for 3D again after a crash. */
 export function glForgive() {
   checked = Promise.resolve(false);

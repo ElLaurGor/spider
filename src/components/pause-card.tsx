@@ -34,7 +34,8 @@ export function PauseBanner() {
 }
 
 /** Settings: start or end a sick/away pause. */
-export function PauseCard() {
+/** `planner`: also plan away trips ahead (Settings only: the rough-patch card on HQ, which shows this too, stays private and short). */
+export function PauseCard({ planner = false }: { planner?: boolean }) {
   const { state, actions } = useStore();
   const [days, setDays] = useState(3);
   const p = activePause(state);
@@ -67,7 +68,7 @@ export function PauseCard() {
         <Btn label="I'm sick" icon="healing" kind="ghost" small onPress={() => actions.startPause('sick', days)} style={{ flex: 1 }} />
         <Btn label="I'm away" icon="flight" kind="ghost" small onPress={() => actions.startPause('away', days)} style={{ flex: 1 }} />
       </Row>
-      <AwayPlanner />
+      {planner ? <AwayPlanner /> : null}
     </Card>
   );
 }

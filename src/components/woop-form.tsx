@@ -12,8 +12,8 @@ import { obstacleOf, woopTally, type ObstacleOption } from '@/lib/woop';
 export type WoopDraft = { outcome: string; obstacle: ObstacleId | null; then: string; off: boolean };
 export const blankWoop = (): WoopDraft => ({ outcome: '', obstacle: null, then: '', off: false });
 
-/** The obstacle picked, or the likeliest one while none is. */
-export const woopPicked = (options: ObstacleOption[], w: WoopDraft) => options.find((o) => o.id === w.obstacle) ?? options[0] ?? null;
+/** The obstacle the owner picked, if any: scouting is opt-in, so nothing is saved (or pings) until one is tapped. */
+export const woopPicked = (options: ObstacleOption[], w: WoopDraft) => options.find((o) => o.id === w.obstacle) ?? null;
 
 const seenText = (o: ObstacleOption) =>
   o.rate <= 0

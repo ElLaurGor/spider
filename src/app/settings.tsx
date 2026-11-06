@@ -6,6 +6,7 @@ import { Alert, DevSettings, Pressable, ScrollView, Switch, Text, View } from 'r
 
 import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
+import { glReset } from '@/lib/gl-guard';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { backupNudge } from '@/lib/backup-due';
 import { dayKey, pad } from '@/lib/dates';
@@ -143,6 +144,7 @@ export default function SettingsScreen() {
         onPress: async () => {
           saveTheme(id);
           await saveNow().catch(() => {});
+          await glReset(); // a reload mid-tank isn't a crash (gl-guard.ts)
           if (Updates.isEnabled) await Updates.reloadAsync();
           else DevSettings.reload();
         },
@@ -223,7 +225,7 @@ export default function SettingsScreen() {
         })}
       </Card>
 
-      <PauseCard />
+      <PauseCard planner />
 
       <Card>
         <H

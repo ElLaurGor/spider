@@ -24,7 +24,10 @@ export type QuickChip = QuickFood & { pinned: boolean; fika?: { emoji: string; a
 export function quickFoods(s: State, day?: string): QuickChip[] {
   const row = savedFoods(s);
   const fika = day ? fikaChip(s, day) : null;
-  return fika ? [fika, ...row.filter((f) => foodKey(f.name) !== foodKey(fika.name))] : row;
+  if (!fika) return row;
+  const own = row.find((f) => f.pinned && foodKey(f.name) === foodKey(fika.name));
+  if (own) return [own, ...row.filter((f) => f !== own)]; // her own pinned version leads instead, with her numbers
+  return [fika, ...row.filter((f) => foodKey(f.name) !== foodKey(fika.name))];
 }
 
 /** The fika day's chip for a day, if it has a food and it's wanted. */

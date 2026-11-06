@@ -315,12 +315,12 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const gymTime = gymTimeOn(s, key); // step 8 days: a gym time moved to a free slot that day
       const gymAt = atTime(now, d, gymTime.hour, gymTime.minute).getTime();
       // step 8 days: on a kind day there's no shame slot, so the reminder carries past you's win (only wins then)
-      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name }, key) + (tone.kind ? pastYouTail(s, key, 'gym', now) : '');
+      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name }, key) + (tone.kind ? pastYouTail(s, key, 'gym', now, true) : '');
       jobs.push(scheduleAt(`gym-${key}-pre`, gymAt - 30 * MIN, `🏋️ ${plan.name} day`, pre, CH.gym));
       const shameAt = Math.min(gymAt + 3 * 60 * MIN, atTime(now, d, st.sleepHour).getTime() - 30 * MIN);
       // No shaming on a kind day (low mood, sick, period) or in low-battery mode.
       if (shameAt > gymAt && !tone.kind && !(d === 0 && lowBattery(log))) {
-        const shame = sayOn(s, tone, 'gymShame', { workout: plan.name }, key) + pastYouTail(s, key, 'gym', now); // step 8 days: with a line from past you
+        const shame = sayOn(s, tone, 'gymShame', { workout: plan.name }, key) + pastYouTail(s, key, 'gym', now, tone.kind); // step 8 days: with a line from past you
         jobs.push(scheduleAt(`gym-${key}-shame`, shameAt, '🕷️ S.P.I.D.E.R. noticed something', shame, CH.gym));
       }
       // Slipping: an hour before that, one tap moves it to the first free day this week (kind days too: moving is kind).
@@ -391,6 +391,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     }
 
     // If-then plans with a clock time (if-then.ts): a time, a meeting ending, after the last set, rain at gym time.
+    const rainPinged = new Set<string>(); // days whose workout plan B already pings: the contract's rain plan stays quiet
     if (st.notify.habits || st.notify.gym) {
       for (const r of cueReminders(s, d, now, events, weather)) {
         const habitPlan = r.habit?.plan;
@@ -405,7 +406,9 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
           );
         } else if (r.gym?.plan && st.notify.gym) {
           const p = r.gym.plan;
-          const body = r.planB ? sayOn(s, tone, 'planBRain', { time: fmtTime(atTime(date, 0, st.gymHour, st.gymMinute)), then: p.then.trim() }, key) : sayOn(s, tone, 'ifThenCue', cueVars(p), key);
+          const g = gymTimeOn(s, key);
+          if (r.planB) rainPinged.add(key);
+          const body = r.planB ? sayOn(s, tone, 'planBRain', { time: fmtTime(atTime(date, 0, g.hour, g.minute)), then: p.then.trim() }, key) : sayOn(s, tone, 'ifThenCue', cueVars(p), key);
           jobs.push(scheduleAt(r.id, r.at, `🏋️ ${r.gym.name} day`, body, CH.gym));
         }
       }
@@ -413,7 +416,9 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     // step 8 game: the contract's obstacle plan (woop.ts), on its clock cue (a time, the last meeting, rain at gym time).
     if (st.notify.habits || st.notify.gym) {
       for (const r of woopReminders(s, d, now, events, weather)) {
-        const body = r.planB ? sayOn(s, tone, 'planBRain', { time: fmtTime(atTime(date, 0, st.gymHour, st.gymMinute)), then: r.plan.then.trim() }, key) : sayOn(s, tone, 'ifThenCue', cueVars(r.plan), key);
+        if (r.planB && rainPinged.has(key)) continue;
+        const g = gymTimeOn(s, key);
+        const body = r.planB ? sayOn(s, tone, 'planBRain', { time: fmtTime(atTime(date, 0, g.hour, g.minute)), then: r.plan.then.trim() }, key) : sayOn(s, tone, 'ifThenCue', cueVars(r.plan), key);
         jobs.push(scheduleAt(r.id, r.at, '🧭 Contract plan', body, CH.remind));
       }
     }

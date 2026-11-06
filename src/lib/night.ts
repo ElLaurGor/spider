@@ -19,11 +19,15 @@ export const inBedFrom = (targetBed: number, watchBed?: number | null) => (watch
 /** Under this many minutes in bed with the phone isn't worth mentioning. */
 export const NIGHT_MIN = 10;
 
-export function nightPhone(spans: { label: string; start: number; end: number }[], bed: number, end: number): NightPhone {
+/** This app's own package: a late look at S.P.I.D.E.R. (the can't-sleep corner, a reminder) isn't phone in bed. */
+export const OWN_PACKAGE = 'app.spider.assistant';
+
+export function nightPhone(spans: { label: string; start: number; end: number; packageName?: string }[], bed: number, end: number): NightPhone {
   const time = new Map<string, number>();
   let total = 0;
   let lastAt = 0;
   for (const s of spans) {
+    if (s.packageName === OWN_PACKAGE) continue;
     const a = Math.max(s.start, bed);
     const b = Math.min(s.end, end);
     if (b <= a) continue;

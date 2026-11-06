@@ -31,7 +31,7 @@ export function withGymAt(s: State, key: string, at: number | null, today = dayK
     delete rest.gymAt;
     return { ...s, days: { ...s.days, [key]: rest } };
   }
-  const { hour, minute } = slotStart(at);
+  const { hour, minute } = slotStart(Math.max(at, Date.now()));
   return { ...s, days: { ...s.days, [key]: { ...d, gymAt: { hour, minute } } } };
 }
 
@@ -51,6 +51,10 @@ export function withSlotPlan(
   id = uid(),
 ): State {
   if (plan.day < today) return s;
+  // Slots were worked out a while ago: one already running starts now; one that's over can't be booked.
+  const at = Math.max(plan.at, slotStart(Date.now()).at);
+  if (at >= plan.end) return s;
+  plan = { ...plan, at };
   const task = plan.taskId ? s.tasks.find((t) => t.id === plan.taskId) : undefined;
   if (plan.kind === 'task' && !task) return s;
   const next: SlotPlan = { id, day: plan.day, at: plan.at, end: plan.end, kind: plan.kind, ...(task ? { taskId: task.id, title: task.title } : {}) };

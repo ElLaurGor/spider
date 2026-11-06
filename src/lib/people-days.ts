@@ -114,6 +114,10 @@ export function peoplePings(s: State, now = new Date()): PlannedPing[] {
   return out.filter((x) => x.at.getTime() > now.getTime());
 }
 
+/** A one-tap task still on the list, or done (even if cleared since): either way it's been used. */
+export const taskUsed = (s: State, id: string | null | undefined) =>
+  !!id && (s.tasks.some((t) => t.id === id) || Object.values(s.days).some((d) => (d.doneTasks ?? []).some((t) => t.id === id)));
+
 /** The task a built-in day's one tap added this year, if it did (State.sweden.tasks). */
 export const addedTask = (s: State, taskKey: string) => s.sweden?.tasks?.[taskKey] ?? null;
 

@@ -50,6 +50,7 @@ const autoFilesIn = (dir: Directory) =>
 function photoUris(s: State) {
   const uris = s.progressPhotos.map((p) => p.uri);
   for (const d of Object.values(s.days)) for (const f of d.food) if (f.photo) uris.push(f.photo);
+  for (const uri of Object.values(s.tankSnaps ?? {})) uris.push(uri); // the terrarium's monthly snapshots (Wrapped)
   return uris;
 }
 
@@ -160,8 +161,9 @@ export async function readBackupFromFile(): Promise<{ state: State; createdAt: n
     Object.entries(s.days).map(([k, d]) => [k, { ...d, food: d.food.map((f) => ({ ...f, photo: here(f.photo) ? f.photo : undefined })) }]),
   );
   const progressPhotos = (s.progressPhotos ?? []).filter((p) => here(p.uri));
+  const tankSnaps = Object.fromEntries(Object.entries(s.tankSnaps ?? {}).filter(([, uri]) => here(uri)));
   const photos = progressPhotos.length + Object.values(days).reduce((a, d) => a + d.food.filter((f) => f.photo).length, 0);
-  return { state: hydrate({ ...s, days, progressPhotos }), createdAt: data.createdAt ?? 0, photos };
+  return { state: hydrate({ ...s, days, progressPhotos, tankSnaps }), createdAt: data.createdAt ?? 0, photos };
 }
 
 /** Reads a backup folder and copies its photos back into the app. Doesn't apply the state. */
@@ -208,5 +210,6 @@ export async function readBackup(): Promise<{ state: State; createdAt: number; p
     Object.entries(s.days).map(([k, d]) => [k, { ...d, food: d.food.map((f) => ({ ...f, photo: f.photo ? remap.get(f.photo) : undefined })) }]),
   );
   const progressPhotos = (s.progressPhotos ?? []).flatMap((p) => (remap.has(p.uri) ? [{ ...p, uri: remap.get(p.uri)! }] : []));
-  return { state: hydrate({ ...s, days, progressPhotos }), createdAt: data.createdAt ?? 0, photos: remap.size };
+  const tankSnaps = Object.fromEntries(Object.entries(s.tankSnaps ?? {}).flatMap(([m, uri]) => (remap.has(uri) ? [[m, remap.get(uri)!]] : [])));
+  return { state: hydrate({ ...s, days, progressPhotos, tankSnaps }), createdAt: data.createdAt ?? 0, photos: remap.size };
 }

@@ -523,6 +523,7 @@ export type SwedenPrefs = {
   nameDays?: boolean; // HQ shows today's names and flag day (default on)
   people?: Person[]; // opt-in: nobody until added
   days?: Partial<Record<PeopleDayId, { who: string; since: number }>>; // opt-in: on once set, `who` for the task ("Call Dad")
+  daysSince?: Partial<Record<PeopleDayId, number>>; // when each day was last switched on, kept while it's off (a quick off/on keeps it)
   fika?: boolean; // the fika almanac: HQ banner and that day's food on quick add (default on)
   siren?: boolean; // Hesa Fredrik's test: a heads-up at 14:50 (default on)
   deklaration?: boolean; // the tax return countdown and nudges (default on)

@@ -60,14 +60,31 @@ export function startPause(s: State, kind: Pause['kind'], days: number, today = 
   const later = pausesOf(s).filter((p) => p !== current && p.from > today);
   const pastKind = kind === 'sick' ? 'sick' : current?.kind;
   const past = current && current.from <= yesterday ? [{ ...current, to: yesterday, kind: pastKind ?? current.kind }] : [];
-  const to = pauseEnd({ ...s, pauses: [...rest, ...past, ...later] }, today, days);
+  // Being sick comes first: away trips planned for later (away-ahead.ts) don't count against the month's cap
+  // here; they're cut short afterwards instead, so the cap still holds.
+  const sickFirst = kind === 'sick';
+  const capped = sickFirst ? later.filter((p) => p.kind !== 'away') : later;
+  const to = pauseEnd({ ...s, pauses: [...rest, ...past, ...capped] }, today, days);
   if (!to) return s;
   const after = dayKey(addDays(noonOf(to), 1));
   const kept = later.filter((p) => p.to > to).map((p) => (p.from > to ? p : { ...p, from: after }));
   // One pause when the kind carries on; the days so far as their own when it changed.
   const merged = past.length && past[0].kind === kind;
   const head = merged ? [] : past;
-  return { ...s, pauses: [...rest, ...head, { from: merged ? past[0].from : today, to, kind }, ...kept] };
+  const pauses = [...rest, ...head, { from: merged ? past[0].from : today, to, kind }, ...kept];
+  return { ...s, pauses: sickFirst ? refitPlannedAways(s, pauses, today) : pauses };
+}
+
+/** Planned away trips (starting after `today`) fitted again under the monthly cap, soonest first: what no longer fits is cut short or dropped. */
+function refitPlannedAways(s: State, pauses: Pause[], today: string): Pause[] {
+  const aways = pauses.filter((p) => p.kind === 'away' && p.from > today).sort((a, b) => a.from.localeCompare(b.from));
+  const fitted: Pause[] = pauses.filter((p) => !aways.includes(p));
+  for (const p of aways) {
+    const length = Math.round((noonOf(p.to).getTime() - noonOf(p.from).getTime()) / 86_400_000) + 1;
+    const end = pauseEnd({ ...s, pauses: fitted }, p.from, length);
+    if (end) fitted.push({ ...p, to: end });
+  }
+  return fitted;
 }
 
 /**

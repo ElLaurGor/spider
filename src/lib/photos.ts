@@ -43,6 +43,15 @@ export async function importPhoto(kind: PhotoKind, uri: string): Promise<string>
   return saved.uri;
 }
 
+/** Whether a photo file is still on the phone (a restore without photos leaves dangling uris). */
+export function photoThere(uri: string) {
+  try {
+    return new File(uri).exists;
+  } catch {
+    return false;
+  }
+}
+
 export function deletePhoto(uri: string | undefined) {
   if (!uri) return;
   try {

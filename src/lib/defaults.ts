@@ -140,5 +140,7 @@ export function hydrate(saved: Partial<State> | null): State {
     // step 8 terrarium: no molt for levels reached before the tank could show one; older pieces grow from first sight
     moltSeen: saved.moltSeen ?? Math.max(saved.maxLevel ?? 1, levelForXp(saved.xp ?? 0)),
     lairAt: { ...Object.fromEntries((saved.lair ?? []).map((id) => [id, Date.now()])), ...saved.lairAt },
+    // Bought before plants could grow (no lairAt yet): they looked full-grown, so they stay that way.
+    lairGrowth: saved.lairGrowth ?? (saved.lairAt ? undefined : Object.fromEntries((saved.lair ?? []).map((id) => [id, 1]))),
   });
 }

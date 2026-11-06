@@ -11,7 +11,6 @@ type OrdinaryId = (typeof BOSSES)[number]['id'];
 /** Bosses on offer for a week. */
 export const PICK_CHOICES = 3;
 /** Picks kept: the newest weeks. */
-const KEEP = 60;
 
 const hash = (str: string) => {
   let h = 2166136261;
@@ -26,9 +25,13 @@ function kingWeek(s: State, week: string) {
 }
 
 /**
- * The week a pick is open for now, or null: on Sunday next week's, on Monday this week's while its boss hasn't
- * taken any damage. Never for a Couch King week.
+ * The week a pick is open for now, or null: on Sunday next week's, on Monday this week's until noon (not "until
+ * the first damage": the rollover pays last week's medals onto Monday before the owner sees anything). Never for
+ * a Couch King week or a boss already down.
  */
+/** Monday's pick closes at this hour. */
+export const PICK_UNTIL_HOUR = 12;
+
 export function pickWeek(s: State, now = new Date()): string | null {
   if (!s.onboarded) return null;
   const day = now.getDay();
@@ -36,8 +39,9 @@ export function pickWeek(s: State, now = new Date()): string | null {
   const week = dayKey(day === 0 ? addDays(startOfWeek(now), 7) : startOfWeek(now));
   if (kingWeek(s, week)) return null;
   if (day === 1) {
+    if (now.getHours() >= PICK_UNTIL_HOUR || s.bossNames?.[week]) return null; // a named boss keeps its name and its week
     const boss = bossFor(s, now, now);
-    if (boss.final || boss.damage > 0 || boss.defeated) return null;
+    if (boss.final || boss.defeated) return null;
   }
   return week;
 }
@@ -69,11 +73,8 @@ export function pickedFor(s: State, week: string): OrdinaryId | null {
 export function withBossPick(s: State, id: string, now = new Date()): State {
   const week = pickWeek(s, now);
   if (!week || !(bossOptions(s, week) as string[]).includes(id)) return s;
-  const kept = Object.entries(s.bossPicks ?? {})
-    .filter(([k]) => k !== week)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-(KEEP - 1));
-  return { ...s, bossPicks: { ...Object.fromEntries(kept), [week]: id } };
+  // Never trimmed: weekBossOf, bossRank and the bestiary read old picks, and the map stays tiny (one entry a week).
+  return { ...s, bossPicks: { ...s.bossPicks, [week]: id } };
 }
 
 /** A boss on offer as the pick shows it: name, emoji and weakness. */

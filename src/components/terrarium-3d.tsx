@@ -14,7 +14,7 @@ import { glLive } from '@/lib/gl-guard';
 import { lairPieces, nextPiece } from '@/lib/lair';
 import { importPhoto } from '@/lib/photos';
 import { useStore } from '@/lib/store';
-import { grewSince, tankLifeOf } from '@/lib/tank-life';
+import { grewSince, TANK_EVENT_MS, tankLifeOf } from '@/lib/tank-life';
 import { createWorld, type World } from '@/lib/terrarium-3d';
 
 const HEIGHT = 210;
@@ -64,6 +64,7 @@ async function snapshot(x: Gfx, onFail: () => void): Promise<string | null> {
   x.snapping = true;
   try {
     x.render();
+    x.gl.flushEXP(); // run the frame just rendered (expo-gl batches until a frame ends), so the read gets it
     const shot = await GLView.takeSnapshotAsync(x.gl, { format: 'jpeg', compress: 0.9 });
     const uri = typeof shot.uri === 'string' ? shot.uri : shot.localUri;
     return uri ? (uri.startsWith('file://') ? uri : `file://${uri}`) : null;
@@ -115,6 +116,7 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
     h: 0,
   });
   const [ready, setReady] = useState(false);
+  const [gen, setGen] = useState(0); // a new GL context: Android makes one each time the tank shows again
   const [act, setAct] = useState<string | null>(null);
   const [bubble, setBubble] = useState<string | null>(null);
   const [anchor] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
@@ -169,6 +171,8 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
   };
 
   const onContextCreate = (gl: ExpoWebGLRenderingContext) => {
+    // The crash guard's flag is up while GL is being set up too: a native crash here sends the next start to the flat tank.
+    glLive(true);
     try {
       const w = gl.drawingBufferWidth;
       const h = gl.drawingBufferHeight;
@@ -191,10 +195,11 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
       };
       renderer.setPixelRatio(1);
       renderer.setSize(w, h, false);
-      const world = createWorld({ ids: ids ? ids.split(',') : [], next, marking, background: C.card, life });
-      world.setSize(w, h);
-      world.settle();
       const x = gfx.current;
+      // The world (the spider and what it's doing) outlives a context: only the renderer is new each time.
+      const world = x.world ?? createWorld({ ids: ids ? ids.split(',') : [], next, marking, background: C.card, life });
+      if (!x.world) world.settle();
+      world.setSize(w, h);
       x.world = world;
       x.gl = gl;
       x.render = () => {
@@ -210,23 +215,33 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
       world.step(0);
       x.dirty = true; // the first frame comes from the visibility effect, once ready
       setReady(true);
+      setGen((n) => n + 1);
     } catch {
       onFail();
+    } finally {
+      glLive(false); // the visibility effect holds it from here on
     }
   };
 
   // On screen: draw whatever changed while hidden, and hold the crash guard's flag up while drawing is possible.
+  // Hidden: the GLView goes (below), and with it the context, so nothing may draw with the old one again.
   useEffect(() => {
     const x = gfx.current;
     x.visible = visible;
-    if (!ready || !visible) return;
+    if (!visible) {
+      x.draw = null;
+      x.render = null;
+      x.gl = null;
+      return;
+    }
+    if (!ready || !x.draw) return;
     glLive(true);
     if (x.dirty) {
       x.dirty = false;
       paint(x, onFail);
     }
     return () => glLive(false);
-  }, [ready, visible, onFail]);
+  }, [ready, visible, gen, onFail]);
 
   // What's in the tank and the spider's markings follow the store.
   useEffect(() => {
@@ -275,7 +290,8 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
   useEffect(() => {
     const x = gfx.current;
     if (!ready || !awake || !x.world || !events.length) return;
-    x.world.replay(events);
+    const fresh = events.filter((e) => Date.now() - e.at <= TANK_EVENT_MS);
+    if (fresh.length) x.world.replay(fresh);
     take(events.map((e) => e.id));
   }, [ready, awake, events, take]);
   // The poke's line, for a few seconds.
@@ -378,7 +394,7 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
       onResponderMove={move}
       onResponderRelease={release}
       onResponderTerminate={endDrag}>
-      <GLView style={styles.gl} onContextCreate={onContextCreate} />
+      {visible ? <GLView style={styles.gl} onContextCreate={onContextCreate} /> : <View style={styles.gl} />}
       {act ? (
         <Animated.View style={[styles.act, { transform: anchor.getTranslateTransform() }]}>
           <Text style={styles.actText}>{act}</Text>

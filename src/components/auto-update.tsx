@@ -2,6 +2,7 @@ import * as Updates from 'expo-updates';
 import { useEffect } from 'react';
 import { AppState, Keyboard } from 'react-native';
 
+import { glReset } from '@/lib/gl-guard';
 import { useStore } from '@/lib/store';
 
 const IDLE_MS = 30_000; // untouched this long (and no keyboard up): nothing half-typed to lose
@@ -37,6 +38,7 @@ export function AutoUpdate() {
       // Write any unsaved changes first; nothing should run after reloadAsync.
       saveNow()
         .catch(() => {})
+        .then(() => glReset()) // a reload mid-tank isn't a crash (gl-guard.ts)
         .then(() => Updates.reloadAsync())
         .catch(() => {
           applying = false;

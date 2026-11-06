@@ -45,7 +45,8 @@ export function stormPlan(ids: readonly string[], days: readonly string[]) {
   // step 8 sweden: and Hesa Fredrik's "15:00 is only the test", which must never go out beside a real alert.
   const roasts = new Set(days.flatMap((d) => [`gym-${d}-shame`, `gym-${d}-move`, `move-${d}`, `evening-${d}`, `weekendboss-${d}`, `siren-${d}`]));
   return {
-    cancel: ids.filter((id) => roasts.has(id)),
+    // step 8: a contract's if-then plan and the top-3 slot pings can be savage; they're day-keyed, so they go too.
+    cancel: ids.filter((id) => roasts.has(id) || days.some((d) => id.startsWith(`ifthen-woop-${d}`) || id.startsWith(`top3-${d}-`))),
     soften: ids.filter((id) => days.some((d) => id.startsWith(`water-${d}-`))),
   };
 }

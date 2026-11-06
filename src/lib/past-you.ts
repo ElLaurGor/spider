@@ -49,7 +49,10 @@ export function withPastYouAsk(prev: State, next: State, now = Date.now()): Stat
 /** The ask waiting for its line, while it's fresh. */
 export function openAsk(s: State, now = Date.now()) {
   const ask = s.pastYou?.ask;
-  return ask && now - ask.at < ASK_OPEN_MS ? ask : null;
+  if (!ask || now - ask.at >= ASK_OPEN_MS) return null;
+  // Asked on a good day, but today is sick or otherwise rough: it waits, unasked, until a better one (or expires).
+  const today = dayKey(now);
+  return pauseOn(s, today)?.kind === 'sick' || quietDay(s, today, new Date(now)) ? null : ask;
 }
 
 const clean = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, PAST_NOTE_CHARS);
@@ -90,9 +93,10 @@ const hash = (str: string) => {
  * the wins; elsewhere the lines for the you who's about to skip first, the wins when there are none. Written
  * before that day. The same note for a slot all day (seeded by day and slot), different slots usually differ.
  */
-export function pastYouFor(s: State, key: string, slot: PastSlot, now = new Date()): PastNote | null {
+export function pastYouFor(s: State, key: string, slot: PastSlot, now = new Date(), kind = false): PastNote | null {
   const notes = pastOf(s).notes.filter((n) => n.day < key || (n.day === key && n.at < now.getTime()));
-  const winsOnly = slot === 'rough' || quietDay(s, key, now);
+  // `kind`: the caller already knows the day is kind (notifications plan with the cycle forecast, which quietDay can't see).
+  const winsOnly = kind || slot === 'rough' || quietDay(s, key, now);
   const wins = notes.filter((n) => n.kind === 'win');
   const skips = notes.filter((n) => n.kind === 'skip');
   const pool = winsOnly ? wins : skips.length ? skips : wins;
@@ -104,7 +108,7 @@ export function pastYouFor(s: State, key: string, slot: PastSlot, now = new Date
 export const pastYouText = (n: PastNote) => (n.kind === 'win' ? `📝 Past you, glad they did it: "${n.text}"` : `📝 Past you left this: "${n.text}"`);
 
 /** A message's tail with past you's note for that slot (a leading space), or ''. */
-export function pastYouTail(s: State, key: string, slot: PastSlot, now = new Date()) {
-  const n = pastYouFor(s, key, slot, now);
+export function pastYouTail(s: State, key: string, slot: PastSlot, now = new Date(), kind = false) {
+  const n = pastYouFor(s, key, slot, now, kind);
   return n ? ` ${pastYouText(n)}` : '';
 }

@@ -60,9 +60,16 @@ function BuiltInDays() {
   const setDay = (id: PeopleDayId, on: { who: string; since: number } | null) =>
     actions.setSweden((x) => {
       const next = { ...x.days };
-      if (on) next[id] = on;
-      else delete next[id];
-      return { ...x, days: next };
+      const wasOn = { ...x.daysSince };
+      if (on) {
+        // Back on within a week: keep the first time, so a heads-up that already went out isn't sent again.
+        const before = wasOn[id];
+        next[id] = before && on.since - before < 7 * 86_400_000 ? { ...on, since: before } : on;
+      } else {
+        if (next[id]) wasOn[id] = next[id]!.since;
+        delete next[id];
+      }
+      return { ...x, days: next, daysSince: wasOn };
     });
   return (
     <View style={{ gap: 8 }}>

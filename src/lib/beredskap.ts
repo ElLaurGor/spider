@@ -28,15 +28,17 @@ export function sirenPing(s: State, now = new Date()): PlannedPing | null {
   if (!test) return null;
   const key = dayKey(test);
   const at = new Date(test.getTime() - HEADS_UP_MIN * 60_000);
-  if (at.getTime() <= now.getTime() || vmaOn(s, key, now.getTime())) return null;
+  // Not on a storm day at all (the background check cancels it then too, whatever the level): one rule for both.
+  if (at.getTime() <= now.getTime() || stormOn(s, key, now.getTime())) return null;
   return { id: `siren-${key}`, at, day: key, title: '📢 Hesa Fredrik at 15:00', line: 'sirenTest', vars: {} };
 }
 
 /** HQ on a test day: until 15:15, unless a VMA is out. */
 export function sirenToday(s: State, now = new Date()) {
   if (s.settings.sweden?.siren === false) return false;
-  const test = nextSirenTest(now);
-  return !!test && dayKey(test) === dayKey(now) && now.getTime() < test.getTime() + 15 * 60_000 && !vmaOn(s, dayKey(now), now.getTime());
+  // Today's test itself (nextSirenTest has moved on to the next one a minute after 15:00).
+  const test = sirenTests(now.getFullYear()).find((t) => dayKey(t) === dayKey(now));
+  return !!test && now.getTime() < test.getTime() + 15 * 60_000 && !vmaOn(s, dayKey(now), now.getTime());
 }
 
 /**

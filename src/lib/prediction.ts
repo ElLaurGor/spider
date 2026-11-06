@@ -64,7 +64,9 @@ export function outcomeOf(s: State, key: string, shot: Shot): NonNullable<Shot['
   if (!countedDay(s, key)) return 'void';
   const d = dayOf(s, key);
   if (shot.q === 'gym') {
-    if (movedFrom(s, key) || !workoutFor(s, noon(key))) return 'void';
+    const moved = movedFrom(s, key);
+    // Moving it before the call takes the question away; moving it after the call is how the day went.
+    if ((moved && moved.at < shot.at) || (!moved && !workoutFor(s, noon(key)))) return 'void';
     return trainedOn(d) ? 'hit' : 'miss';
   }
   if (reducedDay(s, key)) return 'void';
@@ -94,6 +96,10 @@ export function scoredShots(s: State, month?: string): { key: string; shot: Shot
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
+/** A voided call (a rough day, a move made before the call) pays like a coin flip: neither a loss nor a way out of a miss. */
+export const VOID_BRIER = 0.25;
+const voidCount = (s: State, month: string) => Object.entries(s.days).filter(([k, d]) => k.startsWith(month) && d.shot?.result === 'void').length;
+
 /** A call's Brier score: the squared distance between the chance it gave and what happened (0 best, 1 worst). */
 export const brierOf = (shot: Shot) => (shot.p - (shot.result === 'hit' ? 1 : 0)) ** 2;
 
@@ -106,12 +112,12 @@ export type Calibration = { n: number; brier: number | null; meanP: number; hitR
 export function calibration(s: State, month: string): Calibration {
   const shots = scoredShots(s, month).map((x) => x.shot);
   const n = shots.length;
-  if (!n) return { n, brier: null, meanP: 0, hitRate: 0, bias: 0, title: null, coins: 0 };
+  if (!n) return { n, brier: null, meanP: 0, hitRate: 0, bias: 0, title: null, coins: Math.round(voidCount(s, month) * SHOT_COINS * (1 - VOID_BRIER)) };
   const brier = shots.reduce((a, x) => a + brierOf(x), 0) / n;
   const meanP = shots.reduce((a, x) => a + x.p, 0) / n;
   const hitRate = shots.filter((x) => x.result === 'hit').length / n;
   const bias = meanP - hitRate;
-  const coins = Math.round(shots.reduce((a, x) => a + SHOT_COINS * (1 - brierOf(x)), 0));
+  const coins = Math.round(shots.reduce((a, x) => a + SHOT_COINS * (1 - brierOf(x)), 0) + voidCount(s, month) * SHOT_COINS * (1 - VOID_BRIER));
   return { n, brier, meanP, hitRate, bias, title: titleFor(n, bias, brier), coins };
 }
 
@@ -133,12 +139,24 @@ const prevMonth = (date: Date) => monthOf(new Date(date.getFullYear(), date.getM
  * scored calls is only marked. Null award when there's nothing to say.
  */
 export function settleShotMonth(s: State, now = new Date()): { state: State; award: (Calibration & { month: string }) | null } {
-  const month = prevMonth(now);
-  if (s.shotsPaid && s.shotsPaid >= month) return { state: s, award: null };
-  const c = calibration(s, month);
-  const state: State = { ...s, shotsPaid: month, coins: s.coins + c.coins, coinsEarned: s.coinsEarned + c.coins };
-  return { state, award: c.n ? { ...c, month } : null };
+  const last = prevMonth(now);
+  if (s.shotsPaid && s.shotsPaid >= last) return { state: s, award: null };
+  // Every month since the last one paid (the app may not have been opened for weeks); the newest with calls is announced.
+  const first = s.shotsPaid ? nextMonth(s.shotsPaid) : (Object.keys(s.days).filter((k) => s.days[k].shot).sort()[0]?.slice(0, 7) ?? last);
+  let state: State = s;
+  let award: (Calibration & { month: string }) | null = null;
+  for (let m = first < last ? first : last; m <= last; m = nextMonth(m)) {
+    const c = calibration(state, m);
+    state = { ...state, shotsPaid: m, coins: state.coins + c.coins, coinsEarned: state.coinsEarned + c.coins };
+    if (c.n) award = { ...c, month: m };
+  }
+  return { state, award };
 }
+
+const nextMonth = (month: string) => {
+  const [y, m] = month.split('-').map(Number);
+  return monthOf(new Date(y, m, 15));
+};
 
 /** How a kind of call has gone before (scored calls only): for "You said lock. History says 55 %." */
 export function callHistory(s: State, call: ShotCall, before = dayKey()) {

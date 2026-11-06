@@ -45,7 +45,7 @@ import { pushWidgetFor, useBackgroundSync } from './background-sync';
 import { clearStormWaiting, stormWaiting } from './bg-config';
 import { drainQueued, onQueued } from './pending-actions';
 import { isQueued, tapLanded, type ReminderAction } from './reminder-actions';
-import { deleteAllPhotos, deletePhoto, getPhoto, type PhotoSource } from './photos';
+import { deleteAllPhotos, deletePhoto, getPhoto, photoThere, type PhotoSource } from './photos';
 import { bossFor, bossSeasonOf, DRAFT_UNTIL_HOUR, draftFor, draftOpen, FINAL_BOSS, finalBossDue, gentleQuestFor, kingRematchFor, kingWeeksOf, MINION_COINS, QUEST_REROLL_COST, questCardBlocker, questInfo, questsFor, reducedDay, reopenQuests, rerollFor, validDraft, weekKey, withBossName, withQuestCard } from './quests';
 import { bossRecap, lastWeekKey } from './boss-recap';
 import { endPause as pauseEnded, PAUSE_DAYS_PER_MONTH, pauseOn, startPause as pauseStarted } from './pause';
@@ -144,6 +144,7 @@ import { copingPlan, copingWeekday, movedTo, moveDayName, moveTargets, withMove,
 import { quickAddOf } from './quick-add';
 // step 8 sweden
 import { prepWeekOn, tickPrep as tickPrepItem, type PrepItem } from './beredskap';
+import { taskUsed } from './people-days';
 // step 8 stockholm: the weekend card's outings and Stockholm weather trivia
 import type { DayObs } from './climate-table';
 import { climateUpdate } from './sthlm-climate';
@@ -175,6 +176,9 @@ export type Toast = { id: number; text: string; tone: Tone; action?: ToastAction
 type Msg = { text: string; tone: Tone; action?: ToastAction };
 
 // ---------- pure state helpers ----------
+
+/** Closed banners and offers kept (State.dismissed): fika days, chapters and away offers (up to 120 days ahead) add up. */
+const DISMISSED_KEEP = 80;
 
 const L = (s: State, key: LineKey, vars: Record<string, string | number> = {}) =>
   freshLine(key, effectiveSavage(s), { name: s.settings.userName || 'boss', ...vars });
@@ -1246,8 +1250,11 @@ function useStoreValue() {
       commit(next);
       if (!quiet) queueTank(prev, next); // the terrarium acts out what was just logged
       msgs.forEach((m) => say(m.text, m.tone, m.action));
-      const cue = woop.prompt ?? cued.prompts.at(-1);
+      // A habit's own if-then prompt wins; the contract's plan on the same cue comes as a toast instead of being lost.
+      const habitCue = cued.prompts.at(-1);
+      const cue = habitCue ?? woop.prompt;
       if (cue) setCuePrompt({ ...cue, text: L(next, 'ifThenCue', cueVars(cue.plan)) });
+      if (habitCue && woop.prompt) say(`🧭 ${L(next, 'ifThenCue', cueVars(woop.prompt.plan))}`, 'info');
       // Earned bonus minutes mid-session move the gaming alerts (the session's own day, past midnight too).
       const playKey = next.activeGame ? dayKey(next.activeGame.start) : null;
       if (playKey && dayOf(next, playKey).bonusGameMin !== dayOf(prev, playKey).bonusGameMin) {
@@ -2456,7 +2463,7 @@ function useStoreValue() {
       dismissBanner(key: string) {
         const s = stateRef.current;
         if ((s.dismissed ?? []).includes(key)) return;
-        commit({ ...s, dismissed: [...(s.dismissed ?? []), key].slice(-20) });
+        commit({ ...s, dismissed: [...(s.dismissed ?? []), key].slice(-DISMISSED_KEEP) });
       },
 
       /** Tonight's picks for tomorrow's top 3 (the evening debrief). */
@@ -2863,7 +2870,7 @@ function useStoreValue() {
       startFocus(minutes: number, label?: string) {
         if (stateRef.current.activeFocus) return;
         const start = Date.now();
-        const next = run((s) => ({ ...s, activeFocus: { start, minutes, label: label?.trim() || undefined } }));
+        const next = run((s) => ({ ...s, activeFocus: { start, minutes, label: label?.trim() || undefined }, focusSide: null }));
         void scheduleFocusDone(next, start + minutes * MIN);
       },
 
@@ -3117,7 +3124,7 @@ function useStoreValue() {
           const r = acceptPrizes(s, year);
           if (!r) return s;
           msgs.push({ text: L(r.state, 'prizesAccepted', { reward: r.reward }), tone: 'epic' });
-          return { ...r.state, dismissed: [...(r.state.dismissed ?? []), `prizes:${year}`].slice(-20) };
+          return { ...r.state, dismissed: [...(r.state.dismissed ?? []), `prizes:${year}`].slice(-DISMISSED_KEEP) };
         });
       },
 
@@ -3158,7 +3165,8 @@ function useStoreValue() {
       /** The month's automatic snapshot of the tank (a file in the photo folder), for Wrapped. */
       tankSnapped(month: string, uri: string) {
         run((s) => {
-          if (s.tankSnaps?.[month]) {
+          const had = s.tankSnaps?.[month];
+          if (had && photoThere(had)) {
             deletePhoto(uri); // one a month: the first one stays
             return s;
           }
@@ -3178,7 +3186,7 @@ function useStoreValue() {
         if (!t) return;
         run((s, msgs) => {
           const had = s.sweden?.tasks?.[key];
-          if (had && s.tasks.some((x) => x.id === had)) return s;
+          if (taskUsed(s, had)) return s; // on the list, or done already (cleared or not): once is enough
           const id = uid();
           msgs.push({ text: L(s, 'taskAdded'), tone: 'info' });
           return { ...s, tasks: [{ id, title: t, done: false, createdAt: Date.now() }, ...s.tasks], sweden: { ...s.sweden, tasks: { ...s.sweden?.tasks, [key]: id } } };

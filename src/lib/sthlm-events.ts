@@ -33,7 +33,7 @@ export const EVENTS_API = 'https://api.visitstockholm.com/api/public-v1/events/'
 /** A fetched weekend stays good this long: the listings change slowly, so the API is asked a few times a day at most. */
 export const EVENTS_TTL_MS = 4 * 3_600_000;
 /** 16 events a page; a weekend in two or three categories is 5–8 pages. More than this isn't read. */
-export const EVENTS_MAX_PAGES = 8;
+export const EVENTS_MAX_PAGES = 20;
 /** After a failed fetch: 15, 30, then 60 minutes. */
 export const eventsRetryMs = (fails: number) => Math.min(60, 15 * 2 ** Math.max(0, fails - 1)) * 60_000;
 
@@ -155,9 +155,9 @@ export function parsePage(j: RawPage, days: string[]): { events: WeekendEvent[];
 /** Where the cache for a weekend's fetch is keyed: the picked categories (any order) and the weekend's Friday. */
 export const weekendKey = (cats: string[], friday: string) => `${[...cats].sort().join(',')}|${friday}`;
 
-export function eventsUrl(cats: string[], days: string[], page: number) {
+export function eventsUrl(cats: string[], days: string[], page: number, from = days[0]) {
   const q = cats.map((c) => `categories=${encodeURIComponent(c)}`).join('&');
-  return `${EVENTS_API}?${q}&date_from=${days[0]}&date_to=${days[days.length - 1]}&page=${page}`;
+  return `${EVENTS_API}?${q}&date_from=${from}&date_to=${days[days.length - 1]}&page=${page}`;
 }
 
 const getPage = (url: string) => getJson<RawPage>(url, 'Visit Stockholm', { timeoutMs: 15_000 });
@@ -166,12 +166,14 @@ const getPage = (url: string) => getJson<RawPage>(url, 'Visit Stockholm', { time
  * The weekend's events in the picked categories, every page up to EVENTS_MAX_PAGES. Any failed page fails the
  * fetch (the card keeps its last good list). `get` is the page fetcher (logic-test hands in its own).
  */
-export async function fetchWeekend(cats: string[], days: string[], get: (url: string) => Promise<RawPage> = getPage): Promise<WeekendEvent[]> {
+export async function fetchWeekend(cats: string[], days: string[], get: (url: string) => Promise<RawPage> = getPage, today = dayKey()): Promise<WeekendEvent[]> {
   const known = cats.filter((c) => EVENT_SLUGS.includes(c));
   if (!known.length) return [];
+  // From today on (a Saturday doesn't need Friday's), and every page: the API sorts long runs ahead of the weekend's shows.
+  const from = days.find((d) => d >= today) ?? days[days.length - 1];
   const byId = new Map<string, WeekendEvent>();
   for (let page = 1; page <= EVENTS_MAX_PAGES; page++) {
-    const { events, next } = parsePage(await get(eventsUrl(known, days, page)), days);
+    const { events, next } = parsePage(await get(eventsUrl(known, days, page, from)), days);
     for (const e of events) if (!byId.has(e.id)) byId.set(e.id, e);
     if (!next) break;
   }

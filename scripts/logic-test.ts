@@ -171,6 +171,10 @@ import { LAIR, LAIR_HOME, lairLeft, lairPieces, lairSpots, nextPiece, nextSpot, 
 import { PEEL_XP, peelBlocker, PEELS_PER_WEEK, rosterName, withPeel, withRivalName, withRivalNames } from '../src/lib/league';
 import { QUEST_SLOTS, questCardBlocker, questSlotsOn, withBossName, withQuestCard } from '../src/lib/quests';
 import { voiceOf } from '../src/lib/rival-talk';
+// step 8 bug fixes
+import { taskUsed } from '../src/lib/people-days';
+import { pausedDaysInMonth } from '../src/lib/pause';
+import { VOID_BRIER } from '../src/lib/prediction';
 import { buildPiece, createWorld, planRoute, spots3d, TANK } from '../src/lib/terrarium-3d';
 import { pauseOn } from '../src/lib/pause';
 // step 8 sweden
@@ -5182,7 +5186,7 @@ function step8SwedenTests() {
   const morning = new Date(2026, 11, 7, 11);
   assert.ok(sirenPing(base, morning)); // still ahead at 11:00
   assert.equal(sirenPing({ ...base, storm: [alert('VMA')] }, morning), null); // never "only a test" beside a real VMA
-  assert.ok(sirenPing({ ...base, storm: [alert('ORANGE')] }, morning)); // a weather warning isn't the siren
+  assert.equal(sirenPing({ ...base, storm: [alert('ORANGE')] }, morning), null); // no "only a test" on any storm day (the background's stormPlan agrees)
   assert.equal(sirenPing({ ...base, settings: { ...base.settings, sweden: { siren: false } } }, morning), null);
   assert.equal(sirenPing(base, new Date(2026, 11, 7, 14, 55)), null); // the heads-up time has gone
   assert.ok(sirenToday(base, new Date(2026, 11, 7, 14, 55)));
@@ -5364,12 +5368,20 @@ function step8SwedenTests() {
   const fuel: SweState = { ...base, settings: { ...base.settings, quickAdd: { pinned: [{ name: 'Kladdkaka (60 g)', kcal: 1, protein: 1 }, { name: 'Ägg', kcal: 70, protein: 6 }], hidden: [] } } };
   const row = quickFoods(fuel, '2026-11-07');
   assert.deepEqual(
-    row.map((f) => [f.name, f.kcal, f.fika?.ask ?? null]),
+    row.map((f) => [f.name, f.kcal, f.pinned, f.fika?.ask ?? null]),
+    [
+      ['Kladdkaka (60 g)', 1, true, null],
+      ['Ägg', 70, true, null],
+    ],
+  ); // her own pinned version of the day's food leads, with her numbers (never swapped for the almanac's)
+  const unpinned: SweState = { ...fuel, settings: { ...fuel.settings, quickAdd: { pinned: [{ name: 'Ägg', kcal: 70, protein: 6 }], hidden: [] } } };
+  assert.deepEqual(
+    quickFoods(unpinned, '2026-11-07').map((f) => [f.name, f.kcal, f.fika?.ask ?? null]),
     [
       ['Kladdkaka (60 g)', 250, false],
       ['Ägg', 70, null],
     ],
-  ); // first, and in place of the same food further along
+  ); // otherwise the almanac's portion comes first
   assert.equal(quickFoods(fuel, '2026-11-06')[0].fika?.ask, true); // a name only: the tap fills in the name
   assert.equal(quickFoods(fuel, '2026-11-08')[0].name, 'Kladdkaka (60 g)'); // any other day: the row as it was
   assert.equal(quickFoods(fuel)[0].fika, undefined);
@@ -6039,7 +6051,7 @@ function step8GameTests() {
     assert.equal(calibration(month(rep(MIN_CALLS - 1, ['lock', true] as [ShotCall, boolean])), '2027-02').title, null, 'too few calls for a title');
     assert.equal(titleFor(10, 0, 0.05), 'Dead-Eye Oracle');
     const five = calibration(month(rep(5, ['lock', true] as [ShotCall, boolean])), '2027-02');
-    assert.equal(five.coins, Math.round(5 * SHOT_COINS * (1 - 0.05 ** 2)));
+    assert.equal(five.coins, Math.round(5 * SHOT_COINS * (1 - 0.05 ** 2) + SHOT_COINS * (1 - VOID_BRIER))); // the void call pays like a coin flip
     // sandbagging never pays: for any belief, the call closest to it has the best expected payout
     for (const belief of CALLS) {
       const expected = (p: number) => SHOT_COINS * (1 - (belief.p * (1 - p) ** 2 + (1 - belief.p) * p ** 2));
@@ -6269,15 +6281,16 @@ function step8GameTests() {
     assert.deepEqual([reopened.xp, reopened.days[k].xpEarned], [0, 0]);
   }
 
-  // ---- 21. pick next week's boss: Sunday (and Monday until it takes damage), weakness as focus, ranks stay right ----
+  // ---- 21. pick next week's boss: Sunday (and Monday until noon), weakness as focus, ranks stay right ----
   {
     const s = base();
     const sun = at('2027-03-07', 10);
     assert.equal(pickWeek(s, sun), '2027-03-08');
     assert.equal(pickWeek(s, at('2027-03-06')), null, 'Saturday: not yet');
     assert.equal(pickWeek(s, at('2027-03-09')), null, 'Tuesday: too late');
-    assert.equal(pickWeek(s, at('2027-03-08', 9)), '2027-03-08', 'Monday, before any damage');
-    assert.equal(pickWeek({ ...s, days: { '2027-03-08': { ...used(), xpEarned: 5 } } }, at('2027-03-08', 9)), null, 'not once it took a hit');
+    assert.equal(pickWeek(s, at('2027-03-08', 9)), '2027-03-08', 'Monday morning');
+    assert.equal(pickWeek({ ...s, days: { '2027-03-08': { ...used(), xpEarned: 5 } } }, at('2027-03-08', 9)), '2027-03-08', 'still open after the rollover paid medals onto Monday');
+    assert.equal(pickWeek(s, at('2027-03-08', 12)), null, 'closed at noon');
     assert.equal(pickWeek({ ...s, kingWeeks: ['2027-03-08'] }, sun), null, 'never for a Couch King week');
     const options = bossOptions(s, '2027-03-08');
     assert.equal(options.length, 3);
@@ -6716,4 +6729,66 @@ function step8TerrariumTests() {
 step8TerrariumTests();
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.
+// step 8 bug fixes: sick days before planned trips, months of calls paid, Monday's boss pick, the siren note,
+// used one-tap tasks, the app's own night use, plants bought before they could grow
+function step8FixTests() {
+  // being sick comes first: a planned trip that would leave no room is cut short, the cap still holds
+  const sick = defaultState();
+  sick.pauses = [
+    { from: '2027-01-02', to: '2027-01-06', kind: 'sick' },
+    { from: '2027-01-12', to: '2027-01-13', kind: 'away' },
+  ];
+  assert.equal(pausedDaysInMonth(sick, '2027-01-10'), 7);
+  const ill = startPause(sick, 'sick', 1, '2027-01-10');
+  assert.equal(ill.pauses?.find((x) => x.from === '2027-01-10')?.kind, 'sick', 'sick mode starts');
+  assert.deepEqual(ill.pauses?.find((x) => x.kind === 'away'), { from: '2027-01-12', to: '2027-01-12', kind: 'away' }, 'the trip gives way');
+  assert.equal(pausedDaysInMonth(ill, '2027-01-10'), 7);
+  // away mode still can't push past the cap
+  assert.equal(startPause(sick, 'away', 1, '2027-01-10'), sick);
+
+  // calls: every month since the last paid one is scored (the app wasn't opened in November)
+  const calls = defaultState();
+  calls.days['2026-10-05'] = { ...emptyDay(), shot: { q: 'gym', call: 'lock', p: 0.95, at: 0, result: 'hit' } };
+  calls.days['2026-10-06'] = { ...emptyDay(), shot: { q: 'gym', call: 'probably', p: 0.75, at: 0, result: 'void' } };
+  calls.shotsPaid = '2026-09';
+  const paid = settleShotMonth(calls, new Date(2026, 11, 2, 9));
+  assert.equal(paid.state.shotsPaid, '2026-11');
+  const expected = Math.round(SHOT_COINS * (1 - (0.95 - 1) ** 2) + SHOT_COINS * (1 - VOID_BRIER));
+  assert.equal(paid.state.coins - calls.coins, expected, "October's calls paid, the void as a coin flip");
+  assert.equal(paid.award?.month, '2026-10');
+  assert.equal(settleShotMonth(paid.state, new Date(2026, 11, 3, 9)).state, paid.state, 'once');
+
+  // Monday's boss pick: open until noon whatever the rollover paid, closed once the week's boss is named
+  const pick = { ...defaultState(), onboarded: true };
+  const mon = new Date(2027, 2, 1, 9);
+  pick.days['2027-03-01'] = { ...emptyDay(), xpEarned: 10 }; // last week's medals, paid onto Monday
+  assert.equal(pickWeek(pick, mon), '2027-03-01');
+  assert.equal(pickWeek(pick, new Date(2027, 2, 1, 13)), null, 'until noon');
+  assert.equal(pickWeek(withBossName(pick, 'Sir Snoozealot', mon), mon), null, 'a named boss keeps its week');
+
+  // Hesa Fredrik's note on HQ lasts until 15:15 on the test day
+  assert.ok(sirenToday(defaultState(), new Date(2026, 11, 7, 15, 5)));
+  assert.ok(!sirenToday(defaultState(), new Date(2026, 11, 7, 15, 20)));
+
+  // a one-tap task that was done and cleared still counts as used
+  const used = defaultState();
+  used.days['2026-11-08'] = { ...emptyDay(), doneTasks: [{ id: 't1', at: 0 }] };
+  assert.ok(taskUsed(used, 't1') && !taskUsed(used, 't2') && !taskUsed(used, null));
+
+  // the app's own late use isn't phone in bed
+  const bed = new Date(2026, 10, 6, 23).getTime();
+  const own = nightPhone([{ label: 'S.P.I.D.E.R', packageName: 'app.spider.assistant', start: bed, end: bed + 30 * 60_000 }], bed, bed + 6 * 3_600_000);
+  assert.equal(own.lateMin, 0);
+
+  // pieces bought before plants could grow stay full-grown; newer saves keep their own growth
+  const old = hydrate({ ...defaultState(), lair: ['web', 'lamp', 'rug'] } as Parameters<typeof hydrate>[0]);
+  assert.deepEqual(old.lairGrowth, { web: 1, lamp: 1, rug: 1 });
+  const newer = hydrate({ ...defaultState(), lair: ['rug'], lairAt: { rug: 1 }, lairGrowth: { rug: 0.4 } } as Parameters<typeof hydrate>[0]);
+  assert.deepEqual(newer.lairGrowth, { rug: 0.4 });
+
+  // the weekend's events are asked for from today on
+  assert.ok(eventsUrl(['music'], ['2026-11-06', '2026-11-07', '2026-11-08'], 1, '2026-11-07').includes('date_from=2026-11-07&date_to=2026-11-08'));
+}
+step8FixTests();
+
 console.log('synchronous logic tests passed');
