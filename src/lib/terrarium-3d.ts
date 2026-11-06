@@ -984,6 +984,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
   const replays: TankEvent[] = [];
   const signals: 'molted'[] = [];
   let moltStarted = false;
+  let moltSent = false; // the app has been told about this molt
   let localMolts = life.molts;
   const pose = { pos: v(0, 0, 0), yaw: 0, pitch: 0, thread: false, roll: 0, size: sizeAfter(life.molts) };
   const anim = { rear: 0, curl: 0, dip: 0, wave: 0, wrap: 0, hop: 0, head: 0 };
@@ -1004,9 +1005,16 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     pose.pitch = 0;
     pose.thread = false;
     pose.roll = 0;
+    // a molt cut short before it was recorded starts over; anything else it was acting out is dropped
+    if (special === 'molt' && !moltSent) moltStarted = false;
+    pose.size = sizeAfter(Math.max(life.molts, localMolts));
     steps = [{ kind: 'wait', time: 1.5 }];
     special = null;
     act = null;
+    prey.group.visible = false;
+    bundle.visible = false;
+    mat.visible = false;
+    matTarget = 0;
   };
 
   const lookOf = (id: string): PieceLook => {
@@ -1388,6 +1396,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     if (free()) {
       if (life.molt && !moltStarted) {
         moltStarted = true;
+        moltSent = false;
         steps = moltOf();
         special = 'molt';
         return;
@@ -1446,7 +1455,10 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
       mat.visible = true;
       matTarget = 0.5;
     } else if (s.fx === 'matOff') matTarget = 0;
-    else if (s.fx === 'molted') signals.push('molted');
+    else if (s.fx === 'molted') {
+      moltSent = true;
+      signals.push('molted');
+    }
     else if (s.fx === 'shed') {
       localMolts = Math.max(localMolts, moltBase + 1);
       buildSkins(Math.max(life.molts, localMolts));

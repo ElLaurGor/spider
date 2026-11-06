@@ -156,10 +156,8 @@ export function Terrarium3D({ onFail, onTap }: { onFail: () => void; onTap?: () 
     endDrag();
     if (!tapped) return;
     const hit = x.world && x.w && x.h ? x.world.pick(e.nativeEvent.locationX / x.w, e.nativeEvent.locationY / x.h) : null;
-    if (hit === 'fly') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      actions.catchFly();
-    } else if (hit === 'spider') {
+    if (hit === 'fly') actions.catchFly(); // its toast buzzes
+    else if (hit === 'spider') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       x.world?.poke();
       setBubble(quip('tankPoke'));

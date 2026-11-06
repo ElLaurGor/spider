@@ -182,6 +182,13 @@ import { nextSirenTest, PREP_COINS, PREP_ITEMS, prepWeek, prepWeekOn, sirenPing,
 import { deklarationFor, deklarationOn, deklDone, deklPings } from '../src/lib/deklaration';
 import type { PlannedPing } from '../src/lib/people-days';
 import type { State as SweState, StormAlert as SweStorm } from '../src/lib/types';
+// step 8 terrarium
+import * as THREE from 'three';
+import { roll } from '../src/lib/critters';
+import { EGG_CHANCE, EGG_COINS, EGG_KMS, eggDrops, eggKm, hatchEggs, MAX_EGGS } from '../src/lib/egg-sacs';
+import { asleepAt, daylightAt, DEW_DROPS, dressingFor, grewSince, growthOf, hatShape, IDLE_LIFE, lighting, MOLT_GROWTH_MAX, moltState, NO_WEATHER, PET_MOTION, plantGrowth, sizeAfter, SPROUT, sunTimes } from '../src/lib/tank-life';
+import { TANK_EVENT_MS, TANK_QUEUE, tankEventsOf, tankLifeOf, tankMode, tankSnapsFor, tankWeather, webFor, withMolt, withTankEvents, type TankLife } from '../src/lib/tank-life';
+import type { DayForecast } from '../src/lib/weather';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -5342,6 +5349,324 @@ function step8SwedenTests() {
   assert.deepEqual(fuel.days, {}); // offering a food logs nothing
 }
 step8SwedenTests();
+
+// step 8 terrarium: the tank follows the app (tank-life.ts), egg sacs hatch by walking (egg-sacs.ts), and the 3D
+// world acts it all out (terrarium-3d.ts) without leaving the tank
+function step8TerrariumTests() {
+  const DAY = 86_400_000;
+  // ---- the real sun over Stockholm, within a few minutes ----
+  const near = (a: number, b: number, min = 6) => Math.abs(a - b) <= min * 60_000;
+  const june = sunTimes(new Date(2026, 5, 21));
+  assert.ok(near(june.sunrise, Date.UTC(2026, 5, 21, 1, 31)) && near(june.sunset, Date.UTC(2026, 5, 21, 20, 8)), 'midsummer: 03:31 to 22:08');
+  const dec = sunTimes(new Date(2026, 11, 21));
+  assert.ok(near(dec.sunrise, Date.UTC(2026, 11, 21, 7, 43)) && near(dec.sunset, Date.UTC(2026, 11, 21, 13, 48)), 'midwinter: 08:43 to 14:48');
+  assert.equal(daylightAt(Date.UTC(2026, 11, 21, 10, 45), dec.sunrise, dec.sunset), 1);
+  assert.equal(daylightAt(Date.UTC(2026, 11, 21, 21), dec.sunrise, dec.sunset), 0);
+  assert.equal(daylightAt(Date.UTC(2026, 11, 21, 3), dec.sunrise, dec.sunset), 0);
+  const dawn = daylightAt(dec.sunrise, dec.sunrise, dec.sunset);
+  assert.ok(dawn > 0.3 && dawn < 0.7, `dawn is half light: ${dawn}`);
+  const noonL = lighting(1, false);
+  const nightL = lighting(0, false);
+  const cosyL = lighting(1, true);
+  assert.ok(noonL.lamp === 1 && nightL.lamp === 0, 'the heat lamp goes off after dark');
+  assert.ok(nightL.glow > noonL.glow && nightL.hemi < noonL.hemi, 'the mushrooms and the crystal light up at night');
+  assert.ok(cosyL.hemi < noonL.hemi && cosyL.warm === 1 && cosyL.lamp < 1, 'cosy: warm and dim');
+
+  // ---- the owner's sleep window: bedtime to the real wake time (the watch's), else the usual one ----
+  const at = (h: number, m = 0) => new Date(2027, 0, 13, h, m);
+  const usual = { sleepHour: 23, wakeHour: 7 };
+  assert.deepEqual([at(23, 30), at(3), at(6, 59), at(7, 30), at(12), at(22, 59)].map((t) => asleepAt(t, usual)), [true, true, true, false, false, false]);
+  assert.equal(asleepAt(at(6, 30), { ...usual, wakeAt: at(6, 10).getTime() }), false, 'up when the watch says so');
+  assert.equal(asleepAt(at(6), { ...usual, wakeAt: at(6, 10).getTime() }), true);
+  assert.equal(asleepAt(at(6, 30), { ...usual, wakeAt: at(6, 10).getTime() - DAY }), true, "yesterday's wake time doesn't count");
+  assert.deepEqual([at(0, 30), at(2), at(8, 5), at(23)].map((t) => asleepAt(t, { sleepHour: 1, wakeHour: 8 })), [false, true, false, false], 'a bedtime after midnight');
+
+  // ---- what it's up to ----
+  const none = { focus: false, game: false, asleep: false, storm: false, kind: false };
+  assert.equal(tankMode(none), 'wander');
+  assert.equal(tankMode({ ...none, kind: true }), 'cosy');
+  assert.equal(tankMode({ ...none, kind: true, storm: true }), 'storm');
+  assert.equal(tankMode({ ...none, asleep: true, storm: true, kind: true }), 'sleep');
+  assert.equal(tankMode({ ...none, asleep: true, game: true }), 'game');
+  assert.equal(tankMode({ ...none, game: true, focus: true }), 'focus');
+  // a kind day looks the same whatever made it kind: a low mood, a sick day or a period day
+  const noon = at(12);
+  const key = dayKey(noon);
+  const base = { ...defaultState(), onboarded: true };
+  const lowMood = { ...base, days: { [key]: { ...emptyDay(), moods: [{ id: 'm', level: 1 as const, emotions: [], at: noon.getTime() - 3600_000 }] } } };
+  const sick = { ...base, days: { [key]: emptyDay() }, pauses: [{ from: key, to: key, kind: 'sick' as const }] };
+  const period = { ...base, days: { [key]: { ...emptyDay(), period: { flow: 'medium' as const, symptoms: [] } } } };
+  const lives = [lowMood, sick, period].map((x) => tankLifeOf(x, { now: noon.getTime() }));
+  assert.equal(lives[0].mode, 'cosy');
+  assert.deepEqual(lives[1], lives[0], 'sick looks like a low mood');
+  assert.deepEqual(lives[2], lives[0], 'a period day looks the same too');
+  assert.equal(tankLifeOf(base, { now: noon.getTime() }).mode, 'wander');
+  assert.equal(tankLifeOf({ ...base, activeFocus: { start: noon.getTime() - 5 * 60_000, minutes: 25 } }, { now: noon.getTime() }).mode, 'focus');
+  assert.equal(tankLifeOf({ ...base, activeFocus: { start: noon.getTime() - 50 * 60_000, minutes: 25 } }, { now: noon.getTime() }).mode, 'wander', 'a finished session is over');
+  assert.equal(tankLifeOf({ ...base, activeGame: { start: noon.getTime() - 60_000 } }, { now: noon.getTime() }).mode, 'game');
+  assert.equal(tankLifeOf(base, { now: at(23, 30).getTime() }).mode, 'sleep');
+  const night = tankLifeOf(base, { now: at(23, 30).getTime() });
+  assert.ok(night.light.lamp === 0 && night.daylight === 0, 'January at 23:30 is dark');
+  const sunny = { date: key, max: 1, min: -3, rainPct: 0, code: 0, rainMm: 0, sunrise: at(8, 40).getTime(), sunset: at(15, 10).getTime(), daylightMin: 390, sunshineMin: 300 };
+  assert.equal(tankLifeOf(base, { now: at(12).getTime(), forecast: sunny }).daylight, 1, "the forecast's sunrise and sunset");
+  assert.equal(tankLifeOf(base, { now: at(16).getTime(), forecast: sunny }).daylight, 0);
+
+  // ---- molting: premolt near the next new level, one molt per level reached, a little bigger each time ----
+  const m = { ...base, xp: 575, maxLevel: 3, moltSeen: 3 }; // level 3 runs from 300 to 600 XP
+  assert.deepEqual([moltState(m).premolt, moltState(m).toGo, moltState(m).due], [true, 25, false]);
+  assert.equal(moltState({ ...m, xp: 500 }).premolt, false);
+  const up = { ...m, xp: 610, maxLevel: 4 };
+  assert.ok(moltState(up).due);
+  const molted = withMolt(up);
+  assert.deepEqual([molted.moltSeen, molted.molts, molted.xp, molted.coins], [4, 1, 610, up.coins], 'looks only: no XP, no coins');
+  assert.equal(withMolt(molted), molted, 'once per level');
+  assert.equal(moltState({ ...molted, xp: 590 }).premolt, false, 'no premolt for a level it already molted for');
+  assert.ok(sizeAfter(1) > sizeAfter(0) && sizeAfter(50) === sizeAfter(MOLT_GROWTH_MAX), 'a little bigger, up to a cap');
+  // old saves: no molt for levels reached before the tank could show one; older pieces grow from first sight
+  const old = hydrate({ ...defaultState(), xp: 610, maxLevel: 4, lair: ['web', 'rug'] });
+  assert.equal(old.moltSeen, 4);
+  assert.ok(old.lairAt?.web && old.lairAt?.rug);
+  assert.equal(hydrate({ ...defaultState(), xp: 610, moltSeen: 2 }).moltSeen, 2);
+  const bought = withPiece({ ...base, lairAt: { web: 5 } }, 'lamp', 99);
+  assert.deepEqual(bought.lairAt, { web: 5, lamp: 99 });
+
+  // ---- plants grow with days and steps (lifetime totals) and never shrink; fully grown they bloom ----
+  const t0 = new Date(2027, 0, 1, 12).getTime();
+  const g0 = { ...base, lair: ['rug', 'plant'], lairAt: { rug: t0, plant: t0 } };
+  assert.equal(plantGrowth(g0, 'rug', t0), SPROUT);
+  const walked = { ...g0, days: { '2027-01-05': { ...emptyDay(), steps: 100_000 }, '2026-12-30': { ...emptyDay(), steps: 90_000 } } };
+  assert.equal(plantGrowth(walked, 'rug', t0 + 14 * DAY), 0.65, 'half the days and half the steps (steps before it went in left out)');
+  const full = { ...walked, days: { ...walked.days, '2027-01-20': { ...emptyDay(), steps: 120_000 } } };
+  assert.equal(plantGrowth(full, 'rug', t0 + 40 * DAY), 1);
+  assert.equal(plantGrowth({ ...walked, days: {}, lairGrowth: { rug: 0.65 } }, 'rug', t0 + 14 * DAY), 0.65, 'what it reached is kept');
+  assert.equal(grewSince({ ...walked, lairGrowth: { rug: 0.62 } }, { rug: 0.65 }), null);
+  assert.deepEqual(grewSince({ ...walked, lairGrowth: { rug: 0.55 } }, { rug: 0.65 }), { rug: 0.65 });
+  assert.deepEqual(grewSince({ ...walked, lairGrowth: { rug: 0.98 } }, { rug: 1 }), { rug: 1 }, 'full size is always worth keeping');
+  assert.deepEqual(Object.keys(growthOf(g0, t0)).sort(), ['plant', 'rug']);
+  assert.ok(buildPiece('plant', { growth: SPROUT }).children.length < buildPiece('plant', { growth: 1 }).children.length, 'more fronds as it grows');
+  assert.equal(buildPiece('plant', { growth: 1, bloom: true }).children.length, buildPiece('plant', { growth: 1 }).children.length + 1, 'blooming');
+
+  // ---- today's web ----
+  const wd = { ...base, days: { [key]: { ...emptyDay(), water: [{ id: 'a', ml: 250, at: 1 }, { id: 'b', ml: 250, at: 2 }], questsDone: ['q1', 'q2'], sleepMin: 420, doneTasks: [{ id: 't', at: 3 }] } } };
+  assert.deepEqual(webFor(wd, key), { radials: 5, rings: 2, dew: DEW_DROPS, bundles: 1 });
+  assert.deepEqual(webFor(base, key), { radials: 3, rings: 0, dew: 0, bundles: 0 }, 'a new day starts with three threads');
+
+  // ---- weather in the glass ----
+  const jan = new Date(2027, 0, 13, 12);
+  const fc = (o: Partial<DayForecast>): DayForecast => ({ date: key, max: 8, min: 2, rainPct: 10, code: 1, rainMm: 0, sunrise: 0, sunset: 0, daylightMin: 500, sunshineMin: 300, ...o });
+  assert.ok(tankWeather(fc({ code: 63, rainPct: 90 }), { now: jan }).rain);
+  const snowy = tankWeather(fc({ code: 73, max: -2 }), { now: jan });
+  assert.ok(snowy.snowing && snowy.frost >= 0.5 && snowy.snowLid);
+  assert.ok(tankWeather(fc({ code: 0, max: 1 }), { now: jan }).frost > 0, 'cold frosts the corners');
+  assert.ok(tankWeather(fc({ code: 0, sunshineMin: 400 }), { now: jan }).sun);
+  assert.deepEqual(tankWeather(fc({ code: 3, sunshineMin: 0 }), { now: jan }), NO_WEATHER, 'a grey day leaves the glass alone');
+  assert.equal(tankWeather(null, { now: jan, firstSnow: winterOf(jan) }).snowLid, true, 'the lid keeps the first snow');
+  assert.equal(tankWeather(null, { now: new Date(2027, 5, 1), firstSnow: winterOf(new Date(2027, 5, 1)) }).snowLid, false, 'but not in June');
+
+  // ---- the season's dressing: free, temporary, looks only ----
+  assert.equal(dressingFor(new Date(2026, 11, 5))?.item, 'star');
+  assert.equal(dressingFor(new Date(2026, 11, 13))?.item, 'candles');
+  assert.deepEqual(dressingFor(new Date(2026, 11, 24)), { item: 'sprig', snow: true });
+  assert.equal(dressingFor(new Date(2026, 11, 31))?.item, 'sparkles');
+  assert.equal(dressingFor(new Date(2027, 2, 25))?.item, 'feathers');
+  assert.equal(dressingFor(new Date(2027, 3, 30))?.item, 'embers');
+  assert.equal(dressingFor(new Date(2027, 5, 25))?.item, 'pole');
+  assert.equal(dressingFor(new Date(2026, 9, 28))?.item, 'pumpkin');
+  assert.ok(isAllSaintsDay(new Date(2026, 9, 31)) && dressingFor(new Date(2026, 9, 31)) === null, 'no pumpkin on Alla helgons dag');
+  assert.equal(dressingFor(new Date(2027, 1, 10)), null);
+  for (const f of FLIES) assert.ok(PET_MOTION[f.id], `${f.id} moves somehow`);
+  assert.deepEqual(['cap', 'top_hat', 'crown', 'grad_cap', 'pumpkin', 'tomte_hat', 'silk_bow'].map(hatShape), ['cap', 'top', 'crown', 'grad', 'pumpkin', 'tomte', 'beanie']);
+
+  // ---- replays: what was just logged (today's, one of each kind), never food ----
+  const nowT = new Date(2027, 0, 13, 10);
+  const tk = dayKey(nowT);
+  const t = nowT.getTime();
+  const e0 = { ...base, days: { [tk]: emptyDay() }, tasks: [{ id: 'task1', title: 'x', done: false, createdAt: t - 1000 }] };
+  const e1 = {
+    ...e0,
+    days: {
+      [tk]: {
+        ...emptyDay(),
+        water: [{ id: 'w1', ml: 250, at: t }, { id: 'w2', ml: 250, at: t }],
+        sets: [{ id: 's1', exercise: 'Squat', weight: 50, reps: 5, at: t }],
+        food: [{ id: 'f1', name: 'x', kcal: 100, protein: 1, at: t }],
+      },
+    },
+    tasks: [{ id: 'task1', title: 'x', done: true, createdAt: t - 1000, doneAt: t }],
+  };
+  assert.deepEqual(tankEventsOf(e0, e1, nowT).map((e) => e.kind).sort(), ['task', 'train', 'water']);
+  const fed = { ...e0, days: { [tk]: { ...emptyDay(), food: [{ id: 'f1', name: 'x', kcal: 100, protein: 1, at: t }] } } };
+  assert.deepEqual(tankEventsOf(e0, fed, nowT), [], 'nothing for food');
+  const buzzing = { ...e0, pendingFly: { id: 'house_fly', until: t + 60_000 } };
+  assert.deepEqual(tankEventsOf(buzzing, { ...e0, pendingFly: null, flies: { house_fly: { firstAt: t, count: 1 } } }, nowT).map((e) => e.kind), ['fly']);
+  assert.deepEqual(tankEventsOf(buzzing, { ...e0, pendingFly: null }, nowT), [], 'one that got away is no catch');
+  const many = Array.from({ length: 10 }, (_, i) => ({ id: `e${i}`, kind: 'water' as const, at: t }));
+  assert.equal(withTankEvents([], many, t).length, TANK_QUEUE);
+  assert.deepEqual(withTankEvents([{ id: 'old', kind: 'task', at: t - TANK_EVENT_MS - 1 }], [many[0]], t).map((e) => e.id), ['e0'], 'old ones go');
+
+  // ---- egg sacs: a gold chest or a boss sometimes drops one; walking hatches it; coins, never XP ----
+  const chestDays = Array.from({ length: 80 }, (_, i) => dayKey(addDays(new Date(2027, 0, 1, 12), i)));
+  const dropDay = chestDays.find((k) => roll(`egg:chest:${k}`) < EGG_CHANCE.chest)!;
+  const missDay = chestDays.find((k) => roll(`egg:chest:${k}`) >= EGG_CHANCE.chest)!;
+  assert.ok(dropDay && missDay);
+  const gold = { kind: 'coins' as const, amount: 50, text: '', gold: true };
+  const chestState = (k: string) => ({ ...base, days: { [k]: { ...emptyDay(), chestReady: true, steps: 3000 } } });
+  const opened = (st: ReturnType<typeof chestState>, k: string, g = true) => ({ ...st, days: { [k]: { ...st.days[k], chest: g ? gold : { ...gold, gold: undefined } } } });
+  const when = new Date(`${dropDay}T15:00`);
+  const c0 = chestState(dropDay);
+  const laid = eggDrops(c0, opened(c0, dropDay), when);
+  assert.equal(laid.laid.length, 1);
+  const egg = laid.laid[0];
+  assert.ok((EGG_KMS as readonly number[]).includes(egg.km));
+  assert.equal(egg.skip, 3000, "that day's earlier steps don't count");
+  assert.equal(eggDrops(c0, laid.state, when).laid.length, 0, 'the same chest never drops twice');
+  assert.equal(eggDrops(c0, opened(c0, dropDay, false), when).laid.length, 0, 'a plain chest drops nothing');
+  const m0 = chestState(missDay);
+  assert.equal(eggDrops(m0, opened(m0, missDay), new Date(`${missDay}T15:00`)).laid.length, 0, 'and a gold one only sometimes');
+  const weeks = Array.from({ length: 60 }, (_, i) => dayKey(addDays(new Date(2027, 0, 4, 12), i * 7)));
+  const bossWeek = weeks.find((wk) => roll(`egg:boss:${wk}`) < EGG_CHANCE.boss)!;
+  assert.equal(eggDrops(base, { ...base, bossesDefeated: { [bossWeek]: 'x' } }, when).laid[0]?.from, 'boss');
+  const fullUp = { ...base, eggSacs: [egg, { ...egg, id: 'b', key: 'b' }, { ...egg, id: 'c', key: 'c' }] };
+  assert.equal(fullUp.eggSacs.length, MAX_EGGS);
+  assert.equal(eggDrops(fullUp, { ...fullUp, bossesDefeated: { [bossWeek]: 'x' } }, when).laid.length, 0, 'no more than three waiting');
+  // walking: the steps after it dropped, at the step length, totals only (a day without steps just waits)
+  const need = Math.ceil((egg.km * 1000) / egg.stepM);
+  const later = new Date(when.getTime() + 2 * DAY);
+  const almost = { ...laid.state, days: { ...laid.state.days, [dropDay]: { ...laid.state.days[dropDay], steps: 3000 + need - 1 }, [dayKey(addDays(when, 1))]: { ...emptyDay(), steps: 0 } } };
+  assert.ok(eggKm(almost, egg, later) < egg.km);
+  assert.equal(hatchEggs(almost, later).hatched.length, 0);
+  const walkedOn = { ...almost, days: { ...almost.days, [dayKey(later)]: { ...emptyDay(), steps: 5 } } };
+  const h = hatchEggs(walkedOn, later);
+  assert.equal(h.hatched.length, 1);
+  assert.deepEqual([h.state.coins - walkedOn.coins, h.state.xp, h.state.eggSacs?.length, h.state.spiderlings?.length], [EGG_COINS[egg.km], walkedOn.xp, 0, 1]);
+  assert.equal(eggDrops(c0, { ...opened(c0, dropDay), spiderlings: h.state.spiderlings }, when).laid.length, 0, 'a hatched one stays hatched');
+
+  // ---- snapshots for Wrapped ----
+  const snaps = { ...base, tankSnaps: { '2027-01': 'a', '2027-05': 'b', '2027-12': 'c', '2026-12': 'z' } };
+  assert.deepEqual(tankSnapsFor(snaps, '2027').map((x) => x.label), ['January', 'December']);
+  assert.deepEqual(tankSnapsFor(snaps, '2027-05').map((x) => x.uri), ['b']);
+  assert.deepEqual(tankSnapsFor(snaps, '2025'), []);
+
+  // ---- the 3D world acts it out ----
+  const all = LAIR.map((x) => x.id);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const life = (o: Partial<TankLife>): TankLife => ({ ...IDLE_LIFE, ...o });
+  const w = createWorld({ ids: all, next: null, marking: '#E23636', background: '#10141F', random: rnd });
+  let outside = 0;
+  const run = (sec: number, each?: () => void) => {
+    for (let i = 0; i < sec * 30; i++) {
+      w.step(1 / 30);
+      const p = w.pose().pos;
+      if (Math.abs(p.x) > TANK.w / 2 || Math.abs(p.z) > TANK.d / 2 || p.y < -0.001 || p.y > TANK.h) outside++;
+      each?.();
+    }
+  };
+  // night: the heat lamp off, the glow up
+  const dayGlow = w.shown().glow ?? 0;
+  w.setLife(life({ daylight: 0, light: lighting(0, false) }));
+  assert.equal(w.shown().lamp, 0);
+  assert.ok((w.shown().glow ?? 0) > dayGlow);
+  // asleep on a thread under the web; Web Focus still in it; gaming at the crystal; a storm in the hide; cosy at the front
+  w.setLife(life({ mode: 'sleep', daylight: 0, light: lighting(0, false) }));
+  run(40);
+  assert.ok(w.spotId() === 'web' && w.pose().thread && w.act() === '💤', `asleep on its thread: ${w.spotId()}`);
+  w.setLife(life({ mode: 'focus' }));
+  const still = w.pose().pos.clone();
+  run(10);
+  assert.ok(w.spotId() === 'web' && w.pose().pos.distanceTo(still) < 1e-6, 'still in its web');
+  w.setLife(life({ mode: 'game' }));
+  run(40);
+  assert.ok(w.spotId() === 'arcade' && w.act() === '🎮', `at the crystal: ${w.spotId()}`);
+  w.setLife(life({ mode: 'storm' }));
+  run(40);
+  assert.equal(w.spotId(), 'couch', 'calm in the hide');
+  w.setLife(life({ mode: 'cosy', light: lighting(1, true) }));
+  run(60);
+  assert.ok(w.spotId() === 'cosy' && w.pose().pos.z > 1.8, 'by the moss at the front glass');
+  // replays, once it's wandering again
+  w.setLife(life({}));
+  const replayed = (kind: 'water' | 'train' | 'task' | 'fly', act: string, spot?: string) => {
+    w.replay([{ id: kind, kind, at: 0 }]);
+    let seen = false;
+    run(40, () => {
+      if (w.act() === act && (!spot || w.spotId() === spot)) seen = true;
+    });
+    assert.ok(seen, `${kind} acted out`);
+  };
+  replayed('water', '💧', 'radio');
+  replayed('train', '💪', 'rack');
+  replayed('task', '🎁');
+  replayed('fly', '😋');
+  // a molt: acted out once, a signal for the app, a skin left behind, a little bigger
+  const size0 = w.pose().size;
+  w.setLife(life({ molt: true }));
+  let signal: string | null = null;
+  let flipped = false;
+  run(45, () => {
+    signal ??= w.takeSignal();
+    if (w.pose().roll > 3) flipped = true;
+  });
+  assert.equal(signal, 'molted');
+  assert.ok(flipped, 'it flips onto its back to pull free');
+  assert.equal(w.shown().skins, 1);
+  w.setLife(life({ molt: false, molts: 1 }));
+  run(2);
+  assert.ok(w.pose().size > size0 && w.takeSignal() === null, 'bigger, and only once');
+  // taps: the spider, a fly to catch, or nothing
+  w.setYaw(0.4);
+  run(0.2);
+  const ndc = (p: THREE.Vector3) => {
+    const q = p.clone().project(w.camera);
+    return [(q.x + 1) / 2, (1 - q.y) / 2] as const;
+  };
+  const [sx, sy] = ndc(w.pose().pos.add(new THREE.Vector3(0, 0.4, 0)));
+  assert.equal(w.pick(sx, sy), 'spider');
+  assert.equal(w.pick(0.02, 0.03), null);
+  w.poke();
+  run(0.5);
+  assert.equal(w.busy(), 'poke');
+  run(4);
+  assert.equal(w.busy(), null, 'then it goes on');
+  w.setLife(life({ fly: true }));
+  run(0.1);
+  const fly = w.scene.getObjectByName('catchable')!;
+  assert.ok(fly.visible);
+  const [fx, fy] = ndc(fly.position);
+  assert.equal(w.pick(fx, fy), 'fly');
+  // the pet, the hat, the season, the weather, egg sacs and spiderlings
+  w.setLife(life({ pet: { fly: 'iron_beetle', motion: 'trundle' }, hat: { id: 'crown', shape: 'crown' }, dressing: 'star', weather: { ...NO_WEATHER, rain: true, frost: 0.6, snowLid: true }, eggs: 2, spiderlings: 3 }));
+  w.settle();
+  const shown = w.shown();
+  assert.deepEqual([shown.pet, shown.hat, shown.dressing, shown.rain, shown.snowLid, shown.frost, shown.eggs, shown.spiderlings, shown.fly], ['trundle', true, 'star', true, true, 0.6, 2, 3, false]);
+  run(20);
+  const petOf = () => w.scene.getObjectByName('pet')!.children[0].position;
+  assert.ok(Math.abs(petOf().x) <= TANK.w / 2 && Math.abs(petOf().z) <= TANK.d / 2 && petOf().y < 0.3, 'a trundling pet stays on the floor');
+  for (const motion of ['buzz', 'lamp', 'glow', 'hop'] as const) {
+    w.setLife(life({ pet: { fly: `x_${motion}`, motion } }));
+    run(5);
+    const p = petOf();
+    assert.ok(Math.abs(p.x) <= TANK.w / 2 && Math.abs(p.z) <= TANK.d / 2 && p.y >= 0 && p.y <= TANK.h, `${motion} stays in the tank`);
+  }
+  for (const d of ['candles', 'sprig', 'sparkles', 'feathers', 'embers', 'pole', 'pumpkin'] as const) {
+    w.setLife(life({ dressing: d }));
+    run(0.2);
+    assert.equal(w.shown().dressing, d);
+  }
+  // the web grows with the day
+  w.setLife(life({ web: { radials: 3, rings: 0, dew: 0, bundles: 0 } }));
+  assert.equal(w.shown().webLines, 3);
+  w.setLife(life({ web: { radials: 9, rings: 4, dew: DEW_DROPS, bundles: 2 } }));
+  assert.deepEqual([w.shown().webLines, w.shown().dew, w.shown().bundles], [9 + 4 * 8 * 2, DEW_DROPS, 2]);
+  // plants grow in place, without sending the spider home
+  const spotBefore = w.spotId();
+  w.setLife(life({ growth: { plant: SPROUT, rug: 1 } }));
+  assert.equal(w.spotId(), spotBefore);
+  assert.equal(outside, 0, 'never through the glass or the floor');
+  w.collect();
+  w.dispose();
+}
+step8TerrariumTests();
 
 // The async blocks above (persistence, fetch checks) report on their own once they finish.
 console.log('synchronous logic tests passed');
