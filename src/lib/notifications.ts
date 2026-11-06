@@ -48,6 +48,9 @@ import { moveDayName, moveTargets, slipAt } from './workout-move';
 import { peoplePings } from './people-days';
 import { sirenPing } from './beredskap';
 import { deklPings } from './deklaration';
+// step 8 days: booked free slots and top-3 slots, a gym time moved for the day, notes from past you
+import { pastYouTail } from './past-you';
+import { gymTimeOn, slotReminders } from './plan-slots';
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -60,7 +63,7 @@ const SNOOZE_ID = 'snooze-water'; // not a planned prefix, so a replan leaves it
 
 // Buttons on reminders. From APK 1.5.0 most work without opening the app (silent-buttons.ts); before that,
 // or in Expo Go, a tap opens the app, which does the thing (onNotificationTap).
-const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood', status: 'spider_status', gymMove: 'spider_gym_move' } as const;
+const CATEGORY = { water: 'spider_water', habit: 'spider_habit', mood: 'spider_mood', status: 'spider_status', gymMove: 'spider_gym_move', focus: 'spider_focus' } as const; // focus: step 8 days, a booked focus block
 const STATUS_ID = 'status-line'; // the ongoing summary in the shade (cluster F); not a planned prefix
 const MOOD_BUTTONS: MoodLevel[] = [4, 3, 2];
 
@@ -90,6 +93,10 @@ const LINKS: [prefix: string, href: Href][] = [
   ['evening-', '/debrief'],
   ['move-', '/movement'],
   ['siren-', '/outside'], // step 8 sweden: people days and the tax return open HQ
+  // step 8 days: a booked focus block opens Web Focus, a booked task Plan, a top-3 slot HQ
+  ['slot-focus-', '/focus'],
+  ['slot-', '/plan'],
+  ['top3-', '/'],
 ];
 /** The screen a notification opens. Morning, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
@@ -153,6 +160,8 @@ export async function initNotifications(askIfNeeded: boolean) {
       { identifier: 'water_glass', buttonTitle: '+1 glass', options },
       { identifier: 'focus_start', buttonTitle: '🕸️ Focus 25 min' },
     ]);
+    // step 8 days: a focus block booked in a free slot carries the status line's Focus button (it opens the app)
+    await Notifications.setNotificationCategoryAsync(CATEGORY.focus, [{ identifier: 'focus_start', buttonTitle: '🕸️ Focus 25 min' }]);
     await Notifications.setNotificationCategoryAsync(
       CATEGORY.mood,
       MOOD_BUTTONS.map((level) => ({ identifier: `mood_${level}`, buttonTitle: `${moodInfo(level).emoji} ${moodInfo(level).label}`, options })),
@@ -301,13 +310,16 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     }
 
     if (st.notify.gym && plan && !paused && !trainedOn(log)) {
-      const gymAt = atTime(now, d, st.gymHour, st.gymMinute).getTime();
-      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name }, key);
+      const gymTime = gymTimeOn(s, key); // step 8 days: a gym time moved to a free slot that day
+      const gymAt = atTime(now, d, gymTime.hour, gymTime.minute).getTime();
+      // step 8 days: on a kind day there's no shame slot, so the reminder carries past you's win (only wins then)
+      const pre = sayOn(s, tone, tone.kind ? 'gymRemindEasy' : 'gymRemind', { workout: plan.name }, key) + (tone.kind ? pastYouTail(s, key, 'gym', now) : '');
       jobs.push(scheduleAt(`gym-${key}-pre`, gymAt - 30 * MIN, `🏋️ ${plan.name} day`, pre, CH.gym));
       const shameAt = Math.min(gymAt + 3 * 60 * MIN, atTime(now, d, st.sleepHour).getTime() - 30 * MIN);
       // No shaming on a kind day (low mood, sick, period) or in low-battery mode.
       if (shameAt > gymAt && !tone.kind && !(d === 0 && lowBattery(log))) {
-        jobs.push(scheduleAt(`gym-${key}-shame`, shameAt, '🕷️ S.P.I.D.E.R. noticed something', sayOn(s, tone, 'gymShame', { workout: plan.name }, key), CH.gym));
+        const shame = sayOn(s, tone, 'gymShame', { workout: plan.name }, key) + pastYouTail(s, key, 'gym', now); // step 8 days: with a line from past you
+        jobs.push(scheduleAt(`gym-${key}-shame`, shameAt, '🕷️ S.P.I.D.E.R. noticed something', shame, CH.gym));
       }
       // Slipping: an hour before that, one tap moves it to the first free day this week (kind days too: moving is kind).
       const to = moveTargets(s, key, key)[0];
@@ -521,6 +533,19 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const tone = low ? { level: 1, kind: true } : dayTone;
       const title = days === 3 ? '🕷️ Hello?' : sayOn(s, tone, 'comebackTitle', {}, dayKey(at));
       jobs.push(scheduleAt(id, at, title, sayOn(s, tone, 'comeback', {}, dayKey(at)), CH.remind));
+    }
+  }
+
+  // step 8 days: booked free slots (a focus block with the Focus button, a task) and top-3 slots with their ping on
+  // (plan-slots.ts). Only what the owner booked, once each, and nothing on paused days.
+  for (const r of slotReminders(s, now, DAYS_AHEAD)) {
+    const tone = toneOn(s, r.day, now, cycle);
+    if (r.kind === 'focus') {
+      jobs.push(scheduleAt(r.id, r.at, '🕸️ Focus block', sayOn(s, tone, 'slotFocusPing', { time: fmtTime(r.at) }, r.day), CH.remind, { category: CATEGORY.focus }));
+    } else if (r.kind === 'task') {
+      jobs.push(scheduleAt(r.id, r.at, `📌 ${r.title}`, sayOn(s, tone, 'slotTaskPing', { task: r.title }, r.day), CH.remind));
+    } else {
+      jobs.push(scheduleAt(r.id, r.at, `🎯 ${r.title}`, sayOn(s, tone, 'topSlotPing', { task: r.title }, r.day), CH.remind));
     }
   }
 

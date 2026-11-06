@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { ActivityCard } from '@/components/activity-card';
 import { EntryEditor } from '@/components/entry-editor';
 import { IfThenEditor } from '@/components/if-then-editor';
+import { PastYouAsk, PastYouLine } from '@/components/past-you';
 import { ProgressPhotos } from '@/components/progress-photos';
 import { Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { WatchCard } from '@/components/watch-card';
@@ -60,6 +61,8 @@ export default function Gym() {
       <PlanBCard />
 
       <MoveCard />
+
+      <PastYouAsk />
 
       <ActivityCard />
 
@@ -300,6 +303,7 @@ function MoveCard() {
       <T dim small>
         {slip ? 'Today got away from you? ' : ''}Pick a free day this week. Today becomes a rest day, not a miss.
       </T>
+      {slip ? <PastYouLine slot="move" /> : null}
       <Row gap={8} style={{ flexWrap: 'wrap' }}>
         {targets.map((k) => (
           <Btn key={k} small label={cap(moveDayName(k, today))} onPress={() => actions.moveWorkout(today, k)} />

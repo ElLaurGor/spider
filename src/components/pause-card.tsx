@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Text } from 'react-native';
 
+import { AwayPlanner } from '@/components/away-ahead';
 import { Btn, Card, H, Row, Stepper, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { dayKey, WEEKDAYS_LONG } from '@/lib/dates';
@@ -66,6 +67,7 @@ export function PauseCard() {
         <Btn label="I'm sick" icon="healing" kind="ghost" small onPress={() => actions.startPause('sick', days)} style={{ flex: 1 }} />
         <Btn label="I'm away" icon="flight" kind="ghost" small onPress={() => actions.startPause('away', days)} style={{ flex: 1 }} />
       </Row>
+      <AwayPlanner />
     </Card>
   );
 }

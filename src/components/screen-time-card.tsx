@@ -1,9 +1,11 @@
-import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Bar, Btn, Card, H, Icon, Row, SpiderSays, T } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { fmtDuration } from '@/lib/dates';
+import { phoneWeek } from '@/lib/phone-week';
 import { DOOM_FREE_MIN } from '@/lib/quests';
 import { openUsageSettings } from '@/lib/screentime';
 import { dayOf } from '@/lib/selectors';
@@ -66,11 +68,78 @@ export function ScreenTimeCard() {
         </Row>
       ))}
       {key ? <ScreenRoast lineKey={key} app={app} time={time} /> : null}
+      <PhoneWeek />
       <T dim small>
         {state.settings.phoneGamesCount ? '🎮 Phone games count toward your gaming budget. ' : ''}💀 Social apps over {DOOM_FREE_MIN / 60} h/day heal the weekly boss.
       </T>
     </Card>
   );
+}
+
+/**
+ * step 8 days: the last 7 days as a strip (total, unlocks), tap a day for its top apps, and the week's top apps
+ * added up (phone-week.ts). The line roasts the scrolling, never the person; kind days get the mild pool.
+ */
+function PhoneWeek() {
+  const { state } = useStore();
+  const today = useToday();
+  const [picked, setPicked] = useState<string | null>(null);
+  const w = phoneWeek(state, noonOf(today));
+  const per = fmtDuration((w.lineKey === 'phoneWeekDoom' && w.doom ? w.doom.perDay : w.avgMin) * MIN);
+  if (w.known < 2) return null;
+  const max = Math.max(1, ...w.days.map((d) => d.screen?.totalMin ?? 0));
+  const day = w.days.find((d) => d.key === picked && d.screen);
+  return (
+    <View style={{ gap: 8 }}>
+      <T dim small>
+        This week · {fmtDuration(w.avgMin * MIN)} a day{w.avgUnlocks != null ? ` · ${w.avgUnlocks} unlocks a day` : ''}
+      </T>
+      <Row gap={4} style={{ alignItems: 'flex-end' }}>
+        {w.days.map((d) => {
+          const min = d.screen?.totalMin ?? 0;
+          const over = min > state.settings.phoneLimitMin;
+          return (
+            <Pressable
+              key={d.key}
+              onPress={() => setPicked(picked === d.key ? null : d.key)}
+              disabled={!d.screen}
+              style={{ flex: 1, alignItems: 'center', gap: 2 }}
+              accessibilityRole="button"
+              accessibilityLabel={`${d.label}: ${d.screen ? fmtDuration(min * MIN) : 'no data'}`}>
+              <Text style={styles.stripNum}>{d.screen ? fmtDuration(min * MIN).replace(' ', '') : '–'}</Text>
+              <View style={{ width: '70%', height: d.screen ? Math.max(3, (min / max) * 56) : 3, borderRadius: 4, backgroundColor: !d.screen ? C.card2 : over ? C.red : picked === d.key ? C.cyan : C.blue }} />
+              <Text style={[styles.stripDay, picked === d.key && { color: C.text }]}>{d.label}</Text>
+              <Text style={styles.stripNum}>{d.screen?.unlocks != null ? `🔓${d.screen.unlocks}` : ' '}</Text>
+            </Pressable>
+          );
+        })}
+      </Row>
+      {(day ? (day.screen?.top ?? []).slice(0, 3) : w.top).map((a) => (
+        <Row key={a.label}>
+          <Text style={{ fontSize: 14, width: 22 }}>{a.game ? '🎮' : a.doom ? '💀' : '📱'}</Text>
+          <T small style={{ flex: 1 }}>
+            {a.label}
+          </T>
+          <T small dim mono>
+            {fmtDuration(a.min * MIN)}
+          </T>
+        </Row>
+      ))}
+      <T dim small>
+        {day ? `Top apps on ${day.label}. Tap it again for the week.` : 'Top apps this week. Tap a day for its own.'}
+      </T>
+      {w.lineKey ? <PhoneWeekLine lineKey={w.lineKey} app={w.doom?.label ?? ''} time={per} /> : null}
+    </View>
+  );
+}
+
+function PhoneWeekLine({ lineKey, app, time }: { lineKey: 'phoneWeekDoom' | 'phoneWeekHeavy' | 'phoneWeekChill'; app: string; time: string }) {
+  const { quip } = useStore();
+  const text = useMemo(
+    () => (lineKey === 'phoneWeekDoom' ? quip('phoneWeekDoom', { app, time }) : lineKey === 'phoneWeekHeavy' ? quip('phoneWeekHeavy', { time }) : quip('phoneWeekChill', { time })),
+    [quip, lineKey, app, time],
+  );
+  return <SpiderSays text={text} />;
 }
 
 function ScreenRoast({ lineKey, app, time }: { lineKey: 'screenDoom' | 'screenHeavy' | 'screenChill'; app: string; time: string }) {
@@ -81,4 +150,6 @@ function ScreenRoast({ lineKey, app, time }: { lineKey: 'screenDoom' | 'screenHe
 
 const styles = StyleSheet.create({
   big: { color: C.text, fontSize: 32, fontWeight: '900', fontFamily: MONO },
+  stripDay: { color: C.dim, fontSize: 11, fontWeight: '700' },
+  stripNum: { color: C.dim, fontSize: 9, fontFamily: MONO },
 });

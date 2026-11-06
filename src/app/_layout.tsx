@@ -291,6 +291,27 @@ export default function RootLayout() {
                   headerShadowVisible: false,
                 }}
               />
+              {/* step 8 days: the mood journal and the league's rival files */}
+              <Stack.Screen
+                name="journal"
+                options={{
+                  headerShown: true,
+                  title: "Mood journal",
+                  headerStyle: { backgroundColor: C.bg },
+                  headerTintColor: C.text,
+                  headerShadowVisible: false,
+                }}
+              />
+              <Stack.Screen
+                name="rival"
+                options={{
+                  headerShown: true,
+                  title: "Rival file",
+                  headerStyle: { backgroundColor: C.bg },
+                  headerTintColor: C.text,
+                  headerShadowVisible: false,
+                }}
+              />
               <Stack.Screen
                 name="onboarding"
                 options={{ gestureEnabled: false, animation: "fade" }}
