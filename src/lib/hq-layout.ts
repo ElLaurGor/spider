@@ -19,7 +19,7 @@ export const HQ_SECTIONS = [
   { id: 'winddown', label: 'Wind-down (evenings)' },
   { id: 'debrief', label: 'Evening debrief (evenings)' },
   { id: 'level', label: 'Level & day score' },
-  { id: 'lair', label: "Spider's lair (once something is built)" },
+  { id: 'lair', label: "Terrarium: the spider's home" },
   { id: 'week', label: 'This week: boss, league and co-op, Silk Track, medals, trek, contract' },
   { id: 'quests', label: 'Daily quests (and the boss, if This week is off)' },
   { id: 'league', label: 'League (full card)' },

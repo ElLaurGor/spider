@@ -1779,16 +1779,16 @@ export const LINES = {
   },
   // the shop's extras: the lair, pets, names, peels and a fourth quest
   lairBuilt: {
-    mild: ['{title} is in the lair now. It feels more like home.', 'New in the lair: {title}. Cosy.'],
+    mild: ['{title} is in the terrarium now. It feels more like home.', 'New in the terrarium: {title}. Cosy.'],
     savage: [
-      '{title} moved into the lair. My place is getting nicer than yours.',
+      '{title} went into the terrarium. My place is getting nicer than yours.',
       '{title}, installed. Interior design by your habits, paid in coins.',
-      'The lair has {title} now. I will be insufferable about it.',
+      'The terrarium has {title} now. I will be insufferable about it.',
     ],
   },
   lairDone: {
-    mild: ['The lair is complete. Every piece of it earned. Thank you.'],
-    savage: ['The lair is finished. Ten pieces, all paid for in habits. I may never leave.'],
+    mild: ['The terrarium is complete. Every piece of it earned. Thank you.'],
+    savage: ['The terrarium is finished. Ten pieces, all paid for in habits. I may never leave.'],
   },
   petAdopted: {
     mild: ['{title} moved in with your spider. Be nice to it.', "{title} is your spider's pet now."],

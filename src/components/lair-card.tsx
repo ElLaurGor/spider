@@ -2,22 +2,25 @@ import { router, useIsFocused } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { AccessibilityInfo, Alert, Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { SpiderAvatar } from '@/components/spider-avatar';
+import { MODEL, SpiderModel } from '@/components/spider-model';
 import { Btn, Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
+import { worn } from '@/lib/cosmetics';
 import { LAIR, LAIR_HOME, lairLeft, lairPieces, lairSpots, nextPiece, nextSpot, type LairPiece, type LairSpot } from '@/lib/lair';
 import { useStore } from '@/lib/store';
 
 const num = (n: number) => n.toLocaleString('sv-SE');
 
-const ROOM_H = 150;
-const SPIDER = 40;
-/** A spot's centre (in % of the room) as the spider's top-left corner in px. */
-const toPx = (spot: LairSpot, w: number) => ({ x: (w * spot.x) / 100 - SPIDER / 2, y: (ROOM_H * spot.y) / 100 - SPIDER / 2 });
-const onFloor = (spot: LairSpot) => spot.y >= 60;
+const TANK_H = 180;
+const LID = 10;
+
+/** A spot's centre (in % of the tank) as the model's top-left corner in px. */
+const toPx = (spot: LairSpot, w: number) => ({ x: (w * spot.x) / 100 - MODEL / 2, y: (TANK_H * spot.y) / 100 - MODEL / 2 });
+/** Off the floor: hanging on its thread or up the branch, seen from the front instead of from above. */
+const raised = (spot: LairSpot) => !!spot.hang || !!spot.up;
 
 /** The spider may walk while its screen is showing, the app is in front, and the phone doesn't ask for less motion. */
-function useLairAwake() {
+function useTankAwake() {
   const focused = useIsFocused();
   const [active, setActive] = useState(AppState.currentState === 'active');
   const [still, setStill] = useState(false);
@@ -35,35 +38,201 @@ function useLairAwake() {
   return focused && active && !still;
 }
 
+type Layer = 'back' | 'front' | 'top';
+type Blob = [x: number, y: number, w: number, h: number, color: string];
+
+const blobs = (list: Blob[], opacity = 1) =>
+  list.map(([x, y, w, h, color]) => (
+    <View key={`${x}:${y}:${w}`} style={[styles.abs, { left: `${x}%`, top: `${y}%`, width: w, height: h, marginLeft: -w / 2, marginTop: -h / 2, borderRadius: h / 2, backgroundColor: color, opacity }]} />
+  ));
+
+/** How each piece looks in the tank: behind the spider, in front of it (it can hide), or on the lid. */
+function PieceArt({ id, layer }: { id: string; layer: Layer }) {
+  if (id === 'web' && layer === 'back') return <Text style={[styles.abs, { left: '1%', top: LID - 4, fontSize: 46, opacity: 0.5 }]}>🕸️</Text>;
+  if (id === 'lamp') {
+    if (layer === 'top')
+      return (
+        <>
+          <View style={[styles.abs, { left: '60%', width: '12%', top: 0, height: LID + 3, borderRadius: 2, backgroundColor: '#5A5F68' }]} />
+          <View style={[styles.abs, { left: '66%', marginLeft: -6, top: LID + 1, width: 12, height: 6, borderRadius: 3, backgroundColor: '#FFD98A' }]} />
+        </>
+      );
+    if (layer === 'back')
+      return (
+        <>
+          {blobs([[66, 6, 150, 150, '#FFB347']], 0.08)}
+          {blobs([[66, 8, 64, 64, '#FFC56B']], 0.14)}
+          {blobs([[66, 66, 96, 22, '#FFB347']], 0.12)}
+        </>
+      );
+  }
+  if (id === 'rug' && layer === 'back')
+    return blobs([
+      [38, 70, 26, 10, '#3F6B2F'],
+      [45, 67, 30, 12, '#4F8A3A'],
+      [53, 71, 24, 10, '#356027'],
+      [48, 74, 34, 9, '#3A6A2C'],
+      [58, 68, 16, 8, '#5C9A44'],
+    ]);
+  if (id === 'plant' && layer === 'back')
+    return (
+      <>
+        <Text style={[styles.abs, { left: '77%', top: '28%', fontSize: 50 }]}>🌿</Text>
+        <Text style={[styles.abs, { left: '86%', top: '38%', fontSize: 36, transform: [{ scaleX: -1 }] }]}>🌿</Text>
+        <Text style={[styles.abs, { left: '73%', top: '50%', fontSize: 18 }]}>🌱</Text>
+      </>
+    );
+  if (id === 'couch' && layer === 'front') return <Text style={[styles.abs, { left: '-1%', top: '53%', fontSize: 46 }]}>🪵</Text>;
+  if (id === 'books' && layer === 'back')
+    return (
+      <>
+        <View style={[styles.abs, styles.branch, { left: '18%', top: '44%', width: '46%' }]}>
+          <View style={styles.grain} />
+        </View>
+        <View style={[styles.abs, styles.twig, { left: '45%', top: '33%', width: '11%' }]} />
+      </>
+    );
+  if (id === 'rack' && layer === 'back')
+    return (
+      <>
+        {blobs([
+          [71, 69, 36, 20, '#5B5F66'],
+          [81, 71, 28, 16, '#6F737A'],
+          [75, 64, 24, 14, '#83878E'],
+        ])}
+        {blobs([[73, 61, 10, 4, '#FFFFFF']], 0.12)}
+      </>
+    );
+  if (id === 'radio' && layer === 'back')
+    return (
+      <>
+        {blobs([[30, 76, 50, 16, '#7A7F86']])}
+        {blobs([[30, 76, 40, 10, '#3FA9FF']], 0.75)}
+        {blobs([[27, 75, 12, 3, '#FFFFFF']], 0.45)}
+      </>
+    );
+  if (id === 'fireplace') {
+    if (layer === 'back') return blobs([[87, 70, 60, 60, '#9BFF8A']], 0.12);
+    if (layer === 'front')
+      return (
+        <>
+          <Text style={[styles.abs, { left: '83%', top: '62%', fontSize: 22 }]}>🍄</Text>
+          <Text style={[styles.abs, { left: '90%', top: '67%', fontSize: 16 }]}>🍄</Text>
+          <Text style={[styles.abs, { left: '79%', top: '70%', fontSize: 13 }]}>🍄</Text>
+        </>
+      );
+  }
+  if (id === 'arcade' && layer === 'back')
+    return (
+      <>
+        {blobs([[56, 58, 54, 54, '#8FD3FF']], 0.14)}
+        <Text style={[styles.abs, { left: '53%', top: '51%', fontSize: 22 }]}>💎</Text>
+      </>
+    );
+  return null;
+}
+
+/** The pieces in, plus the next one as a faint outline, on one layer. */
+function Pieces({ built, next, layer }: { built: LairPiece[]; next: LairPiece | null; layer: Layer }) {
+  return (
+    <>
+      {built.map((p) => (
+        <PieceArt key={p.id} id={p.id} layer={layer} />
+      ))}
+      {next ? (
+        <View style={[styles.fill, { opacity: 0.18 }]}>
+          <PieceArt id={next.id} layer={layer} />
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+const PEBBLES: Blob[] = [
+  [6, 88, 7, 5, '#6E6A64'],
+  [15, 94, 5, 4, '#8A7F72'],
+  [24, 86, 6, 4, '#4D4740'],
+  [33, 92, 8, 5, '#6E6A64'],
+  [44, 87, 5, 3, '#8A7F72'],
+  [52, 95, 7, 5, '#4D4740'],
+  [61, 89, 6, 4, '#8A7F72'],
+  [70, 93, 5, 4, '#6E6A64'],
+  [79, 86, 7, 4, '#4D4740'],
+  [88, 92, 6, 5, '#8A7F72'],
+  [95, 87, 5, 3, '#6E6A64'],
+];
+const SPECKS: Blob[] = [
+  [10, 62, 3, 2, '#5C3F28'],
+  [22, 66, 2, 2, '#3A2617'],
+  [36, 60, 3, 2, '#5C3F28'],
+  [61, 63, 2, 2, '#3A2617'],
+  [69, 75, 3, 2, '#5C3F28'],
+  [90, 61, 2, 2, '#3A2617'],
+  [17, 74, 2, 2, '#5C3F28'],
+  [44, 77, 3, 2, '#3A2617'],
+];
+
 /**
- * The lair as a room: the pieces bought, the next one as a faint outline, and the spider walking between them.
- * At each piece it stops a few seconds and does its thing (a game at the arcade, a nap on the sofa); from the web
- * and the lamp it hangs on a thread. It sits still in the middle when the screen is away or motion is reduced.
+ * The terrarium on a shelf: glass, a mesh lid, substrate with pebbles, whatever has been bought for it, and the
+ * spider itself as a model. It walks from piece to piece (turning to face where it's going, smaller at the back),
+ * stops a few seconds at each to do its thing, climbs the branch and hangs from the web on a thread. It rests in
+ * the middle of the floor while the screen is away or motion is reduced.
  */
-export function LairRoom() {
+export function Terrarium() {
   const { state } = useStore();
   const built = lairPieces(state);
   const next = nextPiece(state);
   const ids = built.map((p) => p.id).join(',');
-  const awake = useLairAwake();
+  const marking = worn(state).aura?.ring ?? C.red;
+  const awake = useTankAwake();
   const [w, setW] = useState(0);
   const [pos] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
-  const [hop] = useState(() => new Animated.Value(0));
-  const [threadX] = useState(() => Animated.add(pos.x, SPIDER / 2));
-  const [threadH] = useState(() => Animated.add(pos.y, SPIDER / 2));
+  const [lift] = useState(() => new Animated.Value(0)); // 0 on the floor, 1 up off it
+  const [heading] = useState(() => new Animated.Value(0)); // degrees, 0 = head up the screen
+  const [gait] = useState(() => new Animated.Value(0));
+  const [breath] = useState(() => new Animated.Value(0));
+  // Further back (higher up) is smaller; on the floor it's seen from above, so it's squashed into the floor's plane.
+  const [depth] = useState(() =>
+    pos.y.interpolate({ inputRange: [TANK_H * 0.55 - MODEL / 2, TANK_H * 0.8 - MODEL / 2], outputRange: [0.62, 0.82], extrapolate: 'clamp' }),
+  );
+  const [squash] = useState(() => lift.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }));
+  const [shadow] = useState(() => lift.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] }));
+  const [turn] = useState(() => heading.interpolate({ inputRange: [-7200, 7200], outputRange: ['-7200deg', '7200deg'] }));
+  const [threadX] = useState(() => Animated.add(pos.x, MODEL / 2));
+  const [threadH] = useState(() => Animated.add(pos.y, MODEL / 2 - LID));
   const [act, setAct] = useState<string | null>(null);
-  const [facing, setFacing] = useState<1 | -1>(1);
   const [thread, setThread] = useState(false);
 
   useEffect(() => {
     if (!w) return;
     const spots = lairSpots(ids ? ids.split(',') : []);
     let at = spots.find((x) => x.x === LAIR_HOME.x && x.y === LAIR_HOME.y) ?? spots[0];
+    let facing = at.face ?? 0;
     pos.setValue(toPx(at, w));
+    lift.setValue(raised(at) ? 1 : 0);
+    heading.setValue(facing);
     if (!awake) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let hopping: Animated.CompositeAnimation | null = null;
+    let stepping: Animated.CompositeAnimation | null = null;
+    const breathing = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breath, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 0, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    breathing.start();
+
+    /** Turns the shortest way round to `to` degrees, legs stepping, then `done`. */
+    const turnTo = (to: number, done: () => void) => {
+      const delta = ((((to - facing) % 360) + 540) % 360) - 180;
+      facing += delta;
+      Animated.timing(heading, { toValue: facing, duration: Math.max(160, Math.abs(delta) * 3), easing: Easing.inOut(Easing.quad), useNativeDriver: true }).start(
+        ({ finished }) => {
+          if (alive && finished) done();
+        },
+      );
+    };
     const walk = () => {
       if (!alive) return;
       const to = nextSpot(spots, at.id);
@@ -71,115 +240,142 @@ export function LairRoom() {
       const b = toPx(to, w);
       setAct(null);
       setThread(!!at.hang || !!to.hang);
-      if (b.x !== a.x) setFacing(b.x < a.x ? -1 : 1);
-      // Little hops across the floor; climbing up a wall or a thread is one smooth glide.
-      if (onFloor(at) && onFloor(to)) {
-        hopping = Animated.loop(
-          Animated.sequence([
-            Animated.timing(hop, { toValue: -3, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-            Animated.timing(hop, { toValue: 0, duration: 130, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-          ]),
-        );
-        hopping.start();
-      }
-      const duration = Math.min(2600, Math.max(700, Math.hypot(b.x - a.x, b.y - a.y) * 10));
-      Animated.timing(pos, { toValue: b, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: false }).start(({ finished }) => {
-        hopping?.stop();
-        hop.setValue(0);
-        if (!alive || !finished) return;
-        at = to;
-        setThread(!!to.hang);
-        setAct(to.act ?? null);
-        timer = setTimeout(walk, 2500 + Math.random() * 3500);
+      stepping = Animated.loop(Animated.timing(gait, { toValue: 1, duration: 420, easing: Easing.linear, useNativeDriver: true }));
+      stepping.start();
+      turnTo((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI + 90, () => {
+        const duration = Math.min(3200, Math.max(900, Math.hypot(b.x - a.x, b.y - a.y) * 13));
+        Animated.parallel([
+          Animated.timing(pos, { toValue: b, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+          Animated.timing(lift, { toValue: raised(to) ? 1 : 0, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+        ]).start(({ finished }) => {
+          if (!alive || !finished) return;
+          at = to;
+          const settle = () => {
+            stepping?.stop();
+            gait.setValue(0);
+            if (Math.abs(facing) > 3600) {
+              facing %= 360;
+              heading.setValue(facing);
+            }
+            setThread(!!to.hang);
+            setAct(to.act ?? null);
+            timer = setTimeout(walk, 3000 + Math.random() * 4000);
+          };
+          if (to.face != null) turnTo(to.face, settle);
+          else settle();
+        });
       });
     };
-    timer = setTimeout(walk, 1500);
+    timer = setTimeout(walk, 1200);
     return () => {
       alive = false;
       if (timer) clearTimeout(timer);
       pos.stopAnimation();
-      hopping?.stop();
-      setAct(null); // it comes back to the middle of the floor, empty-handed
+      lift.stopAnimation();
+      heading.stopAnimation();
+      stepping?.stop();
+      breathing.stop();
+      setAct(null); // back to the middle of the floor, doing nothing in particular
       setThread(false);
     };
-  }, [w, ids, awake, pos, hop]);
+  }, [w, ids, awake, pos, lift, heading, gait, breath]);
 
-  const piece = (p: LairPiece, ghost = false) => (
-    <Text key={p.id} style={[styles.piece, { left: `${p.at.x}%`, top: `${p.at.y}%`, fontSize: p.size }, ghost && styles.ghost]}>
-      {p.emoji}
-    </Text>
-  );
   return (
     <View
-      style={styles.room}
+      style={styles.tank}
       onLayout={(e) => setW(Math.round(e.nativeEvent.layout.width))}
       accessible
-      accessibilityLabel={built.length ? `The lair: ${built.map((p) => p.name).join(', ')}` : 'The lair, still empty'}>
+      accessibilityLabel={built.length ? `The terrarium: the spider, ${built.map((p) => p.name).join(', ')}` : 'The terrarium: just the spider so far'}>
+      <View style={styles.wallGlow} />
       <View style={styles.floor} />
-      {built.map((p) => piece(p))}
-      {next ? piece(next, true) : null}
+      <View style={styles.rim} />
+      {blobs(SPECKS)}
+      <Pieces built={built} next={next} layer="back" />
       {w && awake && thread ? <Animated.View style={[styles.thread, { left: threadX, height: threadH }]} /> : null}
       {w ? (
-        <Animated.View style={[styles.spider, { transform: pos.getTranslateTransform() }]}>
-          <Animated.View style={{ transform: [{ translateY: hop }, { scaleX: facing }] }}>
-            <SpiderAvatar size={SPIDER} />
+        <Animated.View style={[styles.spider, { transform: [{ translateX: pos.x }, { translateY: pos.y }, { scale: depth }, { scaleY: squash }] }]}>
+          <Animated.View style={[styles.shadow, { opacity: shadow }]} />
+          <Animated.View style={{ transform: [{ rotate: turn }] }}>
+            <SpiderModel gait={gait} breath={breath} marking={marking} />
           </Animated.View>
-          {awake && act ? <Text style={styles.act}>{act}</Text> : null}
+        </Animated.View>
+      ) : null}
+      <Pieces built={built} next={next} layer="front" />
+      <View style={styles.cut} />
+      {blobs(PEBBLES)}
+      <View style={[styles.glare, { left: '14%', width: 14 }]} />
+      <View style={[styles.glare, { left: '22%', width: 5 }]} />
+      <View style={[styles.glare, { left: '84%', width: 8 }]} />
+      <View style={styles.lid}>
+        {Array.from({ length: Math.floor(w / 5) }, (_, i) => (
+          <View key={i} style={[styles.mesh, { left: i * 5 + 2 }]} />
+        ))}
+      </View>
+      <Pieces built={built} next={next} layer="top" />
+      <View style={styles.base} />
+      {w && awake && act ? (
+        <Animated.View style={[styles.spider, { transform: [{ translateX: pos.x }, { translateY: pos.y }] }]}>
+          <Text style={styles.act}>{act}</Text>
         </Animated.View>
       ) : null}
     </View>
   );
 }
 
-/** HQ: the lair, once something is in it. Tapping it opens the shop. */
+/** HQ: the terrarium with the spider in it. Tapping it opens the shop. */
 export function LairCard() {
   const { state } = useStore();
   const built = lairPieces(state);
-  if (!built.length) return null;
   const next = nextPiece(state);
   return (
     <Pressable onPress={() => router.push('/shop')} accessibilityRole="button" accessibilityHint="Opens the shop">
       <Card>
         <H right={<T dim small>shop →</T>}>
-          🕸️ The lair · {built.length}/{LAIR.length}
+          🕸️ Terrarium · {built.length}/{LAIR.length}
         </H>
-        <LairRoom />
-        <T dim small>{next ? `Next: ${next.emoji} ${next.name}, ${num(next.price)} 🪙. You have ${num(state.coins)}.` : 'Complete. Every piece of it earned.'}</T>
+        <Terrarium />
+        <T dim small>
+          {!built.length
+            ? `Just the spider so far. First up: ${next?.emoji} ${next?.name}, ${num(next?.price ?? 0)} 🪙 in the shop.`
+            : next
+              ? `Next: ${next.emoji} ${next.name}, ${num(next.price)} 🪙. You have ${num(state.coins)}.`
+              : 'Complete. Every piece of it earned.'}
+        </T>
       </Card>
     </Pressable>
   );
 }
 
-/** Shop: the lair's pieces, bought one at a time in order. */
+/** Shop: the terrarium's pieces, bought one at a time in order. */
 export function LairShop() {
   const { state, actions } = useStore();
   const next = nextPiece(state);
   const have = state.lair ?? [];
-  const build = (p: LairPiece) =>
-    Alert.alert(`Build ${p.name}?`, `${num(p.price)} 🪙 · you have ${num(state.coins)} 🪙`, [
+  const add = (p: LairPiece) =>
+    Alert.alert(`Add ${p.name}?`, `${num(p.price)} 🪙 · you have ${num(state.coins)} 🪙`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Build', onPress: () => actions.buyLairPiece() },
+      { text: 'Add', onPress: () => actions.buyLairPiece() },
     ]);
   return (
     <Card>
-      <H>🕸️ Spider&apos;s lair</H>
+      <H>🕸️ Terrarium</H>
       <T dim small>
-        Furniture for the spider&apos;s home, one piece at a time. Looks only. Once something is in it, the lair shows on HQ (Settings can move or hide it).
+        The spider&apos;s home, one piece at a time. It walks to each one and uses it. Looks only. The terrarium lives on HQ (Settings can move or hide it).
       </T>
-      <LairRoom />
+      <Terrarium />
       {LAIR.map((p) => {
-        const built = have.includes(p.id);
+        const inside = have.includes(p.id);
         const isNext = next?.id === p.id;
         return (
           <Row key={p.id}>
-            <Text style={{ fontSize: 20, opacity: built || isNext ? 1 : 0.35 }}>{p.emoji}</Text>
-            <T small style={[{ flex: 1 }, !built && !isNext && { color: C.dim }]}>
+            <Text style={{ fontSize: 20, opacity: inside || isNext ? 1 : 0.35 }}>{p.emoji}</Text>
+            <T small style={[{ flex: 1 }, !inside && !isNext && { color: C.dim }]}>
               {p.name}
             </T>
-            {built ? (
-              <Text style={styles.built}>BUILT</Text>
+            {inside ? (
+              <Text style={styles.inside}>IN</Text>
             ) : isNext ? (
-              <Btn small kind={state.coins >= p.price ? 'primary' : 'ghost'} label={`${num(p.price)} 🪙`} onPress={() => build(p)} />
+              <Btn small kind={state.coins >= p.price ? 'primary' : 'ghost'} label={`${num(p.price)} 🪙`} onPress={() => add(p)} />
             ) : (
               <T small dim mono>
                 {num(p.price)} 🪙
@@ -188,18 +384,29 @@ export function LairShop() {
           </Row>
         );
       })}
-      <T dim small>{next ? `${num(lairLeft(state))} 🪙 to finish it.` : 'The lair is complete.'}</T>
+      <T dim small>{next ? `${num(lairLeft(state))} 🪙 to finish it.` : 'The terrarium is complete.'}</T>
     </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  room: { height: ROOM_H, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg, overflow: 'hidden' },
-  floor: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '38%', backgroundColor: C.card2 },
-  piece: { position: 'absolute' },
-  ghost: { opacity: 0.18 },
-  spider: { position: 'absolute', left: 0, top: 0 },
-  thread: { position: 'absolute', top: 0, width: 1, backgroundColor: C.dim, opacity: 0.7 },
-  act: { position: 'absolute', top: -14, right: -12, fontSize: 16 },
-  built: { color: C.green, fontFamily: MONO, fontSize: 11, fontWeight: '800' },
+  tank: { height: TANK_H, borderRadius: 10, borderWidth: 2, borderColor: '#3C424D', backgroundColor: '#0E1B17', overflow: 'hidden' },
+  abs: { position: 'absolute' },
+  fill: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, pointerEvents: 'none' },
+  wallGlow: { position: 'absolute', left: 0, right: 0, top: LID, height: 40, backgroundColor: '#FFFFFF', opacity: 0.025 },
+  floor: { position: 'absolute', left: 0, right: 0, top: '56%', bottom: 0, backgroundColor: '#4A3220' },
+  rim: { position: 'absolute', left: 0, right: 0, top: '56%', height: 3, backgroundColor: '#5E4129' },
+  cut: { position: 'absolute', left: 0, right: 0, top: '80%', bottom: 0, backgroundColor: '#2E1E12', borderTopWidth: 2, borderTopColor: '#22160D' },
+  branch: { height: 7, borderRadius: 4, backgroundColor: '#6B4A2F', transform: [{ rotate: '-28deg' }] },
+  grain: { position: 'absolute', left: 6, right: 6, top: 3, height: 1, backgroundColor: '#4A3220' },
+  twig: { height: 4, borderRadius: 2, backgroundColor: '#5C3F28', transform: [{ rotate: '-70deg' }] },
+  spider: { position: 'absolute', left: 0, top: 0, width: MODEL, height: MODEL },
+  shadow: { position: 'absolute', left: MODEL / 2 - 22, top: MODEL / 2 - 16, width: 44, height: 40, borderRadius: 22, backgroundColor: '#000000' },
+  thread: { position: 'absolute', top: LID, width: 1, backgroundColor: '#D8DEE9', opacity: 0.55 },
+  glare: { position: 'absolute', top: -40, height: TANK_H + 80, backgroundColor: '#FFFFFF', opacity: 0.045, transform: [{ rotate: '22deg' }], pointerEvents: 'none' },
+  lid: { position: 'absolute', left: 0, right: 0, top: 0, height: LID, backgroundColor: '#2B3038' },
+  mesh: { position: 'absolute', top: 1, bottom: 1, width: 1, backgroundColor: '#6B7280', opacity: 0.35 },
+  base: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, backgroundColor: '#2B3038' },
+  act: { position: 'absolute', left: MODEL / 2 + 6, top: MODEL / 2 - 30, fontSize: 15 },
+  inside: { color: C.green, fontFamily: MONO, fontSize: 11, fontWeight: '800' },
 });
