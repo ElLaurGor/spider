@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 
+import { snapsThere, TankSnapSlide } from '@/components/tank-snaps';
 import { Chip, Icon, Row } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
 import { firstDataDay } from '@/lib/day-filters';
 import { useStore } from '@/lib/store';
 import { monthWrapped } from '@/lib/wrapped';
+import { tankSnapsFor } from '@/lib/tank-life';
 import { yearWrapped, yearWrappedDue } from '@/lib/year-wrapped';
 
 export default function WrappedScreen() {
@@ -31,6 +33,8 @@ export default function WrappedScreen() {
   const year = now.getFullYear() + yearOffset;
   const firstYear = Number((firstDataDay(state) ?? dayKey(now)).slice(0, 4));
   const w = yearMode ? yearWrapped(state, year, now) : monthWrapped(state, target.getFullYear(), target.getMonth(), now);
+  // step 8 terrarium: the tank's monthly snapshot (the year: its first and last), as one more slide
+  const snaps = snapsThere(tankSnapsFor(state, yearMode ? String(year) : dayKey(target).slice(0, 7)));
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => setPage(Math.round(e.nativeEvent.contentOffset.x / width));
   const go = (delta: number) => {
@@ -80,12 +84,18 @@ export default function WrappedScreen() {
             </View>
           </View>
         ))}
+        {snaps.length ? (
+          <View key="tank" style={{ width, padding: 16 }}>
+            <TankSnapSlide snaps={snaps} year={yearMode} />
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={styles.dots}>
         {w.slides.map((s, i) => (
           <View key={s.id} style={[styles.dot, i === page && { backgroundColor: C.red, width: 18 }]} />
         ))}
+        {snaps.length ? <View style={[styles.dot, page === w.slides.length && { backgroundColor: C.red, width: 18 }]} /> : null}
       </View>
       <Text style={styles.hint}>Swipe →</Text>
     </View>

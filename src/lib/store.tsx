@@ -58,6 +58,8 @@ import { julfridPlan, openDoor } from './advent';
 import { acceptPrizes } from './prizes';
 import { withNemesis } from './year-wrapped';
 import { catchFly as catchPendingFly, caughtCount, critDamage, FLIES, rollCritters, withoutCrit } from './critters';
+import { eggDrops, hatchEggs } from './egg-sacs';
+import { tankEventsOf, withMolt, withTankEvents, type TankEvent } from './tank-life';
 import { unlockPages } from './diary';
 import { focusBreaker, hasUsageAccess, isDoomscroll, screenTimeSupported, spansBetween, startFocusGuard, stopFocusGuard, unlocksBetween, usageBetween } from './screentime';
 import { inBedFrom, nightPhone, nightWindow } from './night';
@@ -452,6 +454,15 @@ function checkCritters(prev: State, s: State, msgs: Msg[]): State {
   const r = rollCritters(prev, s);
   for (const m of r.msgs) msgs.push({ text: L(r.state, m.key, m.vars), tone: 'epic', action: m.action });
   return r.state;
+}
+
+/** Egg sacs (lib/egg-sacs.ts): a gold chest or a boss kill may drop one; walked far enough, they hatch (coins, never XP). */
+function checkEggs(prev: State, s: State, msgs: Msg[]): State {
+  const laid = eggDrops(prev, s);
+  for (const e of laid.laid) msgs.push({ text: `🥚 ${L(laid.state, 'eggSacDropped', { n: e.km })}`, tone: 'epic' });
+  const h = hatchEggs(laid.state);
+  for (const x of h.hatched) msgs.push({ text: `🕷️ ${L(h.state, 'eggSacHatched', { coins: x.coins })}`, tone: 'epic' });
+  return h.state;
 }
 
 /** A page of S.P.I.D.E.R.'s secret diary for every 10 quests (lib/diary.ts). */
@@ -1102,6 +1113,14 @@ function useStoreValue() {
     return { savedAt: d.savedAt, bytes: sizes.reduce((a, b) => a + b, 0), largest: Math.max(0, ...sizes), rows: sizes.length, failing: d.failures > 0 };
   };
 
+  // ----- the terrarium's replays (tank-life.ts): what was just logged, acted out the next time the tank is on screen; not saved -----
+  const [tankEvents, setTankEvents] = useState<TankEvent[]>([]);
+  const queueTank = useCallback((prev: State, next: State) => {
+    const events = tankEventsOf(prev, next);
+    if (events.length) setTankEvents((q) => withTankEvents(q, events));
+  }, []);
+  const takeTank = useCallback((ids: string[]) => setTankEvents((q) => q.filter((e) => !ids.includes(e.id))), []);
+
   /** Apply a change, award achievements, save, and show S.P.I.D.E.R.'s reactions. */
   const run = useCallback(
     /**
@@ -1123,6 +1142,7 @@ function useStoreValue() {
       if (opts.early) {
         const held = apply(prev);
         commit(held);
+        if (!quiet) queueTank(prev, held);
         msgs.forEach((m) => say(m.text, m.tone, m.action));
         return held;
       }
@@ -1134,8 +1154,9 @@ function useStoreValue() {
       const cued = checkCues(prev, scored);
       // Silk Track tiers wait for the next ordinary action after body or photo logging (no fanfare there).
       // The hour's running XP total is noted too, for the ghost of last week (xp-timeline.ts).
-      const next = withXpHour(quiet ? checkDiary(cued.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(cued.state, msgs), msgs), msgs), msgs), msgs));
+      const next = checkEggs(prev, withXpHour(quiet ? checkDiary(cued.state, msgs) : checkRivalTalk(checkDiary(checkGolden(checkRespect(checkSilk(cued.state, msgs), msgs), msgs), msgs), msgs)), msgs);
       commit(next);
+      if (!quiet) queueTank(prev, next); // the terrarium acts out what was just logged
       msgs.forEach((m) => say(m.text, m.tone, m.action));
       const cue = cued.prompts.at(-1);
       if (cue) setCuePrompt({ ...cue, text: L(next, 'ifThenCue', cueVars(cue.plan)) });
@@ -1146,7 +1167,7 @@ function useStoreValue() {
       }
       return next;
     },
-    [commit, say],
+    [commit, say, queueTank],
   );
 
   // ----- calendar -----
@@ -3022,6 +3043,30 @@ function useStoreValue() {
         setLineMemory(undefined);
         commit(defaultState());
       },
+
+      // --- step 8 terrarium ---
+      /** The tank acted out a molt (tank-life.ts): molted for the level reached, one more shed skin. Looks only. */
+      tankMolted() {
+        run((s) => withMolt(s), { quiet: true });
+      },
+      /** Plants that grew (tank-life.ts plantGrowth): what they reached is kept, so they never shrink. */
+      tankGrew(growth: Record<string, number>) {
+        run((s) => {
+          const kept = s.lairGrowth ?? {};
+          const more = Object.entries(growth).filter(([id, g]) => g > (kept[id] ?? 0));
+          return more.length ? { ...s, lairGrowth: { ...kept, ...Object.fromEntries(more.map(([id, g]) => [id, Math.min(1, g)])) } } : s;
+        }, { quiet: true });
+      },
+      /** The month's automatic snapshot of the tank (a file in the photo folder), for Wrapped. */
+      tankSnapped(month: string, uri: string) {
+        run((s) => {
+          if (s.tankSnaps?.[month]) {
+            deletePhoto(uri); // one a month: the first one stays
+            return s;
+          }
+          return { ...s, tankSnaps: { ...s.tankSnaps, [month]: uri } };
+        }, { quiet: true });
+      },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],
   );
@@ -3228,5 +3273,7 @@ function useStoreValue() {
       refresh: () => refreshCalendar(false),
       connect: () => refreshCalendar(true),
     },
+    // step 8 terrarium: things just logged for the tank to act out (`take` once handed to it)
+    tank: { events: tankEvents, take: takeTank },
   };
 }

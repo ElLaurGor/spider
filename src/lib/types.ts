@@ -386,7 +386,16 @@ export type State = {
   trek?: Trek | null; // the virtual trek walked with watch steps (lib/trek.ts); unset = none started
   treksDone?: TrekRoute[]; // routes walked to the end, in order
   storm?: StormAlert[]; // storm.ts: the orange/red SMHI warnings and VMAs last seen for the owner's area (the Storm protocol)
+  // step 8 terrarium
+  moltSeen?: number; // tank-life.ts: the level the spider last molted for (hydrate: the level reached); a molt is due below the peak level
+  molts?: number; // molts acted out in the tank, a total (its shed skins)
+  lairAt?: Record<string, number>; // lair piece id -> when it went in (hydrate: first sight for older pieces), for the plants' growth
+  lairGrowth?: Record<string, number>; // plant piece id -> the most it has grown (0–1), so a plant never shrinks
+  tankSnaps?: Record<string, string>; // 'YYYY-MM' -> the month's automatic snapshot of the tank (a file in files/photos)
+  eggSacs?: EggSac[]; // egg-sacs.ts: dropped by a gold chest or a boss kill, hatched by walking
+  spiderlings?: Spiderling[]; // hatched from egg sacs; a few live in the terrarium
 };
+
 
 /** An alert that holds the Storm protocol (storm.ts): kept in State so every day's tone, notifications included, can see it. */
 export type StormAlert = {
@@ -437,3 +446,9 @@ export type Experiment = {
 // cluster A
 /** Sick or away, from and to inclusive (day keys). */
 export type Pause = { from: string; to: string; kind: 'sick' | 'away'; endedAt?: number }; // endedAt: "I'm back" was tapped on `to` (today stays easy)
+
+// step 8 terrarium
+/** An egg sac (egg-sacs.ts): hatches after `km` of watch steps from `since` (minus `skip`, that day's steps before it dropped), at `stepM` per step. */
+export type EggSac = { id: string; from: 'chest' | 'boss'; key: string; at: number; since: string; skip: number; km: number; stepM: number };
+/** A spiderling hatched from an egg sac, and the coins its hatching paid. */
+export type Spiderling = { id: string; from: 'chest' | 'boss'; key: string; laidAt: number; hatchedAt: number; km: number; coins: number };

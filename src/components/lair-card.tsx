@@ -8,8 +8,10 @@ import { useAwake } from '@/components/use-awake';
 import { Btn, Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { worn } from '@/lib/cosmetics';
+import { eggKm } from '@/lib/egg-sacs';
 import { LAIR, LAIR_HOME, lairLeft, lairPieces, lairSpots, nextPiece, nextSpot, type LairPiece, type LairSpot } from '@/lib/lair';
 import { useStore } from '@/lib/store';
+import { moltState } from '@/lib/tank-life';
 
 const num = (n: number) => n.toLocaleString('sv-SE');
 
@@ -155,10 +157,10 @@ const SPECKS: Blob[] = [
   [44, 77, 3, 2, '#3A2617'],
 ];
 
-/** The terrarium in 3D, or drawn flat (below) if the phone's GL or three.js won't start. */
-export function TerrariumView() {
+/** The terrarium in 3D, or drawn flat (below) if the phone's GL or three.js won't start. `onTap`: a tap on the 3D tank that missed the spider and the fly. */
+export function TerrariumView({ onTap }: { onTap?: () => void }) {
   const [flat, setFlat] = useState(false);
-  return flat ? <Terrarium /> : <Terrarium3D onFail={() => setFlat(true)} />;
+  return flat ? <Terrarium /> : <Terrarium3D onFail={() => setFlat(true)} onTap={onTap} />;
 }
 
 /**
@@ -311,18 +313,24 @@ export function Terrarium() {
   );
 }
 
-/** HQ: the terrarium with the spider in it. Tapping it opens the shop. */
+/** "Premolt: 120 XP to go" while the spider is close to its next molt (lib/tank-life.ts). */
+const premoltNote = (toGo: number) => `Premolt: ${num(toGo)} XP to go`;
+
+/** HQ: the terrarium with the spider in it. Tapping it opens the shop (tapping the spider says hello instead). */
 export function LairCard() {
   const { state } = useStore();
   const built = lairPieces(state);
   const next = nextPiece(state);
+  const molt = moltState(state);
+  const egg = (state.eggSacs ?? [])[0];
+  const open = () => router.push('/shop');
   return (
-    <Pressable onPress={() => router.push('/shop')} accessibilityRole="button" accessibilityHint="Opens the shop">
+    <Pressable onPress={open} accessibilityRole="button" accessibilityHint="Opens the shop">
       <Card>
         <H right={<T dim small>shop →</T>}>
           🕸️ Terrarium · {built.length}/{LAIR.length}
         </H>
-        <TerrariumView />
+        <TerrariumView onTap={open} />
         <T dim small>
           {!built.length
             ? `Just the spider so far. First up: ${next?.emoji} ${next?.name}, ${num(next?.price ?? 0)} 🪙 in the shop.`
@@ -330,8 +338,53 @@ export function LairCard() {
               ? `Next: ${next.emoji} ${next.name}, ${num(next.price)} 🪙. You have ${num(state.coins)}.`
               : 'Complete. Every piece of it earned.'}
         </T>
+        {molt.premolt || egg ? (
+          <T dim small>
+            {[molt.premolt ? `🕷️ ${premoltNote(molt.toGo)}` : null, egg ? `🥚 ${eggKm(state, egg).toFixed(1)} / ${egg.km} km to hatch` : null].filter(Boolean).join(' · ')}
+          </T>
+        ) : null}
       </Card>
     </Pressable>
+  );
+}
+
+/** The shop's list of what lives in the tank besides the pieces: egg sacs walking toward hatching, spiderlings, shed skins. */
+function TankFolk() {
+  const { state } = useStore();
+  const eggs = state.eggSacs ?? [];
+  const lings = state.spiderlings ?? [];
+  const molt = moltState(state);
+  const date = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return (
+    <>
+      <T dim small>
+        {molt.premolt ? `${premoltNote(molt.toGo)}. ` : ''}
+        {molt.molts ? `Shed skins: ${molt.molts} (the newest ${Math.min(5, molt.molts)} are in the tank). ` : 'It molts at each new level. '}
+        Gold chests and boss kills sometimes drop an egg sac; walking hatches it.
+      </T>
+      {eggs.map((e) => (
+        <Row key={e.id}>
+          <Text style={{ fontSize: 18 }}>🥚</Text>
+          <T small style={{ flex: 1 }}>
+            Egg sac from {e.from === 'boss' ? 'a boss' : 'a gold chest'}, {date(e.at)}
+          </T>
+          <T small dim mono>
+            {eggKm(state, e).toFixed(1)}/{e.km} km
+          </T>
+        </Row>
+      ))}
+      {lings.length ? (
+        <Row>
+          <Text style={{ fontSize: 18 }}>🕷️</Text>
+          <T small style={{ flex: 1 }}>
+            {lings.length === 1 ? 'A spiderling' : `${lings.length} spiderlings`}, hatched by walking{lings.length > 3 ? ' (three at a time live in the tank)' : ''}
+          </T>
+          <T small dim mono>
+            {date(lings[lings.length - 1].hatchedAt)}
+          </T>
+        </Row>
+      ) : null}
+    </>
   );
 }
 
@@ -349,9 +402,10 @@ export function LairShop() {
     <Card>
       <H>🕸️ Terrarium</H>
       <T dim small>
-        The spider&apos;s home, one piece at a time. It walks to each one and uses it; drag sideways to turn the tank. Looks only. The terrarium lives on HQ (Settings can move or hide it).
+        The spider&apos;s home, one piece at a time. It walks to each one and uses it, keeps your hours and acts out what you log; tap it to say hello, drag sideways to turn the tank. Looks only. The terrarium lives on HQ (Settings can move or hide it).
       </T>
       <TerrariumView />
+      <TankFolk />
       {LAIR.map((p) => {
         const inside = have.includes(p.id);
         const isNext = next?.id === p.id;

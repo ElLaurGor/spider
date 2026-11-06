@@ -1,7 +1,7 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 
-export type PhotoKind = 'meal' | 'progress';
+export type PhotoKind = 'meal' | 'progress' | 'tank'; // tank: the terrarium's monthly snapshot (step 8)
 export type PhotoSource = 'camera' | 'library';
 
 const photoDir = () => new Directory(Paths.document, 'photos');
