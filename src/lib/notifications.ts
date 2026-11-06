@@ -52,6 +52,7 @@ import { deklPings } from './deklaration';
 import { pastYouTail } from './past-you';
 import { gymTimeOn, slotReminders } from './plan-slots';
 import { woopReminders } from './woop'; // step 8 game
+import { shelfPings } from './shelf'; // step 9 admin
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -99,6 +100,7 @@ const LINKS: [prefix: string, href: Href][] = [
   ['slot-focus-', '/focus'],
   ['slot-', '/plan'],
   ['top3-', '/'],
+  ['shelf-', '/'], // step 9 admin: the due-back shelf's card is on HQ
 ];
 /** The screen a notification opens. Morning, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
@@ -561,6 +563,12 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
     } else {
       jobs.push(scheduleAt(r.id, r.at, `🎯 ${r.title}`, sayOn(s, tone, 'topSlotPing', { task: r.title }, r.day), CH.remind));
     }
+  }
+
+  // step 9 admin: the due-back shelf's one opt-in reminder before each deadline (shelf.ts), in that day's tone, with the
+  // pickup code. A deadline is a fact, so the Storm protocol leaves it planned (its kind words come with the replan).
+  for (const p of shelfPings(s, now)) {
+    jobs.push(scheduleAt(p.id, p.at, p.title, sayOn(s, toneOn(s, p.day, now, cycle), p.line, p.vars, p.day) + (p.code ? ` Code: ${p.code}.` : ''), CH.remind));
   }
 
   planned = null;

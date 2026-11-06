@@ -2,6 +2,7 @@
 // boss whose HP drops with every XP you earn that week. Its HP follows your own pace.
 import { addDays, dayKey, startOfWeek } from './dates';
 import { habitsDone, habitsFor } from './habits';
+import { activeTasks } from './horizons'; // step 9 admin
 import {
   dayOf,
   doneTasksOn,
@@ -95,7 +96,7 @@ const QUESTS: QuestDef[] = [
   {
     id: 'tasks',
     xp: 10,
-    available: (s) => s.tasks.some((t) => !t.done),
+    available: (s, date) => activeTasks(s, dayKey(date)).length > 0, // step 9 admin: tasks on a horizon don't count
     build: (s, _d, date) => ({
       title: 'Finish 3 tasks',
       progress: tasksDoneOn(s, date),
@@ -132,7 +133,7 @@ const QUESTS: QuestDef[] = [
     id: 'hw_exorcise',
     xp: 15,
     season: 'halloween',
-    available: (s) => s.tasks.some((t) => !t.done),
+    available: (s, date) => activeTasks(s, dayKey(date)).length > 0, // step 9 admin: tasks on a horizon don't count
     build: (s, _d, date) => ({ title: '🎃 Exorcise 2 tasks from your list', progress: tasksDoneOn(s, date), target: 2 }),
   },
   { id: 'hw_seance', xp: 12, season: 'halloween', available: () => true, build: (_s, d) => ({ title: '🎃 Hold a séance: check in your mood', progress: moodsOf(d).length, target: 1 }) },
@@ -142,7 +143,7 @@ const QUESTS: QuestDef[] = [
     xp: 15,
     season: 'advent',
     extra: true, // Advent Sundays: on offer in the draft, never forced
-    available: (s, date) => date.getDay() === 0 && s.tasks.some((t) => !t.done),
+    available: (s, date) => date.getDay() === 0 && activeTasks(s, dayKey(date)).length > 0,
     build: (s, _d, date) => ({
       title: '🕯️ Light a candle: finish a task before 12:00',
       progress: doneTasksOn(s, dayKey(date)).some((t) => new Date(t.at).getHours() < 12) ? 1 : 0,
@@ -197,7 +198,7 @@ const QUESTS: QuestDef[] = [
     id: 'nyar_close',
     xp: 20,
     season: 'nyar',
-    available: (s, date) => date.getMonth() === 11 && s.tasks.some((t) => !t.done), // New Year's Eve: on 1 Jan the year is closed
+    available: (s, date) => date.getMonth() === 11 && activeTasks(s, dayKey(date)).length > 0, // New Year's Eve: on 1 Jan the year is closed
     build: (s, _d, date) => ({ title: '🎆 Close the year: finish 3 tasks', progress: tasksDoneOn(s, date), target: 3 }),
   },
   { id: 'nyar_fresh', xp: 20, season: 'nyar', available: () => true, build: (_s, d) => ({ title: '🎆 Fresh start: 3 glasses of water before 12:00', progress: before(d, 12), target: 3 }) },

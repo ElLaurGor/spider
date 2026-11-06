@@ -4,6 +4,7 @@
 // A contract won before Sunday makes room for another one that same week, on a goal the week hasn't had yet.
 import { addDays, dayKey, startOfDay, startOfWeek } from './dates';
 import { usedOn } from './day-filters';
+import { activeTasks } from './horizons'; // step 9 admin
 import { dayOf, doneTasksOn, gamingBudgetMin, gamingUsedMs, moodsOf, onPeriod, trainedOn, waterGoalMet } from './selectors';
 import { pausedOn } from './pause';
 import type { Contract, ContractGoal, State } from './types';
@@ -52,7 +53,7 @@ export const CONTRACT_GOALS: GoalDef[] = [
     id: 'tasks',
     target: 8,
     title: (n) => `Finish ${n} tasks`,
-    available: (s) => s.tasks.some((t) => !t.done),
+    available: (s) => activeTasks(s).length > 0, // step 9 admin: tasks on a horizon don't count
     count: (s, k, _f, since) => doneTasksOn(s, k).filter((t) => t.at >= since).length,
   },
 ];

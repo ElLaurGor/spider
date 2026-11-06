@@ -4,6 +4,7 @@
 // 50 % harder, all of that day's XP included, and quests they'd complete pay too. Theme-free.
 import { dayKey } from './dates';
 import { habitsDone, habitsFor } from './habits';
+import { activeTasks } from './horizons'; // step 9 admin
 import { pausedOn } from './pause';
 import { bossFor, questsFor } from './quests';
 import { dayOf, stepGoalOn, trainedOn, waterGoalFor, waterMl, workoutFor } from './selectors';
@@ -34,7 +35,7 @@ function openSteps(s: State, now: Date): Step[] {
     });
   }
 
-  const open = s.tasks.filter((t) => !t.done).length;
+  const open = activeTasks(s, dayKey(now)).length; // step 9 admin: tasks on a horizon don't count
   if (open > 0) {
     steps.push({
       id: 'task',

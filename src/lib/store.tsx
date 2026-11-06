@@ -116,6 +116,7 @@ import type {
   FocusSide,
   SlotPlan,
   TopWhen,
+  ShelfItem, // step 9 admin
 } from './types';
 import { dayWeatherOf, fetchWeather, fetchWeatherHistory, needsPlaceInfo, samePlace, weatherMissing, withCounty, type Weather } from './weather';
 import { activeExperiment, EXPERIMENT_DAYS, experimentDays, experimentResult } from './experiments';
@@ -163,6 +164,11 @@ import { landmarkOffer, withChapter } from './chapters';
 import { revealedMult, sealedXp } from './sealed-card';
 import { pickInfo, withBossPick } from './boss-pick';
 import { withLogged } from './contract-log';
+// step 9 admin: the chore rota, the due-back shelf, the War room and task horizons
+import { CHORE_XP, choreRef, choreTaskOf, choreTitle, paidToday, syncChoreTasks, undoable, withChore, withChoreEdit, withChoreReset, withChoreSkipBought, withChoreTask, withoutChore, withoutChoreReset } from './chores';
+import { dayWord, withoutShelfItem, withShelfDone, withShelfItem, withShelfRemind } from './shelf';
+import { withAheadMove, withBurned, withFirstStep, withReviewSealed, withWeekBig } from './review';
+import { withHorizon, withWaiting, type HorizonKind } from './horizons';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -1224,7 +1230,7 @@ function useStoreValue() {
       const quiet = !!opts.quiet;
       // An undo or a delete that took a finished quest back under its target opens it again, with its XP (quests.ts).
       const apply = (base: State) => {
-        const reopen = reopenQuests(base, fn(base, msgs));
+        const reopen = reopenQuests(base, syncChoreTasks(base, fn(base, msgs))); // step 9 admin: a chore's task checked off resets the chore
         if (reopen.reopened.length) msgs.push({ text: `🗡️ Open again: ${reopen.reopened.map((q) => q.title).join(', ')}.`, tone: 'info' });
         return reopen.state;
       };
@@ -3425,6 +3431,192 @@ function useStoreValue() {
           if (next === s) return s;
           const b = pickInfo(id);
           msgs.push({ text: `${b.emoji} ${L(next, 'bossPicked', { boss: b.name, weakness: b.weakness })}`, tone: 'info' });
+          return next;
+        });
+      },
+
+      // --- step 9 admin ---
+      /** The chore rota (chores.ts): a new chore, fresh from now or due right away. */
+      addChore(c: { name: string; emoji: string; every: number; due?: boolean }) {
+        run((s) => withChore(s, c, uid()));
+      },
+
+      editChore(id: string, patch: { name?: string; emoji?: string; every?: number }) {
+        run((s) => withChoreEdit(s, id, patch));
+      },
+
+      deleteChore(id: string) {
+        run((s) => withoutChore(s, id));
+      },
+
+      /**
+       * A chore done. When it has an open task (picked for the top 3), that task is checked off instead: it pays the
+       * task's XP and resets the chore (syncChoreTasks in run()). Otherwise the chore pays CHORE_XP, once a day.
+       */
+      doChore(id: string) {
+        const task = choreTaskOf(stateRef.current, id);
+        if (task) {
+          actions.toggleTask(task.id);
+          return;
+        }
+        run((s, msgs) => {
+          const c = s.chores?.find((x) => x.id === id);
+          if (!c) return s;
+          const key = dayKey();
+          const pay = !paidToday(s, id, key);
+          const next = withChoreReset(s, id, Date.now(), 'done', { xp: pay });
+          if (!pay) {
+            msgs.push({ text: `${choreTitle(c)}: fresh again. It already paid today.`, tone: 'info' });
+            return next;
+          }
+          msgs.push({ text: L(next, 'choreDone', { title: choreTitle(c), xp: CHORE_XP }), tone: 'good' });
+          return reward(next, msgs, CHORE_XP, 0, key, { ref: choreRef(id) });
+        });
+      },
+
+      /** Today's reset of a chore taken back: its last-done day comes back, with exactly the XP it paid, or the pass it used. */
+      undoChore(id: string) {
+        run((s) => {
+          const u = undoable(s, id);
+          if (!u) return s;
+          const next = withoutChoreReset(s, id);
+          return u.xp ? unreward(next, dayKey(), choreRef(id), CHORE_XP) : next;
+        });
+      },
+
+      /** A "Skip one chore" pass used on a chore: fresh again, no XP. */
+      skipChore(id: string) {
+        run((s, msgs) => {
+          const c = s.chores?.find((x) => x.id === id);
+          if (!c || (s.choreSkips ?? 0) < 1) return s;
+          msgs.push({ text: `🧹 ${L(s, 'choreSkipped', { title: choreTitle(c) })}`, tone: 'info' });
+          return withChoreReset(s, id, Date.now(), 'skip');
+        });
+      },
+
+      /** The shop's "Skip one chore" reward: bought like any reward, and the pass waits on the chore card. */
+      buyChoreSkip(rewardId: string) {
+        run((s, msgs) => {
+          const r = s.rewards.find((x) => x.id === rewardId);
+          if (!r) return s;
+          if (s.coins < r.cost) {
+            msgs.push({ text: L(s, 'tooPoor', { missing: r.cost - s.coins }), tone: 'bad' });
+            return s;
+          }
+          msgs.push({ text: `${L(s, 'rewardBought', { reward: `${r.emoji} ${r.title}` })} The pass waits on Plan's chore card.`, tone: 'epic' });
+          return withChoreSkipBought(s, r, uid());
+        });
+      },
+
+      /** A task for a chore (the debrief's top-3 picker), made once: returns its id, or null when the chore is gone. */
+      choreTask(id: string): string | null {
+        const s = stateRef.current;
+        if (!s.chores?.some((c) => c.id === id)) return null;
+        const open = choreTaskOf(s, id);
+        if (open) return open.id;
+        const taskId = uid();
+        run((x) => withChoreTask(x, id, taskId).state);
+        return taskId;
+      },
+
+      /** The due-back shelf (shelf.ts): a parcel, a return window or a library loan. */
+      addShelf(item: Omit<ShelfItem, 'id' | 'at'>) {
+        run((s, msgs) => {
+          const next = withShelfItem(s, item, uid());
+          const x = next.shelf?.at(-1);
+          if (next === s || !x) return s;
+          msgs.push({ text: x.until ? `📦 ${L(next, 'shelfAdded', { title: x.title, day: dayWord(x.until) })}` : `📦 ${x.title} is on the shelf. Add its date when you know it.`, tone: 'info' });
+          return next;
+        });
+      },
+
+      shelfDone(id: string) {
+        run((s, msgs) => {
+          const x = s.shelf?.find((y) => y.id === id);
+          if (!x || x.doneAt != null) return s;
+          msgs.push({ text: `✅ ${L(s, 'shelfDone', { title: x.title })}`, tone: 'good' });
+          return withShelfDone(s, id, true);
+        });
+      },
+
+      shelfUndone(id: string) {
+        run((s) => withShelfDone(s, id, false));
+      },
+
+      deleteShelf(id: string) {
+        run((s) => withoutShelfItem(s, id));
+      },
+
+      /** An item's one reminder before its last day, on or off (opt-in). */
+      shelfRemind(id: string, on: boolean) {
+        run((s) => withShelfRemind(s, id, on));
+      },
+
+      /** Task horizons (horizons.ts): "Not today" until a day, Someday, "Waiting on" until a chase day, or back now (null). */
+      setHorizon(id: string, h: { kind: HorizonKind; until?: string } | null) {
+        run((s, msgs) => {
+          const task = s.tasks.find((t) => t.id === id);
+          const next = withHorizon(s, id, h);
+          if (next === s || !task) return s;
+          const day = h?.until ? dayWord(h.until) : '';
+          if (!h) msgs.push({ text: `↩️ ${task.title} is back on the list.`, tone: 'info' });
+          else if (h.kind === 'later') msgs.push({ text: L(next, 'horizonLater', { title: task.title, day }), tone: 'info' });
+          else if (h.kind === 'someday') msgs.push({ text: L(next, 'horizonSomeday', { title: task.title }), tone: 'info' });
+          else msgs.push({ text: L(next, 'horizonWaiting', { title: task.title, day }), tone: 'info' });
+          return next;
+        });
+      },
+
+      /** A new "Waiting on" item ("Försäkringskassan reply"), back as a task on its chase day. */
+      addWaiting(title: string, until: string) {
+        run((s, msgs) => {
+          const next = withWaiting(s, title, until, uid());
+          if (next === s) return s;
+          msgs.push({ text: L(next, 'horizonWaiting', { title: title.trim(), day: dayWord(until) }), tone: 'info' });
+          return next;
+        });
+      },
+
+      /** The War room (review.ts): sealed, it pays its coins once a week (never XP). */
+      sealReview() {
+        run((s, msgs) => {
+          const r = withReviewSealed(s);
+          if (!r.coins) return s;
+          msgs.push({ text: `🗺️ ${L(r.state, 'reviewSealed', { coins: r.coins })}`, tone: 'epic' });
+          return r.state;
+        });
+      },
+
+      /** A zombie's first physical step (empty takes it off). */
+      setFirstStep(id: string, step: string) {
+        run((s) => withFirstStep(s, id, step));
+      },
+
+      /** A zombie on the bonfire: gone for good, no XP. */
+      burnZombie(id: string) {
+        run((s, msgs) => {
+          const task = s.tasks.find((t) => t.id === id);
+          const next = withBurned(s, id);
+          if (next === s || !task) return s;
+          msgs.push({ text: L(next, 'zombieBurned', { title: task.title }), tone: 'info' });
+          return next;
+        });
+      },
+
+      /** The week's 1–3 big tasks, picked in the War room. */
+      setWeekBig(week: string, ids: string[]) {
+        if (!isDayKey(week)) return;
+        run((s) => withWeekBig(s, week, ids));
+      },
+
+      /** A workout moved off a day with a late meeting, from the War room (next week's, on Sunday). */
+      moveAhead(from: string, to: string) {
+        if (!isDayKey(from) || !isDayKey(to)) return;
+        run((s, msgs) => {
+          const next = withAheadMove(s, from, to);
+          if (next === s) return s;
+          const workout = next.workoutMoves?.at(-1)?.name ?? 'Workout';
+          msgs.push({ text: L(next, 'gymMoved', { workout, day: moveDayName(to) }), tone: 'info', action: { undo: { kind: 'move', id: from, day: from } } });
           return next;
         });
       },

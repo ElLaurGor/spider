@@ -11,6 +11,7 @@ import { SilkTrackSection } from '@/components/silk-track';
 import { WardrobeCard } from '@/components/wardrobe-card';
 import { C, MONO } from '@/constants/theme';
 import { CHEST_KEY_COST, QUEST_CARD_COST, REWARD_IDEAS, shopPrice, SHOP_ITEMS } from '@/lib/economy';
+import { isChoreSkip } from '@/lib/chores'; // step 9 admin: a chore pass
 import { bossFor, questCardBlocker } from '@/lib/quests';
 import { bankRate, perkPoints } from '@/lib/perks';
 import { dayOf } from '@/lib/selectors';
@@ -147,7 +148,7 @@ export default function ShopScreen() {
           <Row key={r.id}>
             <Text style={{ fontSize: 22 }}>{r.emoji}</Text>
             <T style={{ flex: 1 }}>{r.title}</T>
-            <Btn label={`${r.cost} 🪙`} small kind={state.coins >= r.cost ? 'primary' : 'ghost'} onPress={() => confirmBuy(r.title, r.cost, () => actions.buyReward(r.id))} />
+            <Btn label={`${r.cost} 🪙`} small kind={state.coins >= r.cost ? 'primary' : 'ghost'} onPress={() => confirmBuy(r.title, r.cost, () => (isChoreSkip(r) ? actions.buyChoreSkip(r.id) : actions.buyReward(r.id)))} />
             <Pressable onPress={() => actions.deleteReward(r.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${r.title}`}>
               <Icon name="close" size={18} color={C.faint} />
             </Pressable>

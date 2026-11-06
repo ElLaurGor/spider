@@ -16,6 +16,9 @@ import { dayScoreFor, gradeOf } from '@/lib/report';
 import { dayOf, freeSlots, moodsOf, workoutFor } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { gentleDay, toneOn } from '@/lib/tone';
+// step 9 admin: tasks on a horizon wait, due chores can be picked
+import { choresDueBy, choreTaskOf, choreTitle, grimText } from '@/lib/chores';
+import { activeTasks } from '@/lib/horizons';
 
 /** The evening debrief: mood, loose ends, tomorrow's top 3, then the day's verdict. */
 export default function Debrief() {
@@ -34,7 +37,14 @@ export default function Debrief() {
   const windLeft = log.windDownDone ? [] : state.windDownItems.filter((i) => !(log.windDown ?? []).includes(i));
   const tomorrow = tomorrowKey();
   const picks = state.topTomorrow?.day === tomorrow ? state.topTomorrow.ids.filter((id) => state.tasks.some((t) => t.id === id && !t.done)) : [];
-  const open = state.tasks.filter((t) => !t.done);
+  const open = activeTasks(state, tomorrow); // step 9 admin: what's on a horizon for tomorrow stays off
+  // step 9 admin: chores due by tomorrow, without a task yet (horizons.ts, chores.ts); picking one makes its task
+  const choresDue = choresDueBy(state, tomorrow, dayKey()).filter((c) => !choreTaskOf(state, c.id));
+  const pickChore = (id: string) => {
+    if (picks.length >= 3) return;
+    const taskId = actions.choreTask(id);
+    if (taskId) actions.setTopTomorrow([...picks, taskId]);
+  };
   // step 8 days: what got done today (titles kept after Clear), and when tomorrow's picks are booked for
   const doneToday = doneOn(state, key);
   const tomorrowDate = new Date(`${tomorrow}T12:00`);
@@ -158,6 +168,17 @@ export default function Debrief() {
             </View>
           );
         })}
+        {choresDue.map((c) => (
+          <Pressable key={c.id} onPress={() => pickChore(c.id)} style={{ opacity: picks.length >= 3 ? 0.4 : 1 }} accessibilityRole="button" accessibilityLabel={`Pick the chore ${c.name}`}>
+            <Row>
+              <View style={styles.slot} />
+              <T style={{ flex: 1 }}>{choreTitle(c)}</T>
+              <T dim small>
+                chore · {grimText(state, c)}
+              </T>
+            </Row>
+          </Pressable>
+        ))}
         {picks.length ? (
           <T dim small>
             Book a pick into one of tomorrow&apos;s free gaps, after gym or after the first coffee. A gap can ping you when it starts.

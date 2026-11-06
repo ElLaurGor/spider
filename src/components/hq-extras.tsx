@@ -13,6 +13,7 @@ import { chestShelf, GOLD_SCORE, SHELF_MAX } from '@/lib/loot';
 import { eveningKey, topToday } from '@/lib/memory';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
+import { activeTasks } from '@/lib/horizons'; // step 9 admin
 import { gentleDay, toneOn } from '@/lib/tone';
 import type { ChestPrize } from '@/lib/types';
 import { ghostOf, ghostText } from '@/lib/xp-timeline';
@@ -156,7 +157,7 @@ export function LowBatteryCard() {
   if (!lowBattery(dayOf(state))) return null;
   // Last night's debrief picks first, else the newest open tasks.
   const picked = topToday(state).filter((t) => !t.done);
-  const mustDos = picked.length ? picked : state.tasks.filter((t) => !t.done).slice(0, 3);
+  const mustDos = picked.length ? picked : activeTasks(state).slice(0, 3); // step 9 admin: not what's on a horizon
   return (
     <Card accent={C.yellow}>
       <H>🪫 Low-battery mode</H>

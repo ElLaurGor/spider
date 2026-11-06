@@ -14,10 +14,13 @@ export const HQ_SECTIONS = [
   { id: 'commute', label: 'SL departures (once a stop is set)' },
   { id: 'weekend', label: 'This weekend in Stockholm (Thu–Sat, once event types are picked)' },
   { id: 'chapter', label: 'New chapter (on a fresh-start day: birthday, payday, back from a break)' }, // step 8 game
+  { id: 'review', label: 'War room: the Sunday review (Sundays, until sealed or closed)' }, // step 9 admin
+  { id: 'shelf', label: 'Due-back shelf: pickup codes, returns, library loans (while something is on it)' }, // step 9 admin
   { id: 'sleep', label: 'Sleep & energy check-in' },
   { id: 'tiles', label: 'Tiles' },
   { id: 'buttons', label: 'Water & gaming buttons' },
   { id: 'top3', label: "Today's top 3" },
+  { id: 'chores', label: 'Chores due (only when one is due)' }, // step 9 admin
   { id: 'winddown', label: 'Wind-down (evenings)' },
   { id: 'debrief', label: 'Evening debrief (evenings)' },
   { id: 'level', label: 'Level & day score' },

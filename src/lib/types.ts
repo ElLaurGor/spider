@@ -275,7 +275,19 @@ export type Contract = {
   woop?: Woop; // step 8 game: the outcome, the obstacle scouted at signing and its if-then plan (lib/woop.ts)
 };
 
-export type Task = { id: string; title: string; done: boolean; createdAt: number; doneAt?: number; firstDoneAt?: number }; // firstDoneAt: re-checking later counts for that day
+export type Task = {
+  id: string;
+  title: string;
+  done: boolean;
+  createdAt: number;
+  doneAt?: number;
+  firstDoneAt?: number; // re-checking later counts for that day
+  // step 9 admin
+  horizon?: TaskHorizon | null; // "Not today", Someday or "Waiting on" (lib/horizons.ts); unset = an ordinary open task
+  activeSince?: number; // when it last came back from Someday (horizons.ts activeSinceOf): the zombie age counts from here
+  step?: string; // the first physical step, written in the War room (lib/review.ts)
+  chore?: string; // the chore it was made for (lib/chores.ts): done, it resets that chore
+};
 
 export type Counters = {
   workouts: number;
@@ -429,6 +441,12 @@ export type State = {
   bossPicks?: Record<string, string>; // week key (its Monday) -> the boss picked for that week (lib/boss-pick.ts)
   chapters?: Chapter[]; // fresh-start chapters, oldest first (lib/chapters.ts)
   contractLog?: ContractEntry[]; // settled contracts, oldest first, the newest 52 (lib/contract-log.ts)
+  // step 9 admin
+  chores?: Chore[]; // the chore rota (lib/chores.ts): each drains a freshness bar until it's done again
+  choreSkips?: number; // "Skip one chore" passes bought in the shop and not used yet
+  shelf?: ShelfItem[]; // the due-back shelf (lib/shelf.ts): parcels to pick up, return windows, library loans
+  reviews?: string[]; // weeks (their Monday) whose War room review was sealed and paid (lib/review.ts), the newest 12
+  weekBig?: { week: string; ids: string[] } | null; // the week's 1–3 big tasks, picked in the War room, shown on Plan
 };
 
 // step 8 days
@@ -562,4 +580,40 @@ export type ContractEntry = {
   payout: number;
   at: number;
   woop?: { obstacle: ObstacleId; showed: number; fired: number };
+};
+
+// step 9 admin
+/**
+ * Where an open task is for now (horizons.ts): `later` ("Not today") hides it until `until`; `someday` keeps a
+ * maybe out of the open count; `waiting` holds something like "Försäkringskassan reply" until its chase day
+ * `until`, when it turns back into a task. `at`: when it was put there.
+ */
+export type TaskHorizon = { kind: 'later' | 'someday' | 'waiting'; until?: string; at: number };
+/**
+ * A chore that repeats `every` days after it was last done (chores.ts). `last`: when it was last done (null: due
+ * now). `undo`: the latest reset, for a same-day undo (what `last` was, whether it paid XP, the skip pass or the
+ * task it came from).
+ */
+export type Chore = {
+  id: string;
+  name: string;
+  emoji: string;
+  every: number;
+  last: number | null;
+  createdAt: number;
+  undo?: { last: number | null; at: number; xp: boolean; skip?: boolean; task?: string } | null;
+};
+/** On the due-back shelf (shelf.ts): a parcel to pick up, a return window, a library loan. Days are day keys. */
+export type ShelfKind = 'parcel' | 'return' | 'loan';
+export type ShelfItem = {
+  id: string;
+  kind: ShelfKind;
+  title: string;
+  code?: string; // the pickup code, shown big
+  carrier?: string; // PostNord, Instabox, DHL, Budbee…
+  until?: string; // the last day (pick up by, return by, due back)
+  delivered?: string; // an online order's delivery day: the return clock (ångerrätt) counts from the day after
+  remind?: boolean; // opt-in: one reminder before `until`
+  at: number; // added
+  doneAt?: number; // picked up, sent back or returned
 };

@@ -222,6 +222,13 @@ import { EGG_CHANCE, EGG_COINS, EGG_KMS, eggDrops, eggKm, hatchEggs, MAX_EGGS } 
 import { asleepAt, daylightAt, DEW_DROPS, dressingFor, grewSince, growthOf, hatShape, IDLE_LIFE, lighting, MOLT_GROWTH_MAX, moltState, NO_WEATHER, PET_MOTION, plantGrowth, sizeAfter, SPROUT, sunTimes } from '../src/lib/tank-life';
 import { TANK_EVENT_MS, TANK_QUEUE, tankEventsOf, tankLifeOf, tankMode, tankSnapsFor, tankWeather, webFor, withMolt, withTankEvents, type TankLife } from '../src/lib/tank-life';
 import type { DayForecast } from '../src/lib/weather';
+// step 9 admin
+import { CHORE_XP, choreDays, choreRef, choresDueBy, dueOn, grimOf, grimText, isChoreSkip, isDue, paidToday, syncChoreTasks, undoable, withChore, withChoreReset, withChoreSkipBought, withChoreTask, withoutChoreReset } from '../src/lib/chores';
+import { codeIn, datesIn, deadlineText, parseShelfText, returnBy, shelfList, shelfPings, shelfRemindAt, withShelfDone, withShelfItem } from '../src/lib/shelf';
+import { aheadTargets, choresForWeek, gymClashes, planWeekOf, REVIEW_COINS, reviewPrompt, reviewWeek, weekBigOn, weekDone, withAheadMove, withBurned, withFirstStep, withReviewSealed, withWeekBig, zombiesOf } from '../src/lib/review';
+import { activeSinceOf, activeTasks, chasing, horizonDays, isActive, onHorizon, placeOf, taskLabel, withHorizon, withWaiting } from '../src/lib/horizons';
+import { CONTRACT_GOALS } from '../src/lib/contracts';
+import type { State as AdminState, Task as AdminTask } from '../src/lib/types';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -6790,5 +6797,230 @@ function step8FixTests() {
   assert.ok(eventsUrl(['music'], ['2026-11-06', '2026-11-07', '2026-11-08'], 1, '2026-11-07').includes('date_from=2026-11-07&date_to=2026-11-08'));
 }
 step8FixTests();
+
+// step 9 admin: the chore rota, the due-back shelf, the War room and task horizons
+function step9AdminTests() {
+  const base: AdminState = { ...defaultState(), onboarded: true };
+  const at = new Date(2026, 10, 1, 10).getTime(); // Sunday 1 Nov
+
+  // chores: a bar that drains over its days, never past due; paused days don't drain it
+  const st = withChore(base, { name: 'Change the sheets', emoji: '🛏️', every: 14 }, 'c1', at);
+  const c1 = (x: AdminState) => x.chores!.find((c) => c.id === 'c1')!;
+  assert.equal(choreDays(st, c1(st), '2026-11-01'), 0);
+  assert.equal(grimOf(st, c1(st), '2026-11-01'), 0);
+  assert.equal(grimText(st, c1(st), '2026-11-08'), '50% grim');
+  assert.equal(dueOn(st, c1(st), '2026-11-01'), '2026-11-15');
+  assert.ok(!isDue(st, c1(st), '2026-11-14') && isDue(st, c1(st), '2026-11-15'));
+  assert.equal(grimOf(st, c1(st), '2026-12-30'), 1, 'overdue is just due, never more');
+  assert.equal(grimText(st, c1(st), '2026-12-30'), 'due');
+  const sick: AdminState = { ...st, pauses: [{ from: '2026-11-03', to: '2026-11-05', kind: 'sick' }] };
+  assert.equal(choreDays(sick, c1(sick), '2026-11-08'), 4, 'three sick days left out');
+  assert.equal(dueOn(sick, c1(sick), '2026-11-08'), '2026-11-18');
+  const trip: AdminState = { ...st, pauses: [{ from: '2026-11-10', to: '2026-11-12', kind: 'away' }] };
+  assert.equal(dueOn(trip, c1(trip), '2026-11-08'), '2026-11-18', 'a planned trip ahead pushes the due day');
+  const two = withChore(st, { name: 'Dentist checkup', emoji: '🦷', every: 182, due: true }, 'c2', at);
+  assert.ok(isDue(two, two.chores![1], '2026-11-01'), 'added as due');
+  assert.deepEqual(choresDueBy(two, '2026-11-01', '2026-11-01').map((c) => c.id), ['c2']);
+  assert.deepEqual(choresDueBy(two, '2026-11-15', '2026-11-01').map((c) => c.id), ['c2', 'c1']);
+  assert.deepEqual(choresForWeek(two, '2026-11-09', '2026-11-08').map((c) => c.id), ['c2', 'c1'], 'the War room lists what comes due by Sunday');
+  assert.equal(withChore(st, { name: ' x ', emoji: '', every: 3 }, 'c3', at), st, 'a name is needed');
+
+  // done: reset with its XP under the chore's own ref, once a day; the same-day undo takes back exactly that
+  const key = '2026-11-20';
+  const doneAt = new Date(2026, 10, 20, 9).getTime();
+  const done = credit(withChoreReset(st, 'c1', doneAt, 'done', { xp: true }), key, CHORE_XP, 0, choreRef('c1'));
+  assert.ok(paidToday(done, 'c1', key) && !paidToday(st, 'c1', key));
+  assert.equal(grimOf(done, c1(done), key), 0);
+  assert.ok(undoable(done, 'c1', key)?.xp);
+  assert.equal(undoable(done, 'c1', '2026-11-21'), null, 'an undo is for the same day');
+  const undone = unreward(withoutChoreReset(done, 'c1'), key, choreRef('c1'), CHORE_XP);
+  assert.equal(undone.xp, st.xp);
+  assert.equal(undone.coins, st.coins);
+  assert.equal(c1(undone).last, at, 'back to when it was last done');
+
+  // the shop's "Skip one chore": a pass, used on a chore without XP, back on an undo
+  assert.ok(isChoreSkip({ title: 'Skip one chore' }) && !isChoreSkip({ title: 'Pizza night' }));
+  const idea = { title: 'Skip one chore', emoji: '🧹', cost: 500 };
+  const bought = withChoreSkipBought({ ...st, coins: 600 }, idea, 'p1', at);
+  assert.deepEqual([bought.coins, bought.choreSkips, bought.purchases.at(-1)?.title], [100, 1, 'Skip one chore']);
+  assert.equal(withChoreSkipBought({ ...st, coins: 100 }, idea, 'p2', at).choreSkips, undefined, 'too poor: nothing bought');
+  const skipped = withChoreReset(bought, 'c1', doneAt, 'skip');
+  assert.deepEqual([skipped.choreSkips, skipped.xp, c1(skipped).last], [0, bought.xp, doneAt], 'a pass pays no XP');
+  assert.equal(withoutChoreReset(skipped, 'c1').choreSkips, 1, 'undoing a skip gives the pass back');
+
+  // a chore's task (the debrief's top-3 picker): made once, checking it off resets the chore, unchecking puts it back
+  const made = withChoreTask(st, 'c1', 't1', at);
+  assert.deepEqual([made.id, made.state.tasks[0].chore, made.state.tasks[0].title], ['t1', 'c1', '🛏️ Change the sheets']);
+  assert.equal(withChoreTask(made.state, 'c1', 't2', at).id, 't1', 'once');
+  const checked: AdminState = { ...made.state, tasks: made.state.tasks.map((t) => (t.id === 't1' ? { ...t, done: true, doneAt } : t)) };
+  const synced = syncChoreTasks(made.state, checked);
+  assert.deepEqual([c1(synced).last, c1(synced).undo?.task, synced.xp], [doneAt, 't1', checked.xp], 'the task paid, the chore only resets');
+  assert.equal(undoable(synced, 'c1', key), null, "the task's own uncheck undoes it");
+  const unchecked: AdminState = { ...synced, tasks: synced.tasks.map((t) => (t.id === 't1' ? { ...t, done: false, doneAt: undefined } : t)) };
+  assert.equal(c1(syncChoreTasks(synced, unchecked)).last, at);
+  assert.ok(!withChoreReset({ ...made.state, choreSkips: 1 }, 'c1', doneAt, 'skip').tasks.some((t) => t.id === 't1'), "a skip takes the chore's task off too");
+
+  // share texts: pickup codes and last days, Swedish and English dates; nothing guessed when the text has none
+  const today = '2026-11-07';
+  const pn = parseShelfText('PostNord: Ditt paket från Zalando finns att hämta hos ICA Nära Hornstull. Utlämningskod: 482913. Hämtas senast 21/11.', today);
+  assert.deepEqual([pn.kind, pn.carrier, pn.code, pn.until, pn.title], ['parcel', 'PostNord', '482913', '2026-11-21', 'Parcel · Zalando · PostNord']);
+  const ib = parseShelfText('Instabox: Din order från Apotea ligger i boxen. Din kod: 7KX4Q2. Hämta senast fre. 13 nov kl 23.59.', today);
+  assert.deepEqual([ib.carrier, ib.code, ib.until], ['Instabox', '7KX4Q2', '2026-11-13']);
+  const dhl = parseShelfText('DHL Express: Your shipment is ready for collection at DHL Service Point. Pickup code 123 456. Collect by 14.11.2026.', today);
+  assert.deepEqual([dhl.kind, dhl.code, dhl.until], ['parcel', '123456', '2026-11-14']);
+  const bb = parseShelfText('Budbee: Paketet levererades till din Budbee Box 2026-11-06. Koden till boxen är 5521. Paketet ligger kvar till och med 2026-11-12.', today);
+  assert.deepEqual([bb.carrier, bb.code, bb.delivered, bb.until], ['Budbee', '5521', '2026-11-06', '2026-11-12']);
+  const from = parseShelfText('Paketet kan hämtas från och med 7/11 till och med 21/11-26 hos ombudet. Kolli 1/2. Vikt 2.5 kg.', today);
+  assert.equal(from.until, '2026-11-21', 'a start date is not the deadline');
+  assert.deepEqual(from.dates, ['2026-11-07', '2026-11-21'], 'a parcel count and a weight are not dates');
+  assert.deepEqual(
+    datesIn('21:e november, 22 nov., Nov 23rd 2026, 24.11, 25/11-2026, 2026-11-26, kl. 12.30', today).map((d) => d.key),
+    ['2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26'],
+  );
+  assert.equal(parseShelfText('Hämtas senast 3 jan.', today).until, '2027-01-03', 'no year: the next 3 January');
+  assert.equal(datesIn('levererad 28 dec', '2027-01-02')[0].key, '2026-12-28', 'no year, just gone: last year');
+  const bare = parseShelfText('Ditt paket har kommit till ombudet. Kod 4821', today);
+  assert.deepEqual([bare.until, bare.code, bare.kind], [null, '4821', 'parcel'], 'no date in the text: the form asks');
+  assert.equal(codeIn('Visa QR-koden 99887766 i appen.'), null, 'a QR code is not the code');
+  assert.equal(codeIn('Kod giltig till 2026'), null, 'a year is not a code');
+  assert.equal(codeIn('Din kod är 0042 för boxen'), '0042');
+
+  // an online order's return window: 14 days from the day after delivery, a weekend or red last day moves on
+  const order = parseShelfText('Hej! Din beställning från Ellos levererades 5 november.', today);
+  assert.deepEqual([order.kind, order.delivered, order.until], ['return', '2026-11-05', null]);
+  assert.equal(returnBy('2026-11-05'), '2026-11-19');
+  assert.equal(returnBy('2026-11-07'), '2026-11-23', 'a Saturday last day moves to Monday');
+  assert.equal(returnBy('2026-12-10'), '2026-12-28', 'julafton and the red days after it move it on');
+  const back = parseShelfText('Your parcel was delivered by PostNord on Nov 5. Return before 19 November 2026.', today);
+  assert.deepEqual([back.kind, back.delivered, back.until], ['return', '2026-11-05', '2026-11-19']);
+  const loan = parseShelfText('Påminnelse från Stockholms stadsbibliotek: Lånet "Kallocain" ska återlämnas senast 2026-11-28.', today);
+  assert.deepEqual([loan.kind, loan.until, loan.title], ['loan', '2026-11-28', 'Library loan · Kallocain']);
+
+  // the shelf: soonest first, a return gets its ångerrätt day, one opt-in reminder worked out from when it was added
+  const addAt = new Date(2026, 10, 7, 12).getTime();
+  let sh = withShelfItem(base, { kind: 'return', title: 'Return · Ellos', delivered: '2026-11-05', remind: true }, 'x1', addAt);
+  assert.equal(sh.shelf![0].until, '2026-11-19');
+  sh = withShelfItem(sh, { kind: 'parcel', title: 'Parcel · PostNord', code: '48-29 13', until: '2026-11-08', remind: true }, 'x2', addAt);
+  assert.equal(sh.shelf![1].code, '482913');
+  assert.equal(withShelfItem(sh, { kind: 'parcel', title: '  ' }, 'x3', addAt), sh);
+  assert.deepEqual(shelfList(sh, addAt).map((x) => x.id), ['x2', 'x1']);
+  assert.equal(deadlineText(sh.shelf![1], today), 'pick up by tomorrow');
+  assert.deepEqual(shelfRemindAt(sh.shelf![0], 7), new Date(2026, 10, 18, 18), 'the evening before');
+  const late = withShelfItem(base, { kind: 'parcel', title: 'P', until: '2026-11-08', remind: true }, 'x4', new Date(2026, 10, 7, 19).getTime());
+  assert.deepEqual(shelfRemindAt(late.shelf![0], 7), new Date(2026, 10, 8, 8), 'added after that: the morning of');
+  assert.equal(shelfRemindAt(withShelfItem(base, { kind: 'parcel', title: 'P', until: '2026-11-08' }, 'x5', addAt).shelf![0], 7), null, 'opt-in only');
+  const pings = shelfPings(sh, new Date(addAt));
+  assert.deepEqual(pings.map((p) => p.id).sort(), ['shelf-x1', 'shelf-x2']);
+  assert.ok(pings.every((p) => isPlanned(p.id)), 'a planned prefix: replanned, quiet in the Kalle Anka hour');
+  assert.equal(pings.find((p) => p.id === 'shelf-x2')?.code, '482913');
+  assert.equal(shelfPings(withShelfDone(sh, 'x2', true, addAt), new Date(addAt)).length, 1, 'picked up: no reminder');
+  for (const k of ['shelfRemindPickup', 'shelfRemindReturn', 'shelfRemindLoan', 'choreDone', 'choreSkipped', 'reviewIntro', 'reviewSealed', 'zombieBurned', 'horizonLater', 'horizonSomeday', 'horizonWaiting', 'shelfAdded', 'shelfDone'] as const) {
+    assert.ok(LINES[k].mild.length >= 2 && LINES[k].savage.length >= 2, k);
+  }
+
+  // the War room: Sunday closes the week (Monday morning still does), sealing pays coins once a week and never XP
+  const sun = new Date(2026, 10, 8, 10);
+  assert.equal(reviewWeek(sun), '2026-11-02');
+  assert.equal(reviewWeek(new Date(2026, 10, 9, 9)), '2026-11-02', 'Monday morning closes last week');
+  assert.equal(reviewWeek(new Date(2026, 10, 9, 13)), null);
+  assert.equal(reviewWeek(new Date(2026, 10, 11, 10)), null);
+  assert.deepEqual([planWeekOf(sun), planWeekOf(new Date(2026, 10, 9, 9))], ['2026-11-09', '2026-11-09']);
+  const rv: AdminState = { ...base, coins: 0, coinsEarned: 0 };
+  const sealed = withReviewSealed(rv, sun);
+  assert.deepEqual([sealed.coins, sealed.state.coins, sealed.state.xp], [REVIEW_COINS, REVIEW_COINS, rv.xp], 'coins, never XP');
+  assert.equal(withReviewSealed(sealed.state, new Date(2026, 10, 9, 9)).coins, 0, 'once a week: Monday morning is the same week');
+  assert.equal(withReviewSealed(sealed.state, new Date(2026, 10, 15, 10)).coins, REVIEW_COINS, 'next Sunday pays again');
+  assert.equal(withReviewSealed(rv, new Date(2026, 10, 11, 10)).coins, 0, 'midweek pays nothing');
+  assert.equal(reviewPrompt(rv, sun), '2026-11-02');
+  assert.equal(reviewPrompt({ ...rv, dismissed: ['review:2026-11-02'] }, sun), null, 'closed for the week');
+  assert.equal(reviewPrompt(sealed.state, sun), null);
+  assert.equal(reviewPrompt(rv, new Date(2026, 10, 11, 10)), null, 'only on Sunday and Monday morning');
+  let many = rv;
+  for (let i = 0; i < 15; i++) many = withReviewSealed(many, new Date(2026, 10, 8 + 7 * i, 10)).state;
+  assert.deepEqual([many.reviews?.length, many.coins], [12, 15 * REVIEW_COINS], 'kept only to pay once; skipped weeks simply pay nothing');
+
+  // the week's done list
+  const doneAtTue = new Date(2026, 10, 3, 9).getTime();
+  const dw: AdminState = { ...rv, days: { '2026-11-03': { ...emptyDay(), doneTasks: [{ id: 'a', at: doneAtTue, title: 'Tax form' }] }, '2026-10-30': { ...emptyDay(), doneTasks: [{ id: 'b', at: doneAtTue, title: 'Old' }] } } };
+  assert.deepEqual(weekDone(dw, '2026-11-02', sun).map((x) => x.title), ['Tax form']);
+
+  // zombies: active a week or more since they became active again; a first step, the bonfire (no XP)
+  const task = (id: string, created: Date, extra: Partial<AdminTask> = {}): AdminTask => ({ id, title: id, done: false, createdAt: created.getTime(), ...extra });
+  const zt: AdminState = {
+    ...rv,
+    tasks: [
+      task('z1', new Date(2026, 9, 1, 12)),
+      task('z2', new Date(2026, 10, 6, 12)),
+      task('z3', new Date(2026, 9, 1, 12), { horizon: { kind: 'someday', at: 0 } }),
+      task('z4', new Date(2026, 9, 1, 12), { horizon: { kind: 'later', until: '2026-11-05', at: 0 } }),
+    ],
+  };
+  assert.deepEqual(zombiesOf(zt, sun.getTime()).map((t) => t.id), ['z1'], 'Someday is no zombie, and z4 is active only since the 5th');
+  assert.equal(withFirstStep(zt, 'z1', '  open   the form ').tasks[0].step, 'open the form');
+  const burned = withBurned(zt, 'z1', sun.getTime());
+  assert.deepEqual([burned.tasks.some((t) => t.id === 'z1'), burned.days['2026-11-08']?.burned, burned.xp], [false, 1, zt.xp]);
+
+  // next week's calendar: a meeting that runs into gym time is flagged, the workout can move to a free day of that week
+  const mtg = (day: number, h1: number, h2: number): CalEvent => ({ key: `e${day}`, title: 'Board meeting', start: new Date(2026, 10, day, h1).getTime(), end: new Date(2026, 10, day, h2).getTime(), allDay: false, location: null, calendarId: 'c' });
+  const clashes = gymClashes(rv, [mtg(10, 16, 18), mtg(12, 9, 10)], '2026-11-09', sun);
+  assert.deepEqual(clashes.map((c) => [c.day, c.workout]), [['2026-11-10', 'Pull']], 'Tuesday until 18:00 clashes, a morning meeting does not');
+  assert.deepEqual(clashes[0].moveTo, ['2026-11-11', '2026-11-14', '2026-11-15']);
+  const moved = withAheadMove(rv, '2026-11-10', '2026-11-11', sun.getTime());
+  assert.equal(moved.workoutMoves?.at(-1)?.why, 'late', 'no "what got in the way?" afterwards');
+  assert.equal(workoutFor(moved, new Date(2026, 10, 10, 12)), null);
+  assert.equal(workoutFor(moved, new Date(2026, 10, 11, 12))?.name, 'Pull');
+  assert.equal(withAheadMove(rv, '2026-11-10', '2026-11-12', sun.getTime()), rv, 'not onto another workout day');
+  assert.deepEqual(aheadTargets(rv, '2026-11-17', '2026-11-08'), [], 'two weeks ahead: no');
+  assert.deepEqual(aheadTargets(rv, '2026-11-10', '2026-11-07'), [], 'on Saturday next week is not open yet');
+  assert.ok(aheadTargets(rv, '2026-11-12', '2026-11-09').length > 0, 'this week: the usual move rules');
+
+  // the week's big ones: 1–3 real tasks, shown on Plan for that week (next week's on Sunday)
+  const wb = withWeekBig(zt, '2026-11-09', ['z1', 'z2', 'z1', 'nope', 'z4']);
+  assert.deepEqual(wb.weekBig, { week: '2026-11-09', ids: ['z1', 'z2', 'z4'] });
+  assert.equal(weekBigOn(wb, '2026-11-08')?.next, true);
+  assert.equal(weekBigOn(wb, '2026-11-10')?.next, false);
+  assert.equal(weekBigOn(wb, '2026-11-16'), null);
+  assert.equal(weekBigOn(wb, '2026-11-07'), null);
+
+  // horizons: "Not today" hides until its day, then the zombie age counts from that day
+  const nowH = new Date(2026, 10, 7, 12).getTime();
+  const hz: AdminState = { ...rv, tasks: [task('h1', new Date(2026, 9, 1, 12), { title: 'Call the bank' })] };
+  const later = withHorizon(hz, 'h1', { kind: 'later', until: '2026-11-10' }, nowH);
+  assert.equal(placeOf(later.tasks[0], '2026-11-07'), 'later');
+  assert.deepEqual(activeTasks(later, '2026-11-09'), []);
+  assert.equal(activeTasks(later, '2026-11-10').length, 1, 'back on its day');
+  assert.equal(activeSinceOf(later.tasks[0]), new Date(2026, 10, 10, 0).getTime());
+  assert.equal(taskAgeDays(later.tasks[0], new Date(2026, 10, 12, 12).getTime()), 2);
+  assert.equal(immortalTask(later, new Date(2026, 10, 8, 12).getTime()), null, 'a hidden task is no zombie');
+  assert.equal(immortalTask(hz, nowH)?.task.id, 'h1');
+  assert.equal(withHorizon(hz, 'h1', { kind: 'later', until: '2026-11-07' }, nowH), hz, 'later needs a day ahead');
+  // Someday: out of the count for good, out of the bonfire; back by hand, the zombie clock starts again
+  const sd = withHorizon(hz, 'h1', { kind: 'someday' }, nowH);
+  assert.deepEqual(onHorizon(sd, 'someday', '2027-06-01').map((t) => t.id), ['h1']);
+  assert.equal(activeTasks(sd, '2027-06-01').length, 0);
+  assert.deepEqual([staleTasks(sd, nowH).length, staleTasks(hz, nowH).length], [0, 1]);
+  const again = withHorizon(sd, 'h1', null, nowH + 1000);
+  assert.deepEqual([again.tasks[0].activeSince, taskAgeDays(again.tasks[0], nowH + 1000), isActive(again.tasks[0], today)], [nowH + 1000, 0, true]);
+  assert.equal(withHorizon(later, 'h1', null, new Date(2026, 10, 12, 12).getTime()).tasks[0].activeSince, new Date(2026, 10, 10, 0).getTime(), 'a horizon that ran out keeps its day');
+  // Waiting on: held until the chase day, then a task again ("Chase: …")
+  const wt = withWaiting(hz, ' Försäkringskassan reply ', '2026-11-14', 'w1', nowH);
+  assert.equal(wt.tasks[0].title, 'Försäkringskassan reply');
+  assert.ok(!isActive(wt.tasks[0], '2026-11-13') && chasing(wt.tasks[0], '2026-11-14'));
+  assert.equal(taskLabel(wt.tasks[0], '2026-11-14'), 'Chase: Försäkringskassan reply');
+  assert.equal(taskLabel(wt.tasks[0], '2026-11-13'), 'Försäkringskassan reply');
+  assert.equal(withWaiting(hz, 'Reply', '2026-11-07', 'w2', nowH), hz, 'a chase day must be ahead');
+  assert.deepEqual(horizonDays('2026-11-08').map((d) => d.key), ['2026-11-09', '2026-11-11', '2026-11-15', '2026-11-22'], "from Sunday, tomorrow is next Monday: offered once");
+  // quests, contracts and booked slots leave hidden tasks out
+  const tasksGoal = CONTRACT_GOALS.find((g) => g.id === 'tasks')!;
+  assert.ok(tasksGoal.available(hz) && !tasksGoal.available(sd), "a contract on tasks needs an active one");
+  const drafts = (x: AdminState) => Array.from({ length: 40 }, (_, i) => draftFor(x, new Date(2027, 1, 1 + i, 9)).candidates).flat();
+  assert.ok(!drafts(sd).includes('tasks') && drafts(hz).includes('tasks'), 'the task quest needs an active task');
+  const slotDay = '2026-11-09';
+  const slotAt = new Date(2026, 10, 9, 14).getTime();
+  const booked: AdminState = { ...later, slotPlans: [{ id: 'sp', day: slotDay, at: slotAt, end: slotAt + 3_600_000, kind: 'task', taskId: 'h1' }] };
+  assert.equal(slotReminders(booked, new Date(2026, 10, 8, 12), 3).length, 0, 'no ping for a task hidden that day');
+  assert.equal(slotReminders({ ...booked, tasks: hz.tasks }, new Date(2026, 10, 8, 12), 3).length, 1);
+}
+step9AdminTests();
 
 console.log('synchronous logic tests passed');
