@@ -109,7 +109,7 @@ npx expo-doctor
   2. `npx eas-cli@latest build -p android --profile preview --non-interactive --no-wait`. versionCode auto-increments.
   3. The owner installs the new APK **over** the old one. Same keystore, so data survives.
 - Never publish an OTA that imports a native module the installed runtime lacks.
-- APK 1.7.0 adds expo-gl (and three.js on top) for the 3D terrarium. JS that imports `expo-gl` must never reach a runtime below 1.7.0 as an OTA (the `appVersion` runtime policy keeps it so).
+- APK 1.7.0 adds expo-gl (and three.js on top) for the 3D terrarium; 1.7.1 is the same with the Expo SDK 57 patch updates (the owner skipped 1.7.0). JS that imports `expo-gl` must never reach a runtime below 1.7.0 as an OTA (the `appVersion` runtime policy keeps it so).
 - `plugins/with-backup-rules.js` (APK 1.6.0): Android Auto Backup leaves out `files/photos/` and `.expo-internal/` (the 25 MB quota), keeps the AsyncStorage database (`RKStorage`), and raises AsyncStorage's database cap from 6 MB to 64 MB (`AsyncStorage_db_size_in_MB`). `SYSTEM_ALERT_WINDOW` is blocked; nothing draws overlays.
 - Never keep an `android/` folder (CNG). If you `expo prebuild` locally to inspect the manifest, delete `android/` afterwards and restore `package.json`. Prebuild rewrites the `android`/`ios` scripts.
 - The app `name` must not end with "." because Gradle rejects it as a root project name. That's why it's "S.P.I.D.E.R" without the final dot.
