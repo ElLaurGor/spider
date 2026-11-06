@@ -7,6 +7,12 @@ import { CountdownsCard } from '@/components/countdowns-card';
 import { EntryEditor } from '@/components/entry-editor';
 import { HabitsCard } from '@/components/habits-card';
 import { HiddenEgg, ValborgBonfire } from '@/components/swedish-year';
+// step 9 admin: chores, the due-back shelf, the week's big ones, task horizons
+import { ChoresCard } from '@/components/chores-card';
+import { WeekBigCard } from '@/components/review-cards';
+import { ShelfCard } from '@/components/shelf-card';
+import { HorizonLists, HorizonPicker } from '@/components/task-horizons';
+import { activeTasks, taskLabel } from '@/lib/horizons';
 import { Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, T } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
@@ -27,6 +33,7 @@ export default function Plan() {
   const [renaming, setRenaming] = useState<Task | null>(null);
   const [slot, setSlot] = useState<{ start: number; end: number } | null>(null); // step 8 days: a free slot being given a job
   const [taskPick, setTaskPick] = useState(false);
+  const [horizonFor, setHorizonFor] = useState<string | null>(null); // step 9 admin: the task whose "when?" is open
 
   const todayKey = useToday();
   const date = addDays(noonOf(todayKey), offset);
@@ -38,7 +45,7 @@ export default function Plan() {
   const calLine = useMemo(() => quip(calKey, { count: timed }), [quip, calKey, timed]);
   const emptyLine = useMemo(() => quip('tasksEmpty'), [quip]);
 
-  const open = state.tasks.filter((t) => !t.done);
+  const open = activeTasks(state, todayKey); // step 9 admin: tasks on a horizon (not today, someday, waiting) wait in their own lists
   const done = state.tasks.filter((t) => t.done);
   // step 8 days: free slots that do something (plan-slots.ts)
   const shownKey = dayKey(date);
@@ -216,6 +223,8 @@ export default function Plan() {
 
       <AwayOffers />
 
+      <WeekBigCard />
+
       <Card>
         <H right={<T dim small>{open.length} open</T>}>Tasks</H>
         <Row>
@@ -231,17 +240,22 @@ export default function Plan() {
         </Row>
         {open.length === 0 ? <T dim small>{emptyLine}</T> : null}
         {open.map((t) => (
-          <TaskRow
-            key={t.id}
-            title={t.title}
-            done={false}
-            age={taskAgeDays(t)}
-            onToggle={() => actions.toggleTask(t.id)}
-            onEdit={() => setRenaming(t)}
-            onDelete={() => actions.deleteTask(t.id)}
-            onFocus={() => router.push({ pathname: '/focus', params: { task: t.id } })}
-          />
+          <View key={t.id} style={{ gap: 6 }}>
+            <TaskRow
+              title={taskLabel(t, todayKey)}
+              done={false}
+              age={taskAgeDays(t)}
+              step={t.step}
+              onToggle={() => actions.toggleTask(t.id)}
+              onEdit={() => setRenaming(t)}
+              onDelete={() => actions.deleteTask(t.id)}
+              onFocus={() => router.push({ pathname: '/focus', params: { task: t.id } })}
+              onLater={() => setHorizonFor(horizonFor === t.id ? null : t.id)}
+            />
+            {horizonFor === t.id ? <HorizonPicker task={t} today={todayKey} onClose={() => setHorizonFor(null)} /> : null}
+          </View>
         ))}
+        <HorizonLists today={todayKey} />
         {done.length > 0 ? (
           <Row style={{ justifyContent: 'space-between' }}>
             <Pressable onPress={() => setShowDone(!showDone)}>
@@ -269,8 +283,13 @@ export default function Plan() {
           ))}
         <ValborgBonfire />
         <T dim small>
-          Each finished task: +{XP.task} XP and +{BONUS_MIN.task} min gaming time. Long-press one to rename it.
+          Each finished task: +{XP.task} XP and +{BONUS_MIN.task} min gaming time. Long-press one to rename it, the clock hides it for now.
         </T>
+        <Pressable onPress={() => router.push('/review')} hitSlop={6} accessibilityRole="button">
+          <T small style={{ color: C.purple }}>
+            🗺️ War room: the weekly review →
+          </T>
+        </Pressable>
         {renaming ? (
           <EntryEditor
             title="Rename task"
@@ -281,6 +300,10 @@ export default function Plan() {
           />
         ) : null}
       </Card>
+      <ChoresCard />
+
+      <ShelfCard />
+
       <HiddenEgg id="plan" align="flex-start" />
     </Screen>
   );
@@ -290,26 +313,37 @@ function TaskRow({
   title,
   done,
   age,
+  step,
   onToggle,
   onEdit,
   onDelete,
   onFocus,
+  onLater,
 }: {
   title: string;
   done: boolean;
   age?: number; // days open, for the immortal-task badge
+  step?: string; // step 9 admin: its first physical step, from the War room
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onFocus?: () => void; // step 8 days: "Focus on this" starts Web Focus labelled with the task
+  onLater?: () => void; // step 9 admin: not today, someday or waiting on (horizons.ts)
 }) {
   return (
     <Row>
       <Pressable onPress={onToggle} onLongPress={onEdit} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
         <Icon name={done ? 'check_circle' : 'radio_button_unchecked'} size={22} color={done ? C.green : C.dim} />
-        <T dim={done} style={[{ flex: 1 }, done && { textDecorationLine: 'line-through' }]}>
-          {title}
-        </T>
+        <View style={{ flex: 1 }}>
+          <T dim={done} style={done ? { textDecorationLine: 'line-through' } : undefined}>
+            {title}
+          </T>
+          {step && !done ? (
+            <T dim small>
+              → {step}
+            </T>
+          ) : null}
+        </View>
         {!done && age != null && age >= IMMORTAL_DAYS ? (
           <T small style={{ color: C.yellow }}>
             🧟 {age} days
@@ -319,6 +353,11 @@ function TaskRow({
       {onFocus ? (
         <Pressable onPress={onFocus} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Focus on ${title}`}>
           <Icon name="timer" size={18} color={C.dim} />
+        </Pressable>
+      ) : null}
+      {onLater ? (
+        <Pressable onPress={onLater} hitSlop={8} accessibilityRole="button" accessibilityLabel={`${title}: not today, someday or waiting on`}>
+          <Icon name="schedule" size={18} color={C.dim} />
         </Pressable>
       ) : null}
       <Pressable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${title}`}>

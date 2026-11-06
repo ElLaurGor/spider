@@ -3,6 +3,7 @@
 // gap ("09:00–11:30"), after gym or after the first coffee. Only a booking the owner made pings, and only once.
 // Pure (no expo, no theme), so logic-test can check it.
 import { addDays, dayKey, fmtTime, MIN, uid } from './dates';
+import { isActive } from './horizons'; // step 9 admin
 import { pausedOn } from './pause';
 import { coffeeOf, dayOf, trainedOn } from './selectors';
 import type { SlotPlan, State, TopWhen } from './types';
@@ -107,18 +108,18 @@ export type SlotReminder = { id: string; day: string; at: number; kind: 'focus' 
 export function slotReminders(s: State, now = new Date(), days = 3): SlotReminder[] {
   const from = dayKey(now);
   const until = dayKey(addDays(noon(from), days - 1));
-  const open = (id?: string) => !!id && s.tasks.some((t) => t.id === id && !t.done);
+  const open = (id: string | undefined, day: string) => !!id && s.tasks.some((t) => t.id === id && isActive(t, day)); // step 9 admin: not while it's on a horizon
   const title = (id?: string, fallback = 'A task') => s.tasks.find((t) => t.id === id)?.title ?? fallback;
   const out: SlotReminder[] = [];
   for (const p of plansOf(s)) {
     if (p.day < from || p.day > until || p.at <= now.getTime() || pausedOn(s, p.day)) continue;
-    if (p.kind === 'task' && !open(p.taskId)) continue;
+    if (p.kind === 'task' && !open(p.taskId, p.day)) continue;
     out.push({ id: `slot-${p.kind}-${p.id}`, day: p.day, at: p.at, kind: p.kind, title: p.kind === 'task' ? title(p.taskId, p.title) : 'Focus block' });
   }
   const top = s.topTomorrow;
   if (top?.when && top.day >= from && top.day <= until && !pausedOn(s, top.day)) {
     for (const [id, w] of Object.entries(top.when)) {
-      if (w.kind !== 'slot' || !w.ping || w.at <= now.getTime() || !top.ids.includes(id) || !open(id)) continue;
+      if (w.kind !== 'slot' || !w.ping || w.at <= now.getTime() || !top.ids.includes(id) || !open(id, top.day)) continue;
       out.push({ id: `top3-${top.day}-${id}`, day: top.day, at: w.at, kind: 'top3', title: title(id) });
     }
   }

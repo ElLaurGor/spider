@@ -57,6 +57,7 @@ import { fuelBeforeGym } from './gym-fuel';
 import { joyReminders } from './joy';
 import { marathonGap, movePingOf } from './marathon';
 import { shutdownQuiet, worryPings } from './worry';
+import { shelfPings } from './shelf'; // step 9 admin
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -108,6 +109,7 @@ const LINKS: [prefix: string, href: Href][] = [
   ['joy-', '/'],
   ['worry-', '/'],
   ['reset-', '/'],
+  ['shelf-', '/'], // step 9 admin: the due-back shelf's card is on HQ
 ];
 /** The screen a notification opens. Morning, sleep, wind-down and comeback ones open HQ. */
 export const linkFor = (id: string): Href => LINKS.find(([p]) => id.startsWith(p))?.[1] ?? '/';
@@ -589,6 +591,12 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
   }
   for (const r of worryPings(s, now.getTime(), DAYS_AHEAD)) {
     jobs.push(scheduleAt(r.id, r.at, '🅿️ Worry slot', sayOn(s, toneOn(s, r.day, now, cycle), 'worrySlotPing', {}, r.day), CH.remind));
+  }
+
+  // step 9 admin: the due-back shelf's one opt-in reminder before each deadline (shelf.ts), in that day's tone, with the
+  // pickup code. A deadline is a fact, so the Storm protocol leaves it planned (its kind words come with the replan).
+  for (const p of shelfPings(s, now)) {
+    jobs.push(scheduleAt(p.id, p.at, p.title, sayOn(s, toneOn(s, p.day, now, cycle), p.line, p.vars, p.day) + (p.code ? ` Code: ${p.code}.` : ''), CH.remind));
   }
 
   planned = null;

@@ -1,14 +1,17 @@
 import { Redirect } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
+import { useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
+import { activeTasks } from '@/lib/horizons';
 import { useStore } from '@/lib/store';
 
 export default function TabsLayout() {
   const { state } = useStore();
+  const today = useToday(); // step 9 admin: a task back from "Not today" counts from its day
   if (!state.onboarded) return <Redirect href="/onboarding" />;
 
-  const openTasks = state.tasks.filter((t) => !t.done).length;
+  const openTasks = activeTasks(state, today).length;
 
   return (
     <NativeTabs

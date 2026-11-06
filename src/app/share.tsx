@@ -7,6 +7,11 @@ import { Btn, Card, H, T } from '@/components/ui';
 import { C } from '@/constants/theme';
 import { importPhoto } from '@/lib/photos';
 import { goTo, useStore } from '@/lib/store';
+// step 9 admin: a delivery text onto the due-back shelf
+import { ShelfForm } from '@/components/shelf-card';
+import { useToday } from '@/components/use-today';
+import { parseShelfText, SHELF_KINDS } from '@/lib/shelf';
+import type { ShelfKind } from '@/lib/types';
 
 /** A title for a task from shared text: the page title if the other app sent one, else the first line. */
 function taskTitle(text: string | null, url: string | null, title?: string | null) {
@@ -20,11 +25,14 @@ export default function ShareScreen() {
   const { actions, say } = useStore();
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const [busy, setBusy] = useState(false);
+  const [shelfKind, setShelfKind] = useState<ShelfKind | null>(null); // step 9 admin: the shelf form, once a kind is picked
+  const today = useToday();
 
   const image = shareIntent.files?.find((f) => f.mimeType?.startsWith('image/'));
   const text = shareIntent.text?.trim() || null;
   const url = shareIntent.webUrl || null;
   const title = taskTitle(text, url, shareIntent.meta?.title);
+  const parsed = text ? parseShelfText(text, today) : null; // step 9 admin: a pickup code and dates, if the text has them
 
   const done = (to: '/' | '/plan' = '/') => {
     resetShareIntent();
@@ -88,6 +96,35 @@ export default function ShareScreen() {
           <T style={{ color: C.text }}>{title}</T>
           <Btn label="Add as a task" icon="task_alt" onPress={() => asTask()} />
           <Btn label="Read later" icon="menu_book" kind="ghost" onPress={() => asTask('📖 ')} />
+        </Card>
+      ) : null}
+
+      {parsed ? (
+        <Card accent={C.yellow}>
+          <H>📦 Due-back shelf</H>
+          {shelfKind ? (
+            <ShelfForm
+              parsed={parsed}
+              kind={shelfKind}
+              onSave={(item) => {
+                actions.addShelf(item);
+                done();
+              }}
+              onCancel={() => setShelfKind(null)}
+            />
+          ) : (
+            <>
+              {parsed.code ? <T small style={{ color: C.text }}>Pickup code in the text: {parsed.code}</T> : null}
+              {(['parcel', 'return', 'loan'] as const).map((k) => (
+                <Btn
+                  key={k}
+                  label={`${SHELF_KINDS[k].emoji} ${SHELF_KINDS[k].label}`}
+                  kind={(parsed.kind ?? 'parcel') === k ? 'primary' : 'ghost'}
+                  onPress={() => setShelfKind(k)}
+                />
+              ))}
+            </>
+          )}
         </Card>
       ) : null}
 

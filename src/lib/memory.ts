@@ -1,5 +1,6 @@
 // What S.P.I.D.E.R. remembers about you: yesterday's highlight, tomorrow's top 3 and the tasks that refuse to die.
 import { addDays, dayKey, fmtTime } from './dates';
+import { activeSinceOf, isActive } from './horizons'; // step 9 admin
 import type { LineKey } from './lines';
 import { dayScoreFor } from './report';
 import { bestBeforeDay, trainedOn, waterGoalFor, waterMl, workoutFor } from './selectors';
@@ -9,13 +10,15 @@ import type { DayLog, State, Task } from './types';
 /** A task open this many days becomes "immortal": a running joke until it's done. */
 export const IMMORTAL_DAYS = 7;
 
-export const taskAgeDays = (t: Task, now = Date.now()) => Math.floor((now - t.createdAt) / 86_400_000);
+/** Days a task has been open, counted from when it became active (again): step 9 admin, horizons.ts activeSinceOf. */
+export const taskAgeDays = (t: Task, now = Date.now()) => Math.max(0, Math.floor((now - activeSinceOf(t)) / 86_400_000));
 
-/** The oldest task that's been open a week or more, and its age in days. */
+/** The oldest active task that's been open a week or more, and its age in days. Tasks on a horizon (later, someday, waiting) don't count. */
 export function immortalTask(s: State, now = Date.now()): { task: Task; days: number } | null {
   let oldest: Task | null = null;
+  const day = dayKey(now);
   for (const t of s.tasks) {
-    if (!t.done && taskAgeDays(t, now) >= IMMORTAL_DAYS && (!oldest || t.createdAt < oldest.createdAt)) oldest = t;
+    if (isActive(t, day) && taskAgeDays(t, now) >= IMMORTAL_DAYS && (!oldest || activeSinceOf(t) < activeSinceOf(oldest))) oldest = t;
   }
   return oldest ? { task: oldest, days: taskAgeDays(oldest, now) } : null;
 }

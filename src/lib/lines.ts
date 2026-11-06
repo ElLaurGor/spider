@@ -2726,6 +2726,63 @@ export const LINES = {
       'Back-to-back meetings behind you. Two minutes: stand, window, water, breathe.',
     ],
   },
+  // ---- step 9 admin ----
+  // The chore rota (chores.ts). {title}: the chore. Roast the grime, never the person.
+  choreDone: {
+    mild: ['{title}: done. Fresh again. +{xp} XP.', '{title} reset. The bar is full. +{xp} XP.', '{title}, sorted. Nice and fresh. +{xp} XP.'],
+    savage: ['{title}: done. The grime has been evicted. +{xp} XP.', '{title} reset. The dust had started making plans. +{xp} XP.', '{title}. Finally. The bar thanks you. +{xp} XP.'],
+  },
+  choreSkipped: {
+    mild: ['{title}: skipped with a pass. Fresh on paper, and that counts today.', 'Pass used on {title}. The bar starts over.'],
+    savage: ['{title}: skipped with a paid pass. Technically fresh. Legally fresh.', 'You bought your way out of {title}. The bar is full. The grime is confused.'],
+  },
+  // The due-back shelf (shelf.ts). {title}: the item, {day}: its last day ("tomorrow", "Friday", "Fri 21 Nov").
+  shelfAdded: {
+    mild: ['On the shelf: {title}, until {day}.', 'Noted: {title}. Last day {day}.'],
+    savage: ['{title} is on the shelf until {day}. I will be watching the calendar.', '{title}: last day {day}. Shelved, timed, remembered.'],
+  },
+  shelfDone: {
+    mild: ['{title}: off the shelf. Done.', '{title} is dealt with. One less thing.'],
+    savage: ['{title}: off the shelf before the deadline won. Respect.', '{title}, handled. The shelf is lighter and so is your head.'],
+  },
+  shelfRemindPickup: {
+    mild: ['{title}: the last day to pick it up is {day}.', 'Reminder: {title} waits for pickup until {day}.'],
+    savage: ['{title} goes back to the sender after {day}. Go get it.', '{title}: pickup closes {day}. The parcel will not walk to you.'],
+  },
+  shelfRemindReturn: {
+    mild: ['{title}: the return window closes {day}.', 'If {title} is going back, the last day is {day}.'],
+    savage: ['{title}: return by {day}, or it lives with you now.', 'The return window for {title} shuts {day}. Decide.'],
+  },
+  shelfRemindLoan: {
+    mild: ['{title} is due back at the library {day}.', 'Library reminder: {title}, due {day}.'],
+    savage: ['{title} is due back {day}. Librarians remember everything.', '{title}: due {day}. Return it, or renew it like a responsible adult.'],
+  },
+  // The War room (review.ts): a Sunday review. No weeks-in-a-row anything.
+  reviewIntro: {
+    mild: ['War room, {name}. Ten minutes: what got done, what is stuck, and what next week needs.', 'Welcome to the war room. Close the week, plan the next one, then off you go.'],
+    savage: ['War room is open. Bring the list, leave the denial at the door.', "Sunday war room, {name}. We look at the week honestly, then we plan a better one."],
+  },
+  reviewSealed: {
+    mild: ['Week sealed. +{coins} 🪙. Next week has a plan now.', 'Done: the week is closed and the next one is planned. +{coins} 🪙.'],
+    savage: ['Week sealed. +{coins} 🪙. Next week never saw it coming.', 'War room adjourned. +{coins} 🪙. The plan exists, so no pretending it does not.'],
+  },
+  zombieBurned: {
+    mild: ['🔥 {title} went on the bonfire. Gone for good.', '🔥 Burned: {title}. Letting go counts as a decision.'],
+    savage: ['🔥 {title} is ash. It had a long, quiet life on your list.', '🔥 Into the fire with {title}. Nobody will hold a memorial.'],
+  },
+  // Task horizons (horizons.ts). {title}: the task, {day}: when it comes back.
+  horizonLater: {
+    mild: ['{title}: not today. Back {day}.', 'Hidden until {day}: {title}.'],
+    savage: ['{title} is off the hook until {day}. Only until {day}.', '{title}: see you {day}. It will remember.'],
+  },
+  horizonSomeday: {
+    mild: ['{title} moved to Someday. It is out of the count.', 'Someday: {title}. No pressure on it now.'],
+    savage: ['{title} went to Someday, where maybes go to think.', '{title}: Someday. A promise, or a polite goodbye. We will see.'],
+  },
+  horizonWaiting: {
+    mild: ['Waiting on {title}. It comes back as a task {day}.', '{title}: on hold until {day}, then you chase it.'],
+    savage: ['{title}: the ball is in their court until {day}. Then it is in yours.', 'Waiting on {title}. If nothing arrives by {day}, we chase.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;

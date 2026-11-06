@@ -33,6 +33,11 @@ import { WeekendCard } from '@/components/weekend-card';
 import { WeekCard } from '@/components/week-card';
 import { WorryCard } from '@/components/worry-card'; // step 9 care
 import { shutdownQuiet } from '@/lib/worry';
+// step 9 admin: chores due, the due-back shelf, the Sunday War room prompt
+import { ChoresDueCard } from '@/components/chores-card';
+import { ReviewPrompt } from '@/components/review-cards';
+import { ShelfHqCard } from '@/components/shelf-card';
+import { activeTasks, taskLabel } from '@/lib/horizons';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { bedtimeOn, lastCallOn } from '@/lib/caffeine';
@@ -117,7 +122,7 @@ export default function HQ() {
   const respect = respectFor(state);
   const season = seasonOn(now);
   const week = workoutsThisWeek(state);
-  const openTasks = state.tasks.filter((t) => !t.done);
+  const openTasks = activeTasks(state, todayKey); // step 9 admin: tasks on a horizon wait off the list
   const upcoming = eventsOn(cal.events, now).filter((e) => e.end > now && !e.allDay).slice(0, 3);
   const unlocked = ACHIEVEMENTS.filter((a) => state.achievements[a.id]).length;
   const coffees = coffeeOf(today).length;
@@ -354,7 +359,7 @@ export default function HQ() {
           <Pressable key={t.id} onPress={() => actions.toggleTask(t.id)}>
             <Row>
               <Icon name="radio_button_unchecked" size={20} color={C.dim} />
-              <T style={{ flex: 1 }}>{t.title}</T>
+              <T style={{ flex: 1 }}>{taskLabel(t, todayKey)}</T>
             </Row>
           </Pressable>
         ))}
@@ -402,6 +407,10 @@ export default function HQ() {
     weekend: () => <WeekendCard />, // step 8 stockholm
     chapter: () => <ChapterCard />, // step 8 game: a fresh-start chapter on a landmark
     worry: () => <WorryCard />, // step 9 care: worry parking, the worry slot and the shutdown
+    // step 9 admin
+    review: () => <ReviewPrompt />,
+    shelf: () => <ShelfHqCard />,
+    chores: () => <ChoresDueCard />,
     // NEW HQ CARD: add `<id>: () => <YourCard />,` here and `{ id, label }` to HQ_SECTIONS in lib/hq-layout.ts.
   };
 

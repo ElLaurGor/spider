@@ -324,6 +324,17 @@ export default function RootLayout() {
                   headerShadowVisible: false,
                 }}
               />
+              {/* step 9 admin: the Sunday review */}
+              <Stack.Screen
+                name="review"
+                options={{
+                  headerShown: true,
+                  title: "War room",
+                  headerStyle: { backgroundColor: C.bg },
+                  headerTintColor: C.text,
+                  headerShadowVisible: false,
+                }}
+              />
               <Stack.Screen
                 name="night"
                 options={{ animation: "fade" }}
