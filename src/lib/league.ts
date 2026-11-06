@@ -192,3 +192,6 @@ export function withRivalName(s: State, id: string, name: string): State {
   const coop = s.coop && s.coop.week === l.week && s.coop.partner.name === r.name ? { ...s.coop, partner: { ...s.coop.partner, name } } : s.coop;
   return { ...s, rivalNames, coop, league: withRivalNames(l, rivalNames) };
 }
+
+/** step 9 story: the whole roster (the mole hunt, cipher.ts, picks its Syndicate mole from it). */
+export const ROSTER_LIST: readonly Omit<Rival, 'id'>[] = ROSTER;

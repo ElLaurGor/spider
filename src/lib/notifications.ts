@@ -58,6 +58,7 @@ import { joyReminders } from './joy';
 import { marathonGap, movePingOf } from './marathon';
 import { shutdownQuiet, worryPings } from './worry';
 import { shelfPings } from './shelf'; // step 9 admin
+import { bigDayBrief } from './big-days'; // step 9 story
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -350,7 +351,7 @@ async function doReplan(s: State, events: CalEvent[], weather: Weather | null, a
       const wkText = plan ? `${plan.name} day` : 'Rest day';
       const forecast = weather?.days.find((f) => f.date === key);
       const sv = upcomingDays(date, 2).map((n) => `${n.emoji} ${n.text}`).join(' ');
-      const body = sayOn(s, tone, 'morningBrief', { events: evText, workout: wkText }, key) + (forecast ? ` ${forecastText(forecast)}.` : '') + (sv ? ` ${sv}` : '');
+      const body = sayOn(s, tone, 'morningBrief', { events: evText, workout: wkText }, key) + (forecast ? ` ${forecastText(forecast)}.` : '') + (sv ? ` ${sv}` : '') + bigDayBrief(s, events, key, (k, v) => sayOn(s, tone, k, v, key)); // step 9 story: luck for a big day
       jobs.push(scheduleAt(`morning-${key}`, atTime(now, d, st.wakeHour), `☀️ Good morning, ${st.userName || 'boss'}`, body, CH.remind));
     }
 

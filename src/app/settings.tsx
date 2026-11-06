@@ -144,6 +144,7 @@ export default function SettingsScreen() {
         text: 'Switch',
         onPress: async () => {
           saveTheme(id);
+          actions.noteThemeSwitch(); // step 9 story: a third switch in a day gets a wink after the reload
           await saveNow().catch(() => {});
           await glReset(); // a reload mid-tank isn't a crash (gl-guard.ts)
           if (Updates.isEnabled) await Updates.reloadAsync();
@@ -540,6 +541,8 @@ export default function SettingsScreen() {
         <T dim small>
           {state.xp} XP total · {Object.keys(state.achievements).length} achievements · all data stays on this phone.
         </T>
+        {/* step 9 story: a long-press on the version turns up an intercepted memo (cipher.ts) */}
+        <Pressable onLongPress={() => actions.interceptMemo('version')} delayLongPress={800} accessibilityLabel="Version">
         <T dim small mono>
           v{Constants.expoConfig?.version ?? '?'}
           {Updates.isEnabled && Updates.updateId
@@ -548,6 +551,7 @@ export default function SettingsScreen() {
               }`
             : ' · dev'}
         </T>
+        </Pressable>
         <Btn label="Reset everything" icon="delete" kind="danger" onPress={reset} />
       </Card>
     </ScrollView>

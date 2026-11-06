@@ -463,6 +463,13 @@ export type State = {
   trips?: TripLog; // expeditions.ts: the spider's nights out and the souvenirs on the tank's shelf
   guests?: GuestBook; // guests.ts: rare guests in the tank, the guestbook and their gifts
   rps?: RpsState; // rps.ts: sten, sax, påse against the spider (the last throws, the weekly tally, today's coins)
+  // step 9 story
+  remarks?: Record<string, RemarkMark>; // once-only remarks (lib/remarks.ts): id -> when it was said, or that it waits for a day that isn't quiet
+  mail?: Letter[]; // the mailbox (lib/mail.ts): letters from the cast, oldest first, the newest MAIL_KEEP
+  bigDays?: BigDayAnswer[]; // how one-off calendar events went (lib/big-days.ts): kind and answer only, never the event's title
+  cipher?: CipherState; // intercepted Syndicate memos and the mole hunt (lib/cipher.ts)
+  meta?: MetaState; // "I remember the other timeline" (lib/meta-winks.ts): the week each wink was last said, and what it counts
+  install?: string; // the install (lib/install-id.ts) that last had this save, so a restore can tell a new phone
 };
 
 // step 8 days
@@ -515,6 +522,7 @@ export type CalEvent = {
   location: string | null;
   calendarId: string;
   color?: string;
+  recurring?: boolean; // step 9 story: part of a repeating series (big-days.ts leaves those out)
 };
 
 export type CalInfo = { id: string; title: string; account: string; color?: string };
@@ -666,3 +674,51 @@ export type RpsLast = { me: RpsThrow; it: RpsThrow; at: number; you: number; spi
  * RPS_KEEP throws at most; the match being played; won/lost/drawn per week; coins paid today.
  */
 export type RpsState = { past: string[]; live?: string; weeks?: Record<string, RpsTally>; paid?: { day: string; coins: number }; last?: RpsLast };
+
+// step 9 story
+/** A once-only remark (remarks.ts): when it was said (`kind`: its gentle version, on a quiet day), or `wait` for a day that isn't quiet. */
+export type RemarkMark = { at: number; kind?: true; wait?: true };
+/** Who writes (mail.ts): a beaten boss, the Couch King in exile, a co-op partner, Mamma Spindel in Småland. */
+export type MailFrom = 'boss' | 'king' | 'rival' | 'mamma';
+/**
+ * A letter in the mailbox (mail.ts). `ref` is what it's about, so each is sent once ('resign:<week>', 'coop:<week>',
+ * 'mamma:<YYYY-MM>', 'care:<day>', 'exile:<week>'). `gift`: a knitted cosmetic that came with it, `coins` in its place
+ * when it's owned already. `memo`: an intercepted memo on the back (cipher.ts).
+ */
+export type Letter = {
+  id: string;
+  from: MailFrom;
+  sender: string;
+  emoji: string;
+  subject: string;
+  body: string;
+  at: number;
+  day: string;
+  ref: string;
+  read?: boolean;
+  gift?: string;
+  coins?: number;
+  memo?: boolean;
+};
+/** A one-off calendar event's kind (big-days.ts). */
+export type BigKind = 'dentist' | 'doctor' | 'interview' | 'exam' | 'flight' | 'party' | 'wedding' | 'presentation' | 'driving' | 'moving' | 'date' | 'concert' | 'race' | 'haircut';
+export type BigAnswer = 'nailed' | 'survived' | 'rough';
+/** How a big day went, asked in the evening debrief. `id` is a hash of the calendar event, never its title. */
+export type BigDayAnswer = { id: string; kind: BigKind; day: string; answer: BigAnswer; at: number };
+/** Where a memo was intercepted (cipher.ts). */
+export type MemoPlace = 'postcard' | 'fly13' | 'version' | 'leet' | 'letter';
+/** The mole hunt (cipher.ts): the save's seed, memos in the order found, names wrongly accused, the right one once named. */
+export type CipherState = { seed: string; found: { place: MemoPlace; at: number }[]; wrong?: string[]; solved?: { name: string; at: number } };
+/** A meta-move the spider winks at (meta-winks.ts). */
+export type MetaKind = 'restore' | 'newPhone' | 'relog' | 'opens' | 'theme' | 'backdated';
+/**
+ * `weeks`: kind -> the week (its Monday) it was last said, at most once a week each. `opens`: the latest app opens,
+ * `themes`: theme switches that day, `undo`: the glass just undone, `pending`: winks waiting for the next run (after a reload or a restore).
+ */
+export type MetaState = {
+  weeks?: Partial<Record<MetaKind, string>>;
+  opens?: number[];
+  themes?: { day: string; n: number };
+  undo?: { at: number; ml: number };
+  pending?: MetaKind[];
+};

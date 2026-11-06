@@ -69,6 +69,12 @@ export const COSMETICS: Cosmetic[] = [
   { id: 'dew_drop', slot: 'held', name: 'Dew drop', emoji: '💧', source: 'gift', note: 'Left by a guest: the garden orb weaver' },
   { id: 'straw_goat', slot: 'held', name: 'Straw goat', emoji: '🐐', source: 'gift', note: 'Left by a guest: the house spider at jul' },
   { id: 'fake_moustache', slot: 'held', name: 'Fake moustache', emoji: '🥸', source: 'gift', note: 'Left by a guest: a pebble, allegedly' },
+  // step 9 story: Mamma Spindel's care packages (mail.ts) and the mole hunt's prize (cipher.ts)
+  { id: 'knit_scarf', slot: 'held', name: 'Knitted scarf', emoji: '🧣', source: 'gift', note: 'Knitted by Mamma Spindel in Småland' },
+  { id: 'knit_mittens', slot: 'held', name: 'Knitted mittens', emoji: '🧤', source: 'gift', note: 'Knitted by Mamma Spindel in Småland' },
+  { id: 'knit_socks', slot: 'held', name: 'Wool socks', emoji: '🧦', source: 'gift', note: 'Knitted by Mamma Spindel in Småland' },
+  { id: 'knit_yarn', slot: 'hat', name: 'Bobble hat', emoji: '🧶', source: 'gift', note: 'Knitted by Mamma Spindel in Småland' },
+  { id: 'mole_glass', slot: 'held', name: "Mole hunter's magnifier", emoji: '🔍', source: 'reward', note: 'Unmask the Syndicate mole (Bestiary · Decoder)' },
 ];
 
 /** Silk Track hats, held items and auras (seasonal pieces it hands out are in COSMETICS already). */

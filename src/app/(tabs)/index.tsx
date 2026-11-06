@@ -38,6 +38,7 @@ import { ChoresDueCard } from '@/components/chores-card';
 import { ReviewPrompt } from '@/components/review-cards';
 import { ShelfHqCard } from '@/components/shelf-card';
 import { activeTasks, taskLabel } from '@/lib/horizons';
+import { MailBanner } from '@/components/mail-banner'; // step 9 story
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { bedtimeOn, lastCallOn } from '@/lib/caffeine';
@@ -492,6 +493,7 @@ export default function HQ() {
 
       <FikaBanner />
       <TankBanner />
+      <MailBanner /> {/* step 9 story: an unread letter */}
       <PrizesCard />
       <JulfridCard />
       <AdventCard />

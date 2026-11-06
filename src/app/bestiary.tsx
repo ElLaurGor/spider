@@ -1,6 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { RecapBody } from '@/components/boss-recap';
+import { DecoderCard } from '@/components/decoder-card'; // step 9 story
 import { Card, H, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { bestiary, weeksUntil } from '@/lib/bestiary';
@@ -85,6 +86,8 @@ export default function BestiaryScreen() {
           </Card>
         );
       })}
+
+      <DecoderCard />
     </ScrollView>
   );
 }

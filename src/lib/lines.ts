@@ -3223,6 +3223,81 @@ export const LINES = {
       '{count}–{n}. A draw. Neither of us will speak of it.',
     ],
   },
+  // ---- step 9 story ----
+  // Big days (big-days.ts): one-off calendar events. {title}: what it is ("the dentist", "your interview"), never the
+  // event's own title; {time}: when it starts. Health visits get the same wishes as everything else: luck, not jokes.
+  bigDayLuck: {
+    mild: ['Today: {title} at {time}. Good luck, you have got this.', 'Big one today: {title} at {time}. Breathe first, then go.', '{time} today: {title}. Wishing you a smooth one.'],
+    savage: ['Today: {title} at {time}. Go get it. Full report tonight, please.', '{title} at {time}. Good luck. I mean that, which is rare for me.', '{time}: {title}. Walk in like you own the calendar.'],
+  },
+  bigDayLuckAllDay: {
+    mild: ['Today: {title}. Good luck with it.', 'Big day today: {title}. One step at a time.'],
+    savage: ['Today: {title}. Good luck. I want the story tonight.', '{title} today. Go make it a good one. I will be asking.'],
+  },
+  bigDayLastNailed: {
+    mild: ['Last time, {title} went: nailed it. Same again would be lovely.', 'Last one of these: nailed it. You know how.'],
+    savage: ['Last time: nailed it. The bar is up there now. No pressure.', 'Previous result: nailed it. Defend the title.'],
+  },
+  bigDayLastSurvived: {
+    mild: ['Last time, {title} went: survived. That still counts.', 'Last one of these: survived. Survived is a pass.'],
+    savage: ["Last time: 'survived'. Low bar. Clear it.", "Previous result: 'survived'. Room for an upgrade."],
+  },
+  bigDayNailed: {
+    mild: ['Nailed it. Noted, and kept for next time.', 'Nailed it. I will remember that for the next one.'],
+    savage: ['Nailed it. I will hold you to that next time.', 'Nailed it. Writing it down before you get modest about it.'],
+  },
+  bigDaySurvived: {
+    mild: ['Survived. That counts, and it is behind you now.', 'Survived it. Some days that is the whole job.'],
+    savage: ['Survived. Not a parade, but not nothing.', "Survived. I'll take it. Next time we aim higher."],
+  },
+  // Kind in both lists: a rough big day is never roasted, never counted, never brought up as a joke.
+  bigDayRough: {
+    mild: ["That sounds hard. It's over now, and you got through it.", "Rough one. Noted, and that's all I'll do with it. Go easy tonight.", 'Thank you for telling me. Tonight is for something gentle.'],
+    savage: ["That sounds hard. It's over now, and you got through it.", "Rough one. Noted, and that's all I'll do with it. Go easy tonight.", 'Thank you for telling me. Tonight is for something gentle.'],
+  },
+  // I remember the other timeline (meta-winks.ts): winks at meta-moves, once a week each, never on a quiet day. {n}: how many.
+  metaRestore: {
+    mild: ['Backup restored. I remember the other timeline. We will not speak of it.', 'Restored. Everything is back where it was, give or take a timeline.'],
+    savage: ['Restored from a backup. I remember the other timeline. It was worse. Probably.', 'Timeline restored. Whatever happened in the other one stays there.'],
+  },
+  metaNewPhone: {
+    mild: ['New phone, same spider. I travelled over in a backup file. Very glamorous.', 'Different phone, same me. The move went fine. I packed light.'],
+    savage: ['A new phone. I arrived by backup file, like a spy. Nice place you have here.', 'New device detected. Same spider, new glass. Mind the fingerprints.'],
+  },
+  metaRelog: {
+    mild: ['Undo, then the same glass again. The timeline thanks you for the correction.', 'Unlogged and relogged. Same glass, second take.'],
+    savage: ['Undo, then the exact same glass. Directing your own hydration, take two.', 'You undid that glass and poured it straight back in. I saw both timelines.'],
+  },
+  metaOpens: {
+    mild: ['That is {n} visits in the last hour. Nice to see you. Again.', '{n} times in an hour. I am always here, you know. Even between visits.'],
+    savage: ["{n} visits in an hour. I'm flattered, and a little curious what you're avoiding.", '{n} times this hour. At this point you live here. Pay rent in glasses of water.'],
+  },
+  metaTheme: {
+    mild: ['Third outfit today. They all suit me, for the record.', 'Three themes in one day. A spider of many looks.'],
+    savage: ["Third outfit today. I've been reloaded more often than a dishwasher.", 'Three theme changes in one day. Fashion week, apparently.'],
+  },
+  metaBackdated: {
+    mild: ['Editing a day from {days} days back. History, lightly revised.', 'A change to a day {days} days ago. The archive has been updated.'],
+    savage: ['Rewriting a day from {days} days ago. Historians will be confused.', 'Back {days} days to change the record. Time travel, admin edition.'],
+  },
+  // Intercepted transmissions (cipher.ts). {n}: memos found so far.
+  memoIntercepted: {
+    mild: ['📡 Intercepted a Syndicate transmission ({n} so far). It waits in the Bestiary, under Decoder.', '📡 A coded memo turned up ({n} so far). Bestiary → Decoder.'],
+    savage: ['📡 Syndicate memo intercepted ({n} so far). Somebody in your league talks too much. Bestiary → Decoder.', '📡 Coded transmission caught ({n} so far). The Syndicate has a leak. Bestiary → Decoder.'],
+  },
+  moleCaught: {
+    mild: ['{rival} was the mole. Unmasked. The magnifier is yours.', 'Case closed: {rival} worked for the Syndicate. Take the magnifier.'],
+    savage: ['{rival} was the mole all along. Unmasked. The magnifier is yours, detective.', 'Gotcha, {rival}. Syndicate mole, exposed. The magnifier is yours.'],
+  },
+  moleWrong: {
+    mild: ['{rival} is innocent, and a little hurt. Crossed off.', 'Not {rival}. Crossed off the list.'],
+    savage: ['{rival} is innocent and deeply offended. Crossed off.', 'Wrong rival. {rival} demands an apology. Crossed off.'],
+  },
+  // The mailbox (mail.ts). {title}: who it's from.
+  mailArrived: {
+    mild: ['📬 A letter from {title}. It is in the mailbox.', '📬 Post! {title} wrote to you. HQ → mailbox.'],
+    savage: ['📬 A letter from {title}. Read it before it gets ideas.', '📬 Post from {title}. The mailbox is on HQ.'],
+  },
 } satisfies Record<string, Pool>;
 
 export type LineKey = keyof typeof LINES;
@@ -3521,3 +3596,16 @@ export const GOLDEN_CHANCE = 0.02;
 
 export const ACRONYM = 'Savage Personal Intelligence for Daily Execution & Reminders';
 export const ACRONYM_REAL = 'Seriously Petty Intelligence Designed to Embarrass Regularly';
+
+// ---- step 9 story ----
+/**
+ * The line a toast shows and which pool it's from (the most recent one produced that the toast contains), so a
+ * once-only remark (remarks.ts) can take its place in that toast. Null when the toast isn't one of the lines.
+ */
+export function producedLine(toastText: string): { key: string; text: string } | null {
+  for (let i = produced.length - 1; i >= 0; i--) {
+    const p = produced[i];
+    if (p.text.length >= 8 && toastText.includes(p.text)) return { key: p.id.slice(0, p.id.lastIndexOf(':')), text: p.text };
+  }
+  return null;
+}
