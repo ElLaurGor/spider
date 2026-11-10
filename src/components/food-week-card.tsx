@@ -16,11 +16,19 @@ const CHART_H = 64;
  * Fuel's week of food: calories and protein per day, and what they add up to. Numbers only, never judged:
  * calorie bars have one color whatever the amount, protein bars fill in at the day's goal.
  */
-export function FoodWeekCard({ onOpenDay }: { onOpenDay: (key: string) => void }) {
+export function FoodWeekCard({
+  onOpenDay,
+  back,
+  onBack,
+}: {
+  onOpenDay: (key: string) => void;
+  /** Weeks before this one; Fuel keeps it so the meal rhythm below shows the same week. */
+  back: number;
+  onBack: (back: number) => void;
+}) {
   const { state } = useStore();
   const s = state.settings;
   const today = useToday();
-  const [back, setBack] = useState(0); // weeks before this one
   const [sel, setSel] = useState<string | null>(null);
   const at = addDays(noonOf(today), -7 * back);
   const w = foodWeek(state, at, today);
@@ -33,7 +41,7 @@ export function FoodWeekCard({ onOpenDay }: { onOpenDay: (key: string) => void }
   // The day picker above reaches back 6 days.
   const openable = !!picked && picked.key <= today && picked.key >= dayKey(addDays(noonOf(today), -6));
   const go = (b: number) => {
-    setBack(b);
+    onBack(b);
     setSel(null);
   };
 

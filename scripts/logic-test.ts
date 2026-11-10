@@ -7021,6 +7021,11 @@ function step9CareTests() {
   assert.deepEqual(strip[1].meals, [1140]);
   assert.deepEqual(strip.map((d) => d.future), [false, false, false, true, true, true, true]);
   assert.ok(Object.keys(strip[0]).every((k) => ['key', 'meals', 'future'].includes(k)), 'times only, no kcal');
+  // the week switcher: last week, seen from Wednesday 10 March, has its meals and no days still ahead
+  const lastWeek = mealRhythm(rhythm, new Date(at(3, 12)), '2027-03-10');
+  assert.equal(lastWeek[0].key, '2027-03-01');
+  assert.deepEqual(lastWeek[1].meals, [1140]);
+  assert.ok(lastWeek.every((d) => !d.future), 'a past week has nothing ahead');
 
   // ---- the meeting-marathon reset, and its cap shared with the move nudge ----
   const marathon = [ev('a', at(2, 9), at(2, 10)), ev('b', at(2, 10), at(2, 10, 30)), ev('c', at(2, 10, 33), at(2, 11, 5)), ev('d', at(2, 11, 30), at(2, 12))];

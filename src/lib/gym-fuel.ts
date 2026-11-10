@@ -38,10 +38,12 @@ const SAME_MEAL_MS = 45 * 60_000;
 
 export type RhythmDay = { key: string; meals: number[]; future: boolean };
 
-/** This week's meals (Monday to Sunday) as times of day in minutes after midnight, one dot per meal. */
-export function mealRhythm(s: State, now = new Date()): RhythmDay[] {
-  const monday = startOfWeek(now);
-  const today = dayKey(now);
+/**
+ * The meals of the week `date` falls in (Monday to Sunday) as times of day in minutes after midnight, one dot
+ * per meal. `today` marks the days still ahead, so an earlier week (Fuel's week switcher) has none.
+ */
+export function mealRhythm(s: State, date: Date | number = new Date(), today = dayKey(date)): RhythmDay[] {
+  const monday = startOfWeek(date);
   return Array.from({ length: 7 }, (_, i) => {
     const key = dayKey(addDays(monday, i));
     const times = dayOf(s, key)

@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Card, H, Row, T } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
-import { WEEKDAYS } from '@/lib/dates';
+import { addDays, WEEKDAYS } from '@/lib/dates';
 import { mealRhythm } from '@/lib/gym-fuel';
 import { useStore } from '@/lib/store';
 
@@ -14,17 +14,18 @@ const TICKS = [6, 12, 18];
 const left = (min: number) => `${(Math.max(0, Math.min(SPAN, min - FROM)) / SPAN) * 100}%` as const;
 
 /**
- * step 9 care: Fuel's meal rhythm, this week's meals as dots on the time of day (gym-fuel.ts mealRhythm). When,
- * never how much: no kcal, no grading, nothing counted out loud.
+ * step 9 care: Fuel's meal rhythm, a week's meals as dots on the time of day (gym-fuel.ts mealRhythm). When,
+ * never how much: no kcal, no grading, nothing counted out loud. `back`: weeks before this one, the same week
+ * the food week card above is on.
  */
-export function MealRhythm() {
+export function MealRhythm({ back = 0 }: { back?: number }) {
   const { state } = useStore();
   const today = useToday();
-  const days = mealRhythm(state, noonOf(today));
+  const days = mealRhythm(state, addDays(noonOf(today), -7 * back), today);
   if (!days.some((d) => d.meals.length)) return null;
   return (
     <Card>
-      <H>Meal rhythm · this week</H>
+      <H>Meal rhythm · {back === 0 ? 'this week' : back === 1 ? 'last week' : `${back} weeks ago`}</H>
       {days.map((d) => (
         <Row key={d.key} gap={8} style={d.future ? { opacity: 0.35 } : undefined}>
           <Text style={[styles.day, d.key === today && { color: C.text }]}>{WEEKDAYS[noonOf(d.key).getDay()]}</Text>

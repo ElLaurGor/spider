@@ -29,6 +29,7 @@ export default function Fuel() {
   const { photo: sharedPhoto } = useLocalSearchParams<{ photo?: string }>();
   const s = state.settings;
   const [picked, setPicked] = useState<string | null>(null); // a past day being fixed; null = today
+  const [weekBack, setWeekBack] = useState(0); // the food week card's week, which the meal rhythm follows
   const todayKey = useToday();
   const now = useNow(60_000);
   const day = picked ?? todayKey;
@@ -101,8 +102,8 @@ export default function Fuel() {
 
       <CoffeeCard day={day} />
       <FoodCard day={day} sharedPhoto={sharedPhoto} />
-      <FoodWeekCard onOpenDay={(k) => setPicked(k === todayKey ? null : k)} />
-      <MealRhythm />
+      <FoodWeekCard onOpenDay={(k) => setPicked(k === todayKey ? null : k)} back={weekBack} onBack={setWeekBack} />
+      <MealRhythm back={weekBack} />
       <HiddenEgg id="fuel" align="flex-end" />
     </Screen>
   );
