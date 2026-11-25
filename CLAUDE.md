@@ -191,6 +191,16 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - The store's context is split: `useStore()` (everything else), `useToasts()`, `useCue()`, `useTankEvents()`. Fast-changing UI state goes in a context of its own, not in `main`.
   - `rowsThatFit` (persist.ts, `SAFE_ROW` 1.5 MB) keeps an oversized row from being written (its last good copy stays; one warning, `Disk.warnedBig`).
   - Going to the background replans a pending reminder change at once (inside the replan effect) and flushes a pending line-memory save. `trimToasts` (toast-queue.ts) never drops the toast showing or one with a button.
+- Step 10 ux:
+  - Settings sections live in `settings-sections.ts`; link with `settingsLink(id)` (`/settings?section=`); the sticky chip row jumps to section tops measured with onLayout. Keep each section's cards together when adding one.
+  - HQ card `evening` (`evening.ts` decides when each part shows, `evening-card.tsx` draws it) replaced `winddown`/`debrief` and the worry card's shutdown (the worry card keeps it only while Evening is hidden). `MERGED` in hq-layout.ts maps old ids in saved layouts; unknown ids drop out. `HQ_SECTIONS` entries may carry `when` for cards that only show sometimes.
+  - `achievements` left HQ: the grid is in Records (`/records?show=achievements`); HQ's level card says "🏆 n/20 · next: X".
+  - HQ's Coffee tile opens Fuel; "+1 coffee" is a button. `Screen` takes `onRefresh`; `usePullRefresh(parts)` runs the store's refreshers (HQ all, Plan the calendar, Gym the watch and weather). Plan's Tasks card sits right under the calendar.
+  - A deleted task's toast Undo uses `task-trash.ts` (`restoreTask`, kept 60 s). Fuel's picked past day resets when she leaves the tab, after 5 min away, or on a new day (the scanner keeps it).
+- Step 10 ask & meetings:
+  - Meeting load (`meeting-load.ts`, `meeting-load-card.tsx`): read back from the phone's calendar with `useCalendarRange` (pads a day each side: Android lists only events wholly inside a range; cached per session, ranges with today re-read after 10 min); nothing saved. A meeting is a timed, not-"free" event of at most 8 h starting before 18:00 on a workday (not weekend, red or paused), not a block she keeps for herself (focus, lunch, gym, träning, commute, OOO, ledig…), counted once across calendars; `settings.meetingCalendars` (unset = all) leaves calendars out. Shown in the War room, the Report and a Wrapped slide; never graded; `meeting*` pools roast the calendar (`{hours}`, `{day}`, `{n}`). Declined invites still count (expo-calendar has no attendee status on Android).
+  - `CalEvent.free` comes from expo-calendar's availability; only meeting-load and ask.ts use it so far.
+  - Ask S.P.I.D.E.R. (`ask.ts`, route `/ask`, HQ shortcuts card): gym, one-more-game and tonight verdicts with their reasons; pure, nothing saved, no XP. Tonight is never a no, and the check-in is context only, never weighed. Lines from the `ask*` pools via `quip` (`askTonight*` take `{time}`).
 - Scores and recaps judge only `countedDay`s (`day-filters.ts`): something was logged and the day wasn't rough (paused, low mood, period). Rough days are listed as rest, never as misses; recaps start at `firstDataDay`. Mood and protein are shown but never graded.
 
 ## Before calling a change done
