@@ -68,7 +68,7 @@ export async function fetchWeather(place: Place): Promise<Weather> {
     '&current=temperature_2m,apparent_temperature,weather_code,cloud_cover,relative_humidity_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset,daylight_duration,sunshine_duration' +
     '&minutely_15=precipitation&forecast_minutely_15=16' +
-    '&timezone=auto&forecast_days=4';
+    '&timezone=auto&forecast_days=7'; // step 10: a whole week, for Monday's horoscope (everything else looks days up by date)
   const j = await getJson<{
     utc_offset_seconds?: number;
     current: { temperature_2m: number; apparent_temperature: number; weather_code: number; cloud_cover?: number | null; relative_humidity_2m?: number | null; wind_speed_10m?: number | null; wind_direction_10m?: number | null };

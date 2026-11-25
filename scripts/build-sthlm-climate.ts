@@ -7,6 +7,8 @@
 // (1996 onwards, still running) carries the series on. Where both exist they agree to within 0.03° on average,
 // so 98210 is used while it runs and 98230 after it, its latest four months included. `--until` (default:
 // yesterday) leaves out today's still-running max and min. `--cache` keeps the downloads for a rerun.
+// step 10: the table also carries each year's arrival of SMHI's meteorological seasons (climate-table.ts
+// seasonArrivals), found in the same daily means; sthlm-seasons.ts goes on from its last one.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -64,6 +66,7 @@ async function series(p: number): Promise<Map<string, number>> {
   const out = join(process.cwd(), 'src', 'lib', 'sthlm-climate.json');
   writeFileSync(out, `${json}\n`);
   console.log(`${out}: ${json.length} bytes, ${obs.length} days, means from ${table.from}, max/min from ${table.extremesFrom}, through ${table.through}`);
+  console.log(`seasons from ${table.seasons.from}, the last one: ${table.seasons.last?.season} on ${table.seasons.last?.day}`);
 })().catch((e) => {
   console.error(e);
   process.exit(1);

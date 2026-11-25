@@ -15,6 +15,7 @@ export const HQ_SECTIONS = [
   { id: 'commute', label: 'SL departures (once a stop is set)' },
   { id: 'weekend', label: 'This weekend in Stockholm (once event types are picked)', when: 'Thu–Sat' },
   { id: 'chapter', label: 'New chapter: birthday, payday, back from a break', when: 'on a fresh-start day' }, // step 8 game
+  { id: 'horoscope', label: 'Spindelhoroskopet: the week ahead in the stars', when: 'Mondays' }, // step 10
   { id: 'review', label: 'War room: the Sunday review', when: 'Sundays, until sealed or closed' }, // step 9 admin
   { id: 'shelf', label: 'Due-back shelf: pickup codes, returns, library loans', when: 'while something is on it' }, // step 9 admin
   { id: 'sleep', label: 'Sleep & energy check-in', when: 'mornings, until it is filled in' },

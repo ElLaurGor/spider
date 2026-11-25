@@ -10,6 +10,10 @@ import { FINAL_BOSS, bossFor, kingWeeksOf } from './quests';
 import { LETTER_MEMO, memoFound, withMemo } from './cipher';
 import { roll } from './critters';
 import { grownLing } from './egg-sacs';
+import { birthdayYear, birthdayYearLabel, birthdayYearText, isBirthday } from './birthday'; // step 10
+import { GUESTS } from './guests';
+import { nemesisOf } from './league';
+import { quietDay } from './tone';
 import type { Letter, Spiderling, State } from './types';
 
 export const MAIL_KEEP = 200;
@@ -256,11 +260,70 @@ function lingCard(s: State, x: Spiderling): Draft {
   return { from: 'ling', sender: `${name}, a grown spiderling`, emoji: '🕷️', subject: `Postcard from ${place.where}`, body, ref: `ling:${x.id}` };
 }
 
+// ---- step 10: her birthday card, one letter signed by several of the cast ----
+
+/** Mamma's birthday money once she has knitted everything (her knitting otherwise, in KNITS order). Never XP. */
+export const BIRTHDAY_COINS = 100;
+export const CAST = { name: 'The whole cast', emoji: '🎂' };
+
+const RIVAL_WISHES = [
+  "Happy birthday. Don't let it go to your head: I'm still ahead on XP. Probably. I didn't check, it's your day.",
+  'Happy birthday. I got you nothing, because I was busy training. Enjoy your day off from chasing me.',
+  "Many happy returns. I signed this card under protest, but I signed it. Don't tell the league.",
+];
+const RIVAL_KIND = "Happy birthday. Even rivals take today off. Enjoy it. I'll be right here next week.";
+const GUEST_WISH: Partial<Record<keyof typeof GUESTS, string>> = {
+  reginald: 'Many happy returns, madam. I raise a leg in your honour. Possibly two. I have several.',
+  spy: 'Happy birthday. This card is from a pebble. Pebbles do not send cards. Disregard it.',
+};
+
+/**
+ * Her birthday card: Mamma Spindel (something knitted, or birthday money once she has knitted everything), a
+ * rival with a backhanded wish (a kind one on a quiet day), the Couch King from exile if he has fallen, the guest
+ * who visited the tank last, and S.P.I.D.E.R. with the year since her last birthday in totals. Nothing about the
+ * body, food, mood or sleep. Never XP.
+ */
+function birthdayCard(s: State, now: Date): { draft: Draft; gift: string | null } {
+  const key = dayKey(now);
+  const year = Number(key.slice(0, 4));
+  const name = owner(s, '');
+  const gentle = quietDay(s, key, now);
+  const gift = KNITS.find((id) => !owns(s, id)) ?? null;
+  const parts: string[] = [];
+  parts.push(
+    `${MAMMA.emoji} ${MAMMA.name}:\nHappy birthday, ${name || 'my darling'}. Another year of you, and the world is better for it. ${
+      gift
+        ? `I knitted you a ${cosmeticOf(gift)?.name.toLowerCase() ?? 'little something'} during the long evenings. It is in your wardrobe already.`
+        : 'I have knitted you everything twice, so here is a little something for the bus.'
+    } Kramar, Mamma`,
+  );
+  const rival = nemesisOf(s) ?? s.league?.rivals[0] ?? null;
+  if (rival) parts.push(`${rival.emoji} ${rival.name}:\n${gentle ? RIVAL_KIND : RIVAL_WISHES[year % RIVAL_WISHES.length]}`);
+  if (s.syndicateBroken && !kingWeeksOf(s).includes(dayKey(startOfWeek(now)))) {
+    parts.push(`${FINAL_BOSS.emoji} ${FINAL_BOSS.name}, in exile:\nHappy birthday from the folding chair. I would stand to toast you, but you know how I feel about standing.`);
+  }
+  const visit = [...(s.guests?.visits ?? [])].reverse().find((v) => v.guest !== 'ling' && v.day < key);
+  if (visit) {
+    const g = GUESTS[visit.guest];
+    parts.push(`${g.emoji} ${g.short}:\n${GUEST_WISH[visit.guest] ?? 'Happy birthday from a former guest of the tank. I still talk about the moss.'}`);
+  }
+  const y = birthdayYear(s, key);
+  const totals = y ? birthdayYearText(y) : null;
+  parts.push(
+    `🕷️ S.P.I.D.E.R.:\n${totals && y ? `${birthdayYearLabel(y)}, in totals: ${totals}. ` : ''}${gentle ? "I'm glad you're here. Happy birthday." : 'Not bad for someone I roast daily. Happy birthday.'}`,
+  );
+  const body = `Happy birthday${name ? `, ${name}` : ''}!\n\n${parts.join('\n\n')}`;
+  return {
+    draft: { from: 'cast', sender: CAST.name, emoji: CAST.emoji, subject: `Happy birthday${name ? `, ${name}` : ''}!`, body, ref: `birthday:${year}`, ...(gift ? { gift } : { coins: BIRTHDAY_COINS }) },
+    gift,
+  };
+}
+
 /** Today already had its letter. */
 export const mailedToday = (s: State, now = new Date()) => (s.mail ?? []).some((l) => l.day === dayKey(now));
 
 /**
- * The day's letter, if one is due and none came today: a care package first (when the rough-patch card would
+ * The day's letter, if one is due and none came today: her birthday card first (step 10), then a care package (when the rough-patch card would
  * show, at most every CARE_EVERY_DAYS), then a boss's resignation, a co-op postcard, a grown spiderling's postcard
  * as it moves out, Mamma's monthly letter and the Couch King from exile. A care package's knitting goes straight into the wardrobe (or coins when she has
  * knitted everything already). Never XP.
@@ -269,8 +332,15 @@ export function withMail(s: State, now = new Date(), ctx: MailCtx = {}): { state
   if (!s.onboarded || mailedToday(s, now)) return { state: s, letter: null };
   let draft: Draft | null = null;
   let next = s;
+  // step 10: her birthday card comes first that day (a care package can wait a day)
+  if (isBirthday(s, dayKey(now)) && !has(s, `birthday:${now.getFullYear()}`)) {
+    const card = birthdayCard(s, now);
+    draft = card.draft;
+    if (card.gift) next = withOwned(next, card.gift);
+    else next = { ...next, coins: next.coins + BIRTHDAY_COINS, coinsEarned: next.coinsEarned + BIRTHDAY_COINS };
+  }
   const lastCare = lastOf(s, 'care:');
-  if (ctx.rough && (!lastCare || now.getTime() - lastCare.at >= CARE_EVERY_DAYS * DAY_MS)) {
+  if (!draft && ctx.rough && (!lastCare || now.getTime() - lastCare.at >= CARE_EVERY_DAYS * DAY_MS)) {
     const care = careLetter(s, now);
     draft = care.draft;
     if (care.gift) next = withOwned(next, care.gift);

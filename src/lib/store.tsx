@@ -189,6 +189,10 @@ import { withOpen, withRestore, withThemeSwitch } from './meta-winks';
 import { installId } from './install-id';
 import { roughPatch, showRoughPatch } from './rough-patch';
 import { TASK_UNDO_MS, withoutTask, withTaskBack, type TrashedTask } from './task-trash'; // step 10 ux
+// step 10: her birthday (the day's roasts turn affectionate), Stockholm's seasons
+import { birthdayOf } from './birthday';
+import { setLineBirthday } from './lines';
+import { SEASON_INFO, seasonNews, seasonsUpdate } from './sthlm-seasons';
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
@@ -3955,6 +3959,20 @@ function useStoreValue() {
           return next;
         });
       },
+
+      // --- step 10 birthday, seasons, horoscope ---
+      /** SMHI's latest Stockholm readings (SthlmClimateSync): a meteorological season that just arrived is told once (sthlm-seasons.ts). */
+      sthlmSeasonsIn(obs: DayObs[]) {
+        run(
+          (s, msgs) => {
+            const { next, news, changed } = seasonsUpdate(s.sthlmSeasons, obs, dayKey());
+            if (!changed) return s;
+            for (const x of news) msgs.push({ text: `${SEASON_INFO[x.season].emoji} ${L(s, 'sthlmSeason', { finding: seasonNews(x, next) })}`, tone: 'info' });
+            return { ...s, sthlmSeasons: next };
+          },
+          { quiet: true },
+        );
+      },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],
   );
@@ -4110,6 +4128,10 @@ function useStoreValue() {
     const t = setTimeout(() => actions.stopGame(cap, true), Math.min(ms, 2_147_000_000));
     return () => clearTimeout(t);
   }, [ready, gameStart, tick, actions]);
+
+  // step 10: on her birthday a line from a savage list gets an affectionate turn after it (lines.ts birthdayTurn)
+  const birthdayMd = birthdayOf(state);
+  useEffect(() => setLineBirthday(birthdayMd), [birthdayMd]);
 
   // Screens memoize their lines on `quip`, so it changes with the tone: a low mood or sick mode re-picks them gently.
   const savage = effectiveSavage(state);

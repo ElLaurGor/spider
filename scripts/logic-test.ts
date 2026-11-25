@@ -274,6 +274,15 @@ import { LING_SOUVENIR, shelfOf as tankShelfOf, souvenirFor as tripSouvenirFor, 
 import { askGame, askGym, askTonight, bedtimeFor, freeGap } from '../src/lib/ask';
 import { dayLoad, isMeeting, LOAD_LINE, loadFacts, loadMood, loadVars, meetingLoad, readRange } from '../src/lib/meeting-load';
 import { guestFor as guestOnDay, LING_AWAY_DAYS, lingVisitor, settleGuests as settleGuestDays, guestOn as guestThatDay } from '../src/lib/guests';
+// step 10: her birthday and name day, Stockholm's seasons, Spindelhoroskopet
+import { mdOfOffset, SEASON_RULES, seasonArrivals, seasonOffset, seasonTableOf, seasonYearOf, type ClimateTable } from '../src/lib/climate-table';
+import { compareText, medianBefore, monthSeasonsText, seasonHistory, seasonNews, seasonOnRow, seasonShort, seasonsInMonth, seasonState, seasonsUpdate } from '../src/lib/sthlm-seasons';
+import { birthdayBannerKey, birthdayYear, birthdayYearText, isBirthday, isOwnNameDay, ownName } from '../src/lib/birthday';
+import { birthdayFalls, setLineBirthday } from '../src/lib/lines';
+import { BIRTHDAY_COINS } from '../src/lib/mail';
+import { badOf, bossDayOf, goodOf, horoscopeDue, horoscopeFor, horoscopeKey, listText, signOf, weekFacts, type DayFacts } from '../src/lib/horoscope';
+import type { CalEvent as StepTenEvent, SeasonSeen } from '../src/lib/types';
+import type { Weather as StepTenWeather } from '../src/lib/weather';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -8668,5 +8677,319 @@ function stepTenAskTests() {
   }
 }
 stepTenAskTests();
+// step 10: Stockholm's meteorological seasons by SMHI's definitions (climate-table.ts, sthlm-seasons.ts)
+function stepTenSeasonsTests() {
+  const series = (from: string, to: string, mean: (day: string) => number | null): DayObs[] => {
+    const out: DayObs[] = [];
+    for (let d = new Date(`${from}T12:00`); dayKey(d) <= to; d = addDays(d, 1)) {
+      const m = mean(dayKey(d));
+      if (m != null) out.push({ day: dayKey(d), mean: m });
+    }
+    return out;
+  };
+  const between = (day: string, a: string, b: string) => day >= a && day <= b;
+  // a year through every rule: spring not before 15 Feb, a broken summer run, a cool July that isn't autumn, a
+  // missing day that breaks winter's first run, then spring again the next year
+  const year = series('2020-01-01', '2021-04-30', (d) => {
+    if (d === '2020-12-04') return null; // SMHI has no reading that day
+    if (d < '2020-02-10') return -3;
+    if (d <= '2020-02-25') return 2;
+    if (d <= '2020-04-30') return 5;
+    if (d <= '2020-05-03') return 12;
+    if (d === '2020-05-04') return 8;
+    if (d <= '2020-05-09') return 11;
+    if (between(d, '2020-07-20', '2020-07-26')) return 8;
+    if (d <= '2020-09-19') return 15;
+    if (d <= '2020-09-24') return 9;
+    if (d <= '2020-11-30') return 6;
+    if (d <= '2020-12-03') return -1;
+    if (d <= '2021-02-28') return -4;
+    return 3;
+  });
+  const arr = seasonArrivals(year);
+  assert.deepEqual(
+    arr.map((a) => `${a.season} ${a.day} ${a.known}`),
+    ['spring 2020-02-15 2020-02-21', 'summer 2020-05-05 2020-05-09', 'autumn 2020-09-20 2020-09-24', 'winter 2020-12-05 2020-12-09', 'spring 2021-03-01 2021-03-07'],
+  );
+  assert.ok(SEASON_RULES.spring.test(0.1) && !SEASON_RULES.spring.test(0) && SEASON_RULES.summer.test(10) && !SEASON_RULES.autumn.test(10) && SEASON_RULES.winter.test(0));
+  // a winter that never comes: autumn goes straight to the next spring (from 15 Feb)
+  const mild = series('2020-08-01', '2021-04-30', (d) => (d <= '2020-09-30' ? 14 : 4));
+  const mildArr = seasonArrivals(mild, { season: 'summer', day: '2020-06-01' });
+  assert.deepEqual(mildArr.map((a) => `${a.season} ${a.day}`), ['autumn 2020-10-01', 'spring 2021-02-15']);
+  // season years and offsets: a winter after New Year belongs to the year before, ranked after December
+  assert.equal(seasonYearOf({ season: 'winter', day: '2021-01-10' }), 2020);
+  assert.equal(seasonYearOf({ season: 'spring', day: '2021-03-01' }), 2021);
+  assert.equal(seasonOffset({ season: 'winter', day: '2021-01-10' }), 9 + 366);
+  assert.ok(seasonOffset({ season: 'winter', day: '2021-01-10' }) > seasonOffset({ season: 'winter', day: '2020-12-31' }));
+  assert.deepEqual([mdOfOffset(0), mdOfOffset(59), mdOfOffset(60), mdOfOffset(365), mdOfOffset(375)], ['01-01', '02-29', '03-01', '12-31', '01-10']);
+  const tbl = seasonTableOf([...arr, ...mildArr.map((a) => ({ ...a }))].sort((a, b) => (a.day < b.day ? -1 : 1)));
+  assert.equal(tbl.from, 2020);
+  assert.equal(tbl.winter[0], seasonOffset({ season: 'winter', day: '2020-12-05' }), 'the first arrival in a season year counts');
+  assert.deepEqual(tbl.last, { season: 'spring', day: '2021-03-01' });
+
+  // comparisons with every year before: earliest/latest on record, "since" a year at least 10 back, else the median
+  const fixture = (cols: Partial<ClimateTable['seasons']>): ClimateTable => ({ ...CLIMATE, seasons: { from: 2000, spring: [], summer: [], autumn: [], winter: [], last: null, ...cols } });
+  // 2005: 20 Feb, 2008: 26 Mar, 2018: 11 Mar, 2019: 21 Mar, every other year 16 Mar
+  const springs = Array.from({ length: 20 }, (_, i) => ({ 5: 50, 8: 85, 18: 70, 19: 80 })[i] ?? 75);
+  const t = fixture({ spring: [...springs, null], last: { season: 'winter', day: '2019-12-01' } });
+  assert.equal(compareText({ season: 'spring', day: '2020-02-16' }, [], t), 'the earliest spring on record (since 2000)');
+  assert.equal(compareText({ season: 'spring', day: '2020-02-25' }, [], t), 'the earliest spring since 2005');
+  assert.equal(compareText({ season: 'spring', day: '2020-03-25' }, [], t), 'the latest spring since 2008');
+  assert.equal(compareText({ season: 'spring', day: '2020-03-16' }, [], t), 'right on the median');
+  assert.equal(compareText({ season: 'spring', day: '2020-03-20' }, [], t), '4 days later than the median');
+  assert.equal(compareText({ season: 'spring', day: '2020-04-30' }, [], t), 'the latest spring on record (since 2000)');
+  assert.equal(medianBefore('spring', 2020, [], t)?.md, '03-16');
+  const news = seasonNews({ season: 'spring', day: '2020-02-25' }, [], t);
+  assert.ok(news.startsWith('Meteorological spring arrived in Stockholm on 25 February (SMHI: the first of 7 days averaging above 0°'), news);
+  assert.ok(news.includes('The earliest spring since 2005; the median arrival since 2000 is 16 March.'), news);
+  assert.equal(seasonShort({ season: 'spring', day: '2020-02-25' }, [], t), '🌱 Spring arrived in Stockholm on 25 Feb: the earliest spring since 2005.');
+  // a winter that never came counts as later than any; the table's last year isn't a "never" yet
+  const winters = Array.from({ length: 20 }, (_, i) => (i === 10 ? null : 340));
+  const w = fixture({ winter: [...winters, null] });
+  assert.equal(seasonHistory('winter', [], w).get(2010), null);
+  assert.ok(!seasonHistory('winter', [], w).has(2020), 'the last year is still open');
+  assert.equal(compareText({ season: 'winter', day: '2021-02-03' }, [], w), 'the latest winter since 2010');
+  assert.equal(medianBefore('winter', 2020, [], w)?.never, 1);
+
+  // the app goes on from the table's last arrival: told once, when its run is complete, never today's running mean
+  const live = fixture({ autumn: [...Array.from({ length: 26 }, () => 280), 282], last: { season: 'autumn', day: '2026-10-09' } });
+  const nov = series('2026-08-01', '2026-11-26', (d) => (between(d, '2026-11-20', '2026-11-24') ? -1.5 : d >= '2026-11-25' ? 1 : 6));
+  assert.deepEqual(seasonState([], live), { season: 'autumn', day: '2026-10-09' });
+  const now = new Date(2026, 10, 26, 9).getTime();
+  const first = seasonsUpdate([], nov, '2026-11-26', now, live);
+  assert.ok(first.changed);
+  assert.deepEqual(first.news.map((x) => `${x.season} ${x.day} ${x.known} ${x.told}`), ['winter 2026-11-20 2026-11-24 true']);
+  assert.ok(!seasonsUpdate(first.next, nov, '2026-11-27', now + 86_400_000, live).changed, 'said once');
+  assert.deepEqual(seasonState(first.next, live), { season: 'winter', day: '2026-11-20' });
+  const today = series('2026-11-01', '2026-11-24', (d) => (d >= '2026-11-20' ? -1 : 6)); // the 5th day is today, still running
+  assert.ok(!seasonsUpdate([], today, '2026-11-24', now, live).changed);
+  const late = seasonsUpdate([], nov, '2026-12-20', now, live);
+  assert.ok(late.changed && late.news.length === 0 && late.next[0].told === false, 'found weeks later: kept quietly');
+  // HQ's weather row for a week after it was told; Wrapped's month
+  const seen: SeasonSeen[] = first.next;
+  assert.equal(seasonOnRow(seen, now + 3 * 86_400_000)?.season, 'winter');
+  assert.equal(seasonOnRow(seen, now + 8 * 86_400_000), null);
+  assert.equal(seasonOnRow(late.next, now), null, 'a quiet find never shows');
+  assert.deepEqual(seasonsInMonth('2026-11', seen, live).map((a) => a.season), ['winter']);
+  assert.deepEqual(seasonsInMonth('2026-10', [], live).map((a) => `${a.season} ${a.day}`), ['autumn 2026-10-09']);
+  assert.ok(monthSeasonsText('2026-11', seen, live)?.startsWith('❄️ Winter arrived on 20 Nov'));
+  assert.equal(monthSeasonsText('2026-07', seen, live), null);
+
+  // the shipped table: every year since 1859, inside SMHI's windows, and still small
+  const s = CLIMATE.seasons;
+  assert.equal(s.from, 1859);
+  assert.ok(s.spring.length >= 167 && s.spring.length === s.winter.length);
+  for (const v of s.spring) if (v != null) assert.ok(v >= doyOf('02-15') && v <= doyOf('07-31'));
+  for (const v of s.autumn) if (v != null) assert.ok(v >= doyOf('08-01'));
+  assert.ok(s.last && SEASON_RULES[s.last.season]);
+  const size = readFileSync(join(process.cwd(), 'src/lib/sthlm-climate.json'), 'utf8').length;
+  assert.ok(size < 20_000, `sthlm-climate.json is ${size} bytes`);
+  // city trivia: never a word about her, never "in a row"
+  for (const x of [news, seasonNews({ season: 'winter', day: '2021-02-03' }, [], w), seasonShort({ season: 'winter', day: '2021-02-03' }, [], w)]) {
+    assert.ok(!/in a row|streak|\b(you|your|she|her)\b/i.test(x), x);
+  }
+}
+stepTenSeasonsTests();
+
+// step 10: her birthday (the cast's card, the year in totals, affectionate roasts) and her own name day
+function stepTenBirthdayTests() {
+  const base = (): SweState => ({ ...defaultState(), onboarded: true, settings: { ...defaultState().settings, userName: 'Elena', birthday: '11-25' } });
+  const bday = new Date(2026, 10, 25, 9);
+  // the day itself, 29 February on the 28th in other years
+  assert.ok(birthdayFalls('11-25', '2026-11-25') && !birthdayFalls('11-25', '2026-11-24') && !birthdayFalls(null, '2026-11-25'));
+  assert.ok(birthdayFalls('02-29', '2027-02-28') && !birthdayFalls('02-29', '2028-02-28') && birthdayFalls('02-29', '2028-02-29'));
+  assert.ok(isBirthday(base(), '2026-11-25') && !isBirthday({ ...base(), settings: { ...base().settings, birthday: undefined } }, '2026-11-25'));
+
+  // the year since her last birthday, in totals only
+  const s = base();
+  const day = (key: string, d: Partial<ReturnType<typeof emptyDay>>) => {
+    s.days[key] = { ...emptyDay(), ...d };
+  };
+  day('2025-11-24', { water: [{ id: 'old', ml: 250, at: 1 }] }); // the day before last year's birthday: not this year
+  day('2025-11-25', { water: [{ id: 'a', ml: 250, at: 1 }], doneTasks: [{ id: 't1', at: 1 }] });
+  day('2026-03-02', { sets: [{ id: 's', exercise: 'Squat', weight: 60, reps: 5, at: 1 }], habits: ['h1', 'h2'], focus: [{ id: 'f', start: 0, end: 1, minutes: 25 }, { id: 'g', start: 0, end: 1, minutes: 5, snapped: 'x' }] });
+  day('2026-11-24', { water: [{ id: 'b', ml: 250, at: 1 }, { id: 'c', ml: 250, at: 2 }] });
+  day('2026-11-25', { water: [{ id: 'today', ml: 250, at: 1 }] }); // the birthday itself starts the next year
+  s.bossesDefeated = { '2026-03-02': 'snooze', '2025-11-17': 'binge' };
+  s.bossKilledAt = { '2026-03-02': new Date(2026, 2, 4).getTime(), '2025-11-17': new Date(2025, 10, 20).getTime() };
+  const y = birthdayYear(s, '2026-11-25');
+  assert.deepEqual(y && { ...y }, { from: '2025-11-25', to: '2026-11-24', partial: false, tasks: 1, trained: 1, glasses: 3, bosses: 1, focus: 1, habits: 2 });
+  assert.equal(birthdayYearText(y!), '1 task done · 1 training day · 3 glasses of water · 1 boss beaten · 1 Web Focus session · 2 habits checked off');
+  // food, mood, sleep, the body and periods change nothing
+  const noisy = structuredClone(s);
+  for (const d of Object.values(noisy.days)) Object.assign(d, { food: [{ id: 'x', name: 'Bun', kcal: 300, protein: 5, at: 1 }], moods: [{ id: 'm', level: 1, at: 1 }], sleepMin: 300, period: { flow: 'heavy' } });
+  noisy.bodyLog = [{ id: 'b', at: 1, day: '2026-03-02', weight: 60 } as never];
+  assert.deepEqual(birthdayYear(noisy, '2026-11-25'), y);
+  // a first year that began later says so
+  const fresh = base();
+  fresh.days['2026-06-01'] = { ...emptyDay(), water: [{ id: 'w', ml: 250, at: 1 }] };
+  assert.deepEqual([birthdayYear(fresh, '2026-11-25')?.from, birthdayYear(fresh, '2026-11-25')?.partial], ['2026-06-01', true]);
+  assert.equal(birthdayYear({ ...fresh, settings: { ...fresh.settings, birthday: undefined } }, '2026-11-25'), null);
+
+  // the card: one letter signed by the cast, first that day, once a year, knitting or coins, never XP
+  const card = withMail(s, bday);
+  assert.equal(card.letter?.from, 'cast');
+  assert.equal(card.letter?.ref, 'birthday:2026');
+  assert.equal(card.letter?.gift, KNITS[0]);
+  assert.ok(owns(card.state, KNITS[0]));
+  assert.equal(card.state.xp, s.xp);
+  const body = card.letter!.body;
+  assert.ok(body.startsWith('Happy birthday, Elena!') && body.includes('Mamma Spindel:') && body.includes('S.P.I.D.E.R.:') && body.includes('1 task done'), body);
+  assert.equal(withMail(card.state, new Date(2026, 10, 25, 18)).letter, null, 'one letter a day');
+  assert.notEqual(withMail(card.state, new Date(2026, 10, 26, 9)).letter?.ref, 'birthday:2026');
+  assert.equal(withMail(s, bday, { rough: true }).letter?.ref, 'birthday:2026', 'before a care package');
+  let knitted = s;
+  for (const id of KNITS) knitted = withOwned(knitted, id);
+  const coins = withMail(knitted, bday);
+  assert.equal(coins.letter?.coins, BIRTHDAY_COINS);
+  assert.equal(coins.state.coins, knitted.coins + BIRTHDAY_COINS);
+  // the Couch King writes from exile once he's fallen; a rival signs backhandedly, kindly on a quiet day
+  const king = withMail({ ...s, syndicateBroken: 1 }, bday).letter!.body;
+  assert.ok(king.includes('The Couch King, in exile:'));
+  assert.ok(!withMail(s, bday).letter!.body.includes('in exile'));
+  const rival = { ...ROSTER_LIST[0], id: 'r1' };
+  const league = { ...s, league: { tier: 1, week: '2026-11-23', rivals: [rival], history: [] } };
+  const signed = withMail(league, bday).letter!.body;
+  assert.ok(signed.includes(`${rival.emoji} ${rival.name}:`) && !signed.includes('Even rivals take today off'), signed);
+  assert.ok(withMail(startPause(structuredClone(league), 'sick', 3, '2026-11-24'), bday).letter!.body.includes('Even rivals take today off'));
+  // private and kind: nothing about the body, food, mood or sleep, in any year, on a good day or a sick one
+  for (let yr = 2026; yr < 2032; yr++) {
+    for (const st of [league, startPause(structuredClone(league), 'sick', 3, `${yr}-11-24`), { ...league, syndicateBroken: 1 }]) {
+      const l = withMail(st, new Date(yr, 10, 25, 9)).letter;
+      assert.ok(l && l.from === 'cast', `${yr}`);
+      assert.ok(!/\b(food|eat|ate|eaten|meal|dinner|lunch|breakfast|kcal|calorie|protein|weight|kg|body|mood|diet|cake|bun|buns|coffee|fika|berries|lingon|sleep|slept|tired|sad)\b/i.test(l.body), l.body);
+      assert.ok(!/in a row|streak|days since/i.test(l.body), l.body);
+    }
+  }
+  assert.ok(birthdayBannerKey('2026-11-25') === 'birthday:2026');
+
+  // the day's roasts turn affectionate: a savage pick gets a loving turn, a mild one doesn't, nor another day
+  const turns = LINES.birthdayTurn.mild;
+  const ends = (t: string) => turns.some((x) => t.endsWith(` ${x}`));
+  setLineBirthday(dayKey().slice(5));
+  for (let i = 0; i < 6; i++) assert.ok(ends(freshLine('waterLogged', 10, { name: 'E', ml: 250 })), 'a roast with a turn');
+  for (let i = 0; i < 6; i++) assert.ok(!ends(freshLine('waterLogged', 1, { name: 'E', ml: 250 })), 'mild lines stay as they are');
+  assert.ok(!ends(freshLine('birthdayGreet', 10, { name: 'E' })), 'the birthday pools need no turn');
+  for (let i = 0; i < 6; i++) assert.ok(!ends(freshLine('personDayToday', 10, { title: 'Fars dag' })), 'a pool kind in both lists is no roast');
+  assert.ok(!ends(dayLine('personDayToday', 10, dayKey(), 0, { title: 'Fars dag' })));
+  const toast = `💧 ${freshLine('taskDone', 10, { name: 'E' })} +10 XP`;
+  assert.ok(lineIdFor(toast)?.startsWith('taskDone:'), 'long-press still retires the roast, not the turn');
+  const today = dayKey();
+  assert.ok(ends(dayLine('waterRemind', 10, today, 0, { name: 'E' })) && dayLine('waterRemind', 10, today, 0, { name: 'E' }) === dayLine('waterRemind', 10, today, 0, { name: 'E' }));
+  assert.ok(!ends(dayLine('waterRemind', 10, dayKey(addDays(new Date(), 1)), 0, { name: 'E' })), 'not tomorrow');
+  setLineBirthday(null);
+  assert.ok(!ends(freshLine('waterLogged', 10, { name: 'E', ml: 250 })));
+  setLineMemory(undefined);
+
+  // her own name day: only with the almanac, her name in it, and name days not switched off
+  const almanac = { year: 2026, days: { '11-24': { names: ['Elena', 'Elna'] }, '11-25': { names: ['Katarina'] } } };
+  assert.ok(isOwnNameDay(s, almanac, '2026-11-24') && !isOwnNameDay(s, almanac, '2026-11-25'));
+  assert.ok(!isOwnNameDay(s, null, '2026-11-24'), 'no almanac, no grattis');
+  assert.ok(!isOwnNameDay({ ...s, settings: { ...s.settings, sweden: { nameDays: false } } }, almanac, '2026-11-24'));
+  assert.equal(ownName({ ...s, settings: { ...s.settings, userName: 'boss' } }), null);
+  assert.ok(!isOwnNameDay({ ...s, settings: { ...s.settings, userName: '' } }, almanac, '2026-11-24'));
+
+  // the new pools: both lists filled, house rules, never about the body or food
+  for (const k of ['birthdayGreet', 'birthdayTurn', 'ownNameDay', 'sthlmSeason', 'horoscopeIntro', 'horoscopeBad', 'horoscopeGood', 'horoscopeBoss', 'horoscopePeople', 'horoscopeQuiet'] as const) {
+    const pool = LINES[k];
+    assert.ok(pool.mild.length > 0 && pool.savage.length > 0, k);
+    for (const t of [...pool.mild, ...pool.savage]) {
+      assert.ok(!/\b(bold|excuse|suspicious|houseplant|couch|draft)|look at you|missing person|painfully mid|fil(ed|ing) a\b|who are you|who replaced you/i.test(t), `${k}: ${t}`);
+      assert.ok(!/in a row|streak/i.test(t), `${k}: ${t}`);
+      assert.ok(!/\b(weight|kg|kcal|calorie|protein|diet|body|mood|sleep|slept|cake|eat|ate)\b/i.test(t), `${k}: ${t}`);
+    }
+  }
+  assert.ok(LINES.birthdayTurn.mild.length >= 8, 'a whole day of roasts needs a few turns');
+}
+stepTenBirthdayTests();
+
+// step 10: Spindelhoroskopet, Monday's horoscope from real facts about the week
+function stepTenHoroscopeTests() {
+  const base = (): SweState => ({ ...defaultState(), onboarded: true, settings: { ...defaultState().settings, userName: 'Elena', birthday: '11-25' } });
+  const monday = '2026-11-23';
+  const at = (day: string, h: number, m = 0) => new Date(`${day}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`).getTime();
+  const meeting = (day: string, from: number, to: number, n: number): StepTenEvent => ({ key: `${day}-${n}`, title: `Meeting ${n}`, start: at(day, Math.floor(from), (from % 1) * 60), end: at(day, Math.floor(to), (to % 1) * 60), allDay: false, location: null, calendarId: 'c' });
+  const fc = (date: string, o: Partial<StepTenWeather['days'][number]> = {}) => ({ date, max: 6, min: 1, rainPct: 10, code: 3, rainMm: 0, sunrise: at(date, 8), sunset: at(date, 15), daylightMin: 420, sunshineMin: 0, ...o });
+  const weather: StepTenWeather = {
+    temp: 4,
+    feels: 1,
+    code: 3,
+    soon: [],
+    fetchedAt: at(monday, 8),
+    days: [fc('2026-11-23'), fc('2026-11-24'), fc('2026-11-25', { code: 0, sunshineMin: 300, max: 8 }), fc('2026-11-26', { code: 61, rainPct: 80, rainMm: 5 }), fc('2026-11-27'), fc('2026-11-28'), fc('2026-11-29')],
+  };
+  const events = [meeting('2026-11-26', 16, 17.5, 1), meeting('2026-11-26', 17, 18, 2), meeting('2026-11-26', 17.5, 18.5, 3), meeting('2026-11-24', 9, 10, 4)];
+  const s = base();
+  const o = { today: monday, events, weather, now: new Date(`${monday}T09:00`) };
+
+  // her sign from her birthday
+  assert.deepEqual(signOf('11-25'), { name: 'Sagittarius', emoji: '♐' });
+  assert.equal(signOf('12-25')?.name, 'Capricorn');
+  assert.equal(signOf('01-05')?.name, 'Capricorn');
+  assert.equal(signOf('03-21')?.name, 'Aries');
+  assert.equal(signOf(null), null);
+
+  // Mondays only, not on a paused day, closed for the week
+  assert.ok(horoscopeDue(s, monday) && !horoscopeDue(s, '2026-11-24'));
+  assert.ok(!horoscopeDue({ ...s, dismissed: [horoscopeKey(monday)] }, monday));
+  assert.ok(!horoscopeDue(startPause(structuredClone(s), 'away', 3, monday), monday));
+  assert.ok(!horoscopeDue({ ...s, onboarded: false }, monday));
+
+  // the facts: Thursday's late meetings in gym time and its rain, Wednesday's payday and sunshine, her birthday
+  const facts = weekFacts(s, o);
+  const thu = facts.find((f) => f.day === '2026-11-26')!;
+  assert.deepEqual([thu.late, thu.meetingMin, thu.gym, thu.rainGym, thu.clash], [3, 210, 'Legs', true, true]);
+  const wed = facts.find((f) => f.day === '2026-11-25')!;
+  assert.ok(wed.payday && wed.birthday && wed.best === 'clear, 8°', JSON.stringify(wed));
+  assert.equal(badOf(thu).why.join(' | '), '3 meetings running past 17:00 | a meeting in gym time | rain at gym time');
+  assert.equal(goodOf(wed).why.join(' | '), "your birthday | payday | the week's best weather (clear, 8°)");
+  assert.equal(listText(['a', 'b', 'c']), 'a, b and c');
+  assert.equal(listText(['a']), 'a');
+
+  const h = horoscopeFor(s, o);
+  assert.equal(h.week, monday);
+  assert.deepEqual(h.readings[0], { day: null, line: 'horoscopeIntro', vars: { title: '♐ Sagittarius' } });
+  const bad = h.readings.find((r) => r.line === 'horoscopeBad')!;
+  assert.deepEqual(bad.vars, { day: 'Thursday', summary: '3 meetings running past 17:00, a meeting in gym time and rain at gym time' });
+  const good = h.readings.find((r) => r.line === 'horoscopeGood')!;
+  assert.equal(good.vars.day, 'Wednesday');
+  assert.ok(good.vars.summary.startsWith('your birthday, payday') && good.vars.summary.includes("the week's best weather (clear, 8°)"), good.vars.summary);
+  assert.ok(h.readings.some((r) => r.line === 'horoscopeBoss') || good.vars.summary.endsWith('the boss is weak'));
+  // the words: a kind day gets the mild (kind) list, every placeholder filled
+  for (const r of h.readings) {
+    for (const level of [1, 10]) {
+      const text = freshLine(r.line, level, { name: 'E', ...r.vars });
+      assert.ok(!/\{\w+\}/.test(text), text);
+    }
+    assert.ok(LINES[r.line].mild.map((t) => fillLine(t, { name: 'E', ...r.vars })).includes(freshLine(r.line, 1, { name: 'E', ...r.vars })));
+  }
+  setLineMemory(undefined);
+  // facts only: food, mood, sleep and the body change nothing
+  const noisy = structuredClone(s);
+  for (const k of ['2026-11-23', '2026-11-24']) noisy.days[k] = { ...emptyDay(), food: [{ id: 'x', name: 'Semla', kcal: 400, protein: 5, at: 1 }], moods: [{ id: 'm', level: 2, at: 1 }], sleepMin: 240 } as never;
+  assert.deepEqual(horoscopeFor(noisy, o).readings.filter((r) => r.line !== 'horoscopeBoss'), h.readings.filter((r) => r.line !== 'horoscopeBoss'));
+  for (const r of h.readings) for (const v of Object.values(r.vars)) assert.ok(!/\b(kcal|protein|weight|body|mood|sleep|slept|tired|diet|eat|ate)\b|in a row|streak/i.test(v), v);
+
+  // the boss's day: training bosses on a dry gym day without a clash, Captain Dehydration on the warmest, the binge on the busiest, the rest on the lightest workday
+  const f = (day: string, o2: Partial<DayFacts> = {}): DayFacts => ({ day, late: 0, meetingMin: 0, gym: null, rainGym: false, clash: false, siren: false, fika: null, payday: false, holiday: null, people: [], birthday: false, nameDay: false, best: null, warmest: false, ...o2 });
+  const wk = [f('2026-11-23', { gym: 'Push', rainGym: true, meetingMin: 120 }), f('2026-11-24', { gym: 'Pull', meetingMin: 60 }), f('2026-11-25', { warmest: true, meetingMin: 300 }), f('2026-11-26', { meetingMin: 30 }), f('2026-11-28')];
+  assert.equal(bossDayOf('leg_day', wk), '2026-11-24');
+  assert.equal(bossDayOf('dehydration', wk), '2026-11-25');
+  assert.equal(bossDayOf('binge', wk), '2026-11-25');
+  assert.equal(bossDayOf('procrastinator', wk), '2026-11-26', 'the lightest workday, not the Saturday');
+  assert.equal(bossDayOf('snooze', []), null);
+
+  // a week with nothing to say: the quiet line (and the boss)
+  const quiet = horoscopeFor({ ...base(), settings: { ...base().settings, birthday: undefined } }, { today: '2026-11-30', events: [], weather: null });
+  assert.deepEqual(quiet.readings.map((r) => r.line).slice(0, 2), ['horoscopeIntro', 'horoscopeQuiet']);
+  assert.equal(quiet.readings[0].vars.title, 'spiders');
+  // people days she turned on are told kindly, in their own line
+  const people = horoscopeFor({ ...s, settings: { ...s.settings, sweden: { people: [{ id: 'p', name: 'Anna', md: '11-28', nameDay: false, what: 'birthday', since: 0 }] } } }, o);
+  assert.deepEqual(people.readings.find((r) => r.line === 'horoscopePeople')?.vars, { title: "Anna's birthday", day: 'Saturday' });
+  assert.deepEqual(LINES.horoscopePeople.mild, LINES.horoscopePeople.savage, 'people days are kind in both lists');
+  // on HQ, movable like any card
+  assert.ok(HQ_SECTIONS.some((x) => x.id === 'horoscope'));
+}
+stepTenHoroscopeTests();
 
 console.log('synchronous logic tests passed');

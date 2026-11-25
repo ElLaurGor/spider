@@ -2179,6 +2179,122 @@ export const LINES = {
     mild: ['The egg sac hatched! A spiderling moved into the terrarium. +{coins} 🪙', 'A spiderling hatched from all that walking. It lives in the terrarium now. +{coins} 🪙'],
     savage: ['Hatched. Your walking made a spiderling. It already walks more than some people. +{coins} 🪙', 'A spiderling, hatched by your steps. Proof that walking pays. +{coins} 🪙'],
   },
+  // ---- step 10 birthday, seasons, horoscope ----
+  // Her birthday (birthday.ts): HQ's greeting that day. The savage list roasts with love; nothing about the body or food.
+  birthdayGreet: {
+    mild: [
+      'Happy birthday, {name}. Systems online, party mode engaged. Today every line comes gift-wrapped.',
+      'Happy birthday, {name}! I checked the numbers: officially one year more legendary.',
+      "It's your birthday, {name}. I've cleared my schedule. I don't have a schedule, but it's cleared.",
+      "Happy birthday, {name}. Whatever gets done today is a bonus. You being here is the main event.",
+      'Grattis på födelsedagen, {name}! The whole cast signed a card. It is in the mailbox.',
+      "Happy birthday, {name}. I'm a spider, so no hugs. Imagine eight very careful arms instead.",
+    ],
+    savage: [
+      'Happy birthday, {name}. Another lap around the sun and the water goal is still a rumour. I adore you anyway.',
+      "Happy birthday, {name}. You're a year older and I'm a year more patient. One of us improved.",
+      'Birthday detected. The roasts stay on, {name}, but today each one comes with a hug attached.',
+      "Happy birthday, {name}. I got you nothing. I am the present. You're welcome.",
+      'Grattis, {name}! I ran the numbers on your year: mostly chaos, partly glorious. Happy birthday.',
+    ],
+  },
+  // On her birthday, added after a line picked from a savage list (lines.ts birthdayTurn): the roast turns affectionate.
+  birthdayTurn: {
+    mild: [
+      'Kidding. Happy birthday. 🎉',
+      '(Birthday rules: that one came with a hug.)',
+      "But it's your birthday, so I take it back. Mostly.",
+      'Happy birthday, though. I mean that one.',
+      "Said with love. It's your birthday.",
+      'Birthday discount: that roast was half price.',
+      "I'd go harder, but it's your birthday. 🎈",
+      "Still: happy birthday. You're my favourite human.",
+      'Roast withdrawn for the day. Happy birthday.',
+      'Mostly kidding. Happy birthday, legend.',
+    ],
+    savage: [
+      'Kidding. Happy birthday. 🎉',
+      '(Birthday rules: that one came with a hug.)',
+      "But it's your birthday, so I take it back. Mostly.",
+      'Happy birthday, though. I mean that one.',
+      "Said with love. It's your birthday.",
+      'Birthday discount: that roast was half price.',
+      "I'd go harder, but it's your birthday. 🎈",
+      "Still: happy birthday. You're my favourite human.",
+      'Roast withdrawn for the day. Happy birthday.',
+      'Mostly kidding. Happy birthday, legend.',
+    ],
+  },
+  // Her own name day (settings.userName in the almanac, name-days.ts): HQ's banner, from the cast.
+  ownNameDay: {
+    mild: [
+      "Grattis på namnsdagen, {name}! Mamma Spindel says it's the second-best day of the year.",
+      "It's your name day, {name}. The almanac remembered, and so did I.",
+      'Grattis på namnsdagen! The whole cast says hej. The bosses mumbled something. It counts.',
+      "Your name is in the almanac today, {name}. Grattis! That's practically fame.",
+    ],
+    savage: [
+      'Grattis på namnsdagen, {name}. The almanac gives you one day a year. Use it to be insufferable.',
+      "Name day, {name}! The rivals pretended to forget. They didn't. Grattis.",
+      "Grattis på namnsdagen, {name}. Your name, officially in print. I've framed the page.",
+      'Your name day, {name}. Even the bosses grumbled a grattis. Through gritted teeth, but still.',
+    ],
+  },
+  // Stockholm's meteorological seasons (sthlm-seasons.ts): {finding} is the arrival and how it compares since 1859.
+  sthlmSeason: {
+    mild: ['Stockholm news: {finding}', 'For the city records: {finding}'],
+    savage: ['{finding} The seasons run on SMHI time, not yours.', '{finding} Nature kept its own schedule. Take notes.'],
+  },
+  // Spindelhoroskopet (horoscope.ts), Mondays on HQ. Facts only: the calendar, the forecast, the Swedish calendar, the
+  // boss. {title} is her sign; {day} a weekday; {summary} the day's facts. The mild lists are the kind ones.
+  horoscopeIntro: {
+    mild: [
+      "Spindelhoroskopet for {title}: the stars have read your calendar so you don't have to.",
+      'This week for {title}, according to the stars (and your calendar, and SMHI).',
+      'Your week in the stars, {title} edition. Every prophecy checked against real data.',
+    ],
+    savage: [
+      'Spindelhoroskopet for {title}. The stars have seen your calendar. They have concerns.',
+      'This week for {title}: the planets aligned, then saw your meetings and winced.',
+      'Horoscope for {title}. Unlike the others, this one is based on facts. Sorry.',
+    ],
+  },
+  horoscopeBad: {
+    mild: [
+      '{day} may ask a lot of you: {summary}. Plan something soft for the evening.',
+      'The stars suggest pacing yourself on {day}: {summary}.',
+      'A heavier day in the stars: {day}, with {summary}. Be gentle with yourself.',
+      '{day} looks full: {summary}. The stars say a short version of anything still counts.',
+    ],
+    savage: [
+      '{day} the stars align against you: {summary}.',
+      'Mercury has opinions about {day}: {summary}. Brace accordingly.',
+      'Saturn frowns upon {day}: {summary}. Plan your escape now.',
+      '{day} is cursed, scientifically: {summary}.',
+    ],
+  },
+  horoscopeGood: {
+    mild: ['Venus favours {day}: {summary}.', 'The stars smile on {day}: {summary}.', '{day} looks kind: {summary}. Something to look forward to.', 'A good omen for {day}: {summary}.'],
+    savage: [
+      'Venus favours {day}: {summary}. Do not waste it on the sofa.',
+      'Jupiter blesses {day}: {summary}. Even you can win that one.',
+      'Lucky day: {day}, with {summary}. The universe is trying. Try back.',
+      'The stars rigged {day} in your favour: {summary}. Act surprised.',
+    ],
+  },
+  horoscopeBoss: {
+    mild: ['{boss} is weakest on {day}: {weakness} hits it 50% harder.', 'The stars point at {day} for {boss}: {weakness} does extra damage.'],
+    savage: ['Mars says {boss} is wide open on {day}. Weak spot: {weakness}. Go.', '{boss} has a soft side on {day}: {weakness}. The stars have spoken. Loudly.'],
+  },
+  // A people day in the week: kind in both lists, since these days can hurt.
+  horoscopePeople: {
+    mild: ['The stars note {title} on {day}. A small hello counts, if it feels right.', '{title} falls on {day} this week. No pressure from the stars.'],
+    savage: ['The stars note {title} on {day}. A small hello counts, if it feels right.', '{title} falls on {day} this week. No pressure from the stars.'],
+  },
+  horoscopeQuiet: {
+    mild: ['The stars looked at your week and found plenty of room. A blank page is a good page.', 'A quiet week in the stars. Fill it however you like.'],
+    savage: ['The stars checked your week and found nothing. Not even a red day. Make your own luck.', 'The stars have nothing on you this week. Neither do I, yet.'],
+  },
   // ---- step 8 sweden ----
   // People days (people-days.ts): kind in both pools, since these days can hurt. {title} is "Vendela's name day" or "Fars dag".
   personDayToday: {
@@ -3742,6 +3858,21 @@ export function dayLine(
 ) {
   const { pick, k } = daySlots(key, savageLevel, day, n + 1);
   if (!pick) return '';
+  const text = dayPick(key, pick, k, day, vars, perDay, savageLevel, levelOn);
+  return text + birthdayDayTurn(key, pick.id, text, day, n, vars); // step 10: on her birthday a roast turns affectionate
+}
+
+/** dayLine's pick: the k-th line of the day's list (dealt across the week with `perDay`). */
+function dayPick(
+  key: LineKey,
+  pick: ReturnType<typeof pickList>,
+  k: number,
+  day: string,
+  vars: Record<string, string | number>,
+  perDay: number | undefined,
+  savageLevel: number,
+  levelOn?: (day: string) => number,
+) {
   const len = pick.list.length;
   if (!perDay) return fillLine(pick.list[shuffled(len, `${day}|${pick.id}`)[k % len]], vars);
   // Monday's deck: the days before this one in the week used up their share of it first.
@@ -3774,6 +3905,12 @@ function remember(listId: string, used: string[], prev: string[], now = Date.now
  * half the list's length, not even across the start of a new round. Retired lines never come up.
  */
 export function freshLine(key: LineKey, savageLevel: number, vars: Record<string, string | number> = {}) {
+  const { template, id } = deal(key, savageLevel);
+  return produce(key, template, vars) + birthdayTurn(key, id, template, vars); // step 10: on her birthday a roast turns affectionate
+}
+
+/** The next line from a pool list's deck (freshLine's rules), remembered in the deck but not as a produced line. */
+function deal(key: LineKey, savageLevel: number) {
   const { list, id } = pickList(key, savageLevel);
   const ids = list.map((t) => lineId(key, t));
   const entry = memory.deck?.[id];
@@ -3790,7 +3927,7 @@ export function freshLine(key: LineKey, savageLevel: number, vars: Record<string
   const choices = fresh.length ? fresh : all.filter((i) => !used.includes(ids[i]));
   const i = choices[Math.floor(Math.random() * choices.length)] ?? 0;
   remember(id, [...used, ids[i]], prev);
-  return produce(key, list[i], vars);
+  return { template: list[i], id };
 }
 
 /**
@@ -3846,4 +3983,44 @@ export function producedLine(toastText: string): { key: string; text: string } |
     if (p.text.length >= 8 && toastText.includes(p.text)) return { key: p.id.slice(0, p.id.lastIndexOf(':')), text: p.text };
   }
   return null;
+}
+
+// ---- step 10 birthday: on her birthday the roasts turn affectionate ----
+// The tone stays what it is (a birthday isn't a kind day): a line picked from a savage list gets a loving turn after
+// it from `birthdayTurn`. Lines from the mild lists are left as they are, and so are the birthday's own pools.
+
+/** Her birthday ('MM-DD', settings.birthday cleaned), set by the store. Null: none given. */
+let birthdayMd: string | null = null;
+export function setLineBirthday(md: string | null) {
+  birthdayMd = md;
+}
+
+/** Whether day `key` is the birthday `md` ('MM-DD'): 29 February falls on 28 February in other years. */
+export function birthdayFalls(md: string | null | undefined, key: string) {
+  if (!md) return false;
+  const day = key.slice(5, 10);
+  if (day === md) return true;
+  const year = Number(key.slice(0, 4));
+  return md === '02-29' && day === '02-28' && new Date(year, 1, 29).getMonth() !== 1;
+}
+
+const localKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** Pools that are about the birthday already: no turn after them. */
+const ownBirthdayPool = (key: string) => key.startsWith('birthday') || key === 'ownNameDay';
+
+/** A line that's a roast: from a savage list, and not one the mild list has too (pools kind in both lists stay as they are). */
+const roast = (key: LineKey, listId: string, text: string, vars: Record<string, string | number>) =>
+  listId.endsWith(':s') && !ownBirthdayPool(key) && !(LINES[key] as Pool).mild.some((t) => fillLine(t, vars) === text);
+
+/** The turn after a freshly picked line: only on her birthday and only after a roast. */
+function birthdayTurn(key: LineKey, listId: string, template: string, vars: Record<string, string | number>) {
+  if (!birthdayFalls(birthdayMd, localKey()) || !roast(key, listId, fillLine(template, vars), vars)) return '';
+  return ` ${fillLine(deal('birthdayTurn', 1).template, vars)}`;
+}
+
+/** The same for a planned reminder on `day` (dayLine): a fixed pick per day and slot, so a replan says the same. */
+function birthdayDayTurn(key: LineKey, listId: string, text: string, day: string, n: number, vars: Record<string, string | number>) {
+  if (!birthdayFalls(birthdayMd, day) || !roast(key, listId, text, vars)) return '';
+  const list = LINES.birthdayTurn.mild;
+  return ` ${fillLine(list[shuffled(list.length, `${day}|birthdayTurn`)[(n + parseInt(hash(key), 36)) % list.length]], vars)}`;
 }

@@ -475,7 +475,12 @@ export type State = {
   cipher?: CipherState; // intercepted Syndicate memos and the mole hunt (lib/cipher.ts)
   meta?: MetaState; // "I remember the other timeline" (lib/meta-winks.ts): the week each wink was last said, and what it counts
   install?: string; // the install (lib/install-id.ts) that last had this save, so a restore can tell a new phone
+  // step 10 birthday, seasons, horoscope
+  sthlmSeasons?: SeasonSeen[]; // Stockholm's meteorological seasons the app found after the climate table (lib/sthlm-seasons.ts), each said once
 };
+
+/** step 10: a meteorological season's arrival in Stockholm found by the app (sthlm-seasons.ts). `known`: its run's last day; `told`: announced (a late find is kept quietly). */
+export type SeasonSeen = { season: 'spring' | 'summer' | 'autumn' | 'winter'; day: string; known: string; at: number; told: boolean };
 
 // step 8 days
 /** When a top-3 task is booked for: a free calendar gap (with an optional ping at its start), after gym, or after the first coffee. */
@@ -685,7 +690,7 @@ export type RpsState = { past: string[]; live?: string; weeks?: Record<string, R
 /** A once-only remark (remarks.ts): when it was said (`kind`: its gentle version, on a quiet day), or `wait` for a day that isn't quiet. */
 export type RemarkMark = { at: number; kind?: true; wait?: true };
 /** Who writes (mail.ts): a beaten boss, the Couch King in exile, a co-op partner, Mamma Spindel in Småland. */
-export type MailFrom = 'boss' | 'king' | 'rival' | 'mamma' | 'ling';
+export type MailFrom = 'boss' | 'king' | 'rival' | 'mamma' | 'ling' | 'cast'; // step 10: 'cast', her birthday card, signed by several
 /**
  * A letter in the mailbox (mail.ts). `ref` is what it's about, so each is sent once ('resign:<week>', 'coop:<week>',
  * 'mamma:<YYYY-MM>', 'care:<day>', 'exile:<week>'). `gift`: a knitted cosmetic that came with it, `coins` in its place
