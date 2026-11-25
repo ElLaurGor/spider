@@ -10,6 +10,7 @@ import { dayScoreFor, gradeOf, type Grade } from './report';
 import { activitiesOf, avgMood, coffeeOf, dayOf, effectiveSavage, gamingBudgetMin, gamingUsedMs, moodsOf, trainedOn, trainMinutes, waterGoalFor, waterMl } from './selectors';
 import { monthLine, nearStockholm } from './sthlm-climate';
 import { outingsIn } from './sthlm-events';
+import { monthSeasonsText, SEASON_INFO, seasonsInMonth } from './sthlm-seasons';
 import type { ActivityKind, State } from './types';
 
 export type SlideColor = 'red' | 'water' | 'yellow' | 'green' | 'purple' | 'cyan' | 'blue';
@@ -280,13 +281,15 @@ export function monthWrapped(s: State, year: number, month: number, now = new Da
   const outings = outingsIn(s, ym);
   const cityMean = nearStockholm(s.settings.weather) ? s.sthlmClimate?.months?.[ym] : undefined;
   const city = cityMean != null ? monthLine(ym, cityMean) : null;
-  if (outings || city) {
+  // step 10: a meteorological season that arrived this month, against every year since 1859
+  const seasons = nearStockholm(s.settings.weather) ? monthSeasonsText(ym, s.sthlmSeasons) : null;
+  if (outings || city || seasons) {
     slides.push({
       id: 'stockholm',
       emoji: '🏙️',
       title: 'Stockholm',
-      big: outings ? plural(outings, 'outing') : `${city && city.delta > 0 ? '+' : ''}${(city?.delta ?? 0).toFixed(1)}°`,
-      sub: [outings ? `${plural(outings, 'weekend event')} added to your plan` : '', city?.text ?? ''].filter(Boolean).join(' · '),
+      big: outings ? plural(outings, 'outing') : city ? `${city.delta > 0 ? '+' : ''}${city.delta.toFixed(1)}°` : (seasonsInMonth(ym, s.sthlmSeasons).map((a) => SEASON_INFO[a.season].emoji).join(' ') || '🏙️'),
+      sub: [outings ? `${plural(outings, 'weekend event')} added to your plan` : '', city?.text ?? '', seasons ?? ''].filter(Boolean).join(' · '),
       quip: outings
         ? pick('Plans with the city. Turning up to them is the advanced level.', 'Some city plans this month. Nice.')
         : pick("Stockholm's weather, for the record. Neither of us takes the blame.", "Stockholm's weather, for the record."),

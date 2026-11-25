@@ -28,6 +28,7 @@ export function SthlmClimateSync() {
         const obs = await fetchSthlmObs();
         nextTry = Date.now() + 2 * 3_600_000; // the day's readings in: no more calls today (see climateDue)
         actions.sthlmClimateIn(obs);
+        actions.sthlmSeasonsIn(obs); // step 10: a meteorological season that just arrived (sthlm-seasons.ts)
       } catch (e) {
         console.warn('[spider] SMHI observations failed', e);
         nextTry = Date.now() + 30 * 60_000;

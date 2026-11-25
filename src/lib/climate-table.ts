@@ -27,6 +27,8 @@ export type ClimateTable = {
   lo: (number | null)[];
   loY: (number | null)[];
   months: { mean: number[]; warm: number[]; warmY: number[]; cold: number[]; coldY: number[] };
+  /** step 10: when each of SMHI's seasons arrived, year by year (seasonTableOf). */
+  seasons: SeasonTable;
 };
 
 const MONTH_DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -166,6 +168,7 @@ export function buildClimateTable(obs: DayObs[], opts: { source: string; normal?
       cold: byMonth.map((x) => x.cold ?? 0),
       coldY: byMonth.map((x) => x.coldY),
     },
+    seasons: seasonTableOf(seasonArrivals(sorted)),
   };
 }
 
@@ -200,4 +203,118 @@ export function parseSmhiLatest(j: { value?: { ref?: string; value?: string }[] 
 export function joinObs(mean: Map<string, number>, max: Map<string, number>, min: Map<string, number>, until?: string): DayObs[] {
   const days = [...new Set([...mean.keys(), ...max.keys(), ...min.keys()])].filter((d) => !until || d <= until).sort();
   return days.map((day) => ({ day, mean: mean.get(day), max: max.get(day), min: min.get(day) }));
+}
+
+// ---- step 10 seasons: SMHI's meteorological seasons, from the same daily means ----
+
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
+export const SEASONS: readonly Season[] = ['spring', 'summer', 'autumn', 'winter'];
+
+/**
+ * SMHI's definitions. A season arrives on the first day of the first run of `days` calendar days whose daily means
+ * all pass `test`; that first day may not fall before `from` or after `until` ('MM-DD'). Spring: 7 days above 0 °C,
+ * from 15 Feb. Summer: 5 days at 10 °C or more. Autumn: 5 days under 10 °C, from 1 Aug. Winter: 5 days at 0 °C or
+ * less. `after`: the seasons it can follow. These are runs of the city's weather, never anything about the owner.
+ */
+export const SEASON_RULES: Record<Season, { days: number; test: (mean: number) => boolean; from?: string; until?: string; after: Season[] }> = {
+  // A winter that never comes: autumn goes straight to spring. Spring's window closes where autumn's opens.
+  spring: { days: 7, test: (m) => m > 0, from: '02-15', until: '07-31', after: ['winter', 'autumn'] },
+  summer: { days: 5, test: (m) => m >= 10, after: ['spring'] },
+  // From spring too, so a summer that never came can't hold up the rest of the year.
+  autumn: { days: 5, test: (m) => m < 10, from: '08-01', after: ['summer', 'spring'] },
+  winter: { days: 5, test: (m) => m <= 0, after: ['autumn'] },
+};
+
+/** A season's arrival: its first day, and the last day of its run (the first day it could be known). */
+export type Arrival = { season: Season; day: string; known: string };
+
+const dayAfter = (key: string) => {
+  const d = new Date(`${key}T12:00`);
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** The first run for a season starting at index `from` or later. A missing day breaks a run. */
+function firstRun(means: { day: string; mean: number }[], from: number, season: Season): { start: number; end: number } | null {
+  const rule = SEASON_RULES[season];
+  let start = -1;
+  for (let i = from; i < means.length; i++) {
+    if (!rule.test(means[i].mean)) {
+      start = -1;
+      continue;
+    }
+    if (start >= 0 && dayAfter(means[i - 1].day) !== means[i].day) start = -1;
+    if (start < 0) {
+      const md = means[i].day.slice(5);
+      if ((rule.from && md < rule.from) || (rule.until && md > rule.until)) continue; // too early (or too late) to begin one
+      start = i;
+    }
+    if (i - start + 1 >= rule.days) return { start, end: i };
+  }
+  return null;
+}
+
+/**
+ * Every season's arrival in a series of daily means, oldest first. The seasons take turns from `state` (the season
+ * the series opens in and the day it arrived; by default winter, from the first day). Where two seasons could come
+ * next, the one whose run is complete first wins. The season in `state` itself isn't listed again.
+ */
+export function seasonArrivals(obs: DayObs[], state?: { season: Season; day: string }): Arrival[] {
+  const means = obs
+    .filter((o): o is DayObs & { mean: number } => o.mean != null)
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0))
+    .map((o) => ({ day: o.day, mean: o.mean }));
+  const begin = state ? means.findIndex((m) => m.day >= state.day) : 0;
+  if (!means.length || begin < 0) return [];
+  let season: Season = state?.season ?? 'winter';
+  let at = begin;
+  const out: Arrival[] = [];
+  for (;;) {
+    let best: { next: Season; start: number; end: number } | null = null;
+    for (const next of SEASONS) {
+      if (!SEASON_RULES[next].after.includes(season)) continue;
+      const run = firstRun(means, at, next);
+      if (run && (!best || run.end < best.end)) best = { next, ...run };
+    }
+    if (!best) return out;
+    out.push({ season: best.next, day: means[best.start].day, known: means[best.end].day });
+    season = best.next;
+    at = best.start;
+  }
+}
+
+/** The season year an arrival counts for: its calendar year, except that a winter arriving before August belongs to the year before (winter 2026 is 2026/27). */
+export const seasonYearOf = (a: Pick<Arrival, 'season' | 'day'>) => Number(a.day.slice(0, 4)) - (a.season === 'winter' && a.day.slice(5) < '08-01' ? 1 : 0);
+
+/** An arrival's place in its season year, for ranking: its day of the (leap) year, plus 366 for a winter that came after New Year. */
+export const seasonOffset = (a: Pick<Arrival, 'season' | 'day'>) => doyOf(a.day) + (seasonYearOf(a) < Number(a.day.slice(0, 4)) ? 366 : 0);
+
+/** 'MM-DD' of a day-of-year slot (doyOf's leap-year index; 366 and up: the next year's, for winters). */
+export function mdOfOffset(offset: number): string {
+  let i = offset % 366;
+  let m = 0;
+  while (i >= MONTH_DAYS[m]) i -= MONTH_DAYS[m++];
+  return `${String(m + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+}
+
+/**
+ * When each season arrived, per season year from `from` (index 0) on, as seasonOffset: null when it didn't come
+ * (a winter that never did) or the series ends first. `last`: the latest arrival, which the app goes on from.
+ */
+export type SeasonTable = { from: number; spring: (number | null)[]; summer: (number | null)[]; autumn: (number | null)[]; winter: (number | null)[]; last: { season: Season; day: string } | null };
+
+/** Folds arrivals into a SeasonTable. Only the first arrival of a season in a season year counts. */
+export function seasonTableOf(arrivals: Arrival[]): SeasonTable {
+  const years = arrivals.map(seasonYearOf);
+  const from = years.length ? Math.min(...years) : 0;
+  const size = years.length ? Math.max(...years) - from + 1 : 0;
+  const empty = () => Array.from({ length: size }, () => null as number | null);
+  const t: SeasonTable = { from, spring: empty(), summer: empty(), autumn: empty(), winter: empty(), last: null };
+  for (const a of arrivals) {
+    const i = seasonYearOf(a) - from;
+    if (t[a.season][i] == null) t[a.season][i] = seasonOffset(a);
+  }
+  const last = arrivals.at(-1);
+  t.last = last ? { season: last.season, day: last.day } : null;
+  return t;
 }

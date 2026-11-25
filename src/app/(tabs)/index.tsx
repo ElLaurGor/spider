@@ -39,6 +39,10 @@ import { ReviewPrompt } from '@/components/review-cards';
 import { ShelfHqCard } from '@/components/shelf-card';
 import { activeTasks, taskLabel } from '@/lib/horizons';
 import { MailBanner } from '@/components/mail-banner'; // step 9 story
+// step 10: her birthday and name day, Spindelhoroskopet
+import { BirthdayBanner } from '@/components/birthday-banner';
+import { HoroscopeCard } from '@/components/horoscope-card';
+import { isBirthday } from '@/lib/birthday';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { bedtimeOn, lastCallOn } from '@/lib/caffeine';
@@ -102,6 +106,8 @@ export default function HQ() {
   const greet = () => {
     // Under the Storm protocol: calm and practical, nothing else.
     if (stormOn(state, dayKey())) return quip('stormGreet');
+    // step 10: her birthday gets its own greeting
+    if (isBirthday(state, dayKey())) return quip('birthdayGreet');
     // Mornings, half the time: a remark about how yesterday actually went.
     const callback = timeOfDay() === 'morning' && Math.random() < 0.5 ? yesterdayHighlight(state) : null;
     return callback ? quip(callback.key, callback.vars) : quip(greetingKey());
@@ -413,6 +419,7 @@ export default function HQ() {
     review: () => <ReviewPrompt />,
     shelf: () => <ShelfHqCard />,
     chores: () => <ChoresDueCard />,
+    horoscope: () => <HoroscopeCard />, // step 10: Spindelhoroskopet, Mondays
     // NEW HQ CARD: add `<id>: () => <YourCard />,` here and `{ id, label }` to HQ_SECTIONS in lib/hq-layout.ts.
   };
 
@@ -494,6 +501,7 @@ export default function HQ() {
       <FikaBanner />
       <TankBanner />
       <MailBanner /> {/* step 9 story: an unread letter */}
+      <BirthdayBanner /> {/* step 10: her birthday (the year in totals) and her own name day */}
       <PrizesCard />
       <JulfridCard />
       <AdventCard />

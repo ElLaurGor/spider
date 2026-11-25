@@ -7,6 +7,7 @@ import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtDuration, fmtTime, MIN } from '@/lib/dates';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel } from '@/lib/outside';
 import { nearStockholm, triviaLine } from '@/lib/sthlm-climate';
+import { seasonOnRow, seasonShort } from '@/lib/sthlm-seasons';
 import { useStore } from '@/lib/store';
 import { daylightGain, describe, forecastText, rainNote, staleNote, weatherKey } from '@/lib/weather';
 
@@ -29,6 +30,9 @@ export function WeatherRow() {
   const rain = w ? rainNote(w.soon) : null;
   // Step 8: Stockholm's weather since 1859, as trivia about the date (only for a Stockholm weather place).
   const trivia = nearStockholm(state.settings.weather) ? triviaLine(todayKey, state.sthlmClimate?.records) : null;
+  // step 10: a meteorological season that arrived this week, against every year since 1859 (sthlm-seasons.ts)
+  const arrived = nearStockholm(state.settings.weather) ? seasonOnRow(state.sthlmSeasons, now) : null;
+  const season = arrived ? seasonShort(arrived, state.sthlmSeasons) : null;
 
   if (!state.settings.weather) {
     return (
@@ -65,6 +69,7 @@ export function WeatherRow() {
             {outside.warnings.length ? ` · \u26A0\uFE0F ${outside.warnings.length} warning${outside.warnings.length > 1 ? 's' : ''}` : ''}
           </Text>
         ) : null}
+        {season ? <Text style={styles.dim}>{season}</Text> : null}
         {trivia ? <Text style={styles.dim}>📜 {trivia}</Text> : null}
       </View>
       <Icon name="chevron_right" color={C.dim} />

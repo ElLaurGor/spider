@@ -142,5 +142,7 @@ export function hydrate(saved: Partial<State> | null): State {
     lairAt: { ...Object.fromEntries((saved.lair ?? []).map((id) => [id, Date.now()])), ...saved.lairAt },
     // Bought before plants could grow (no lairAt yet): they looked full-grown, so they stay that way.
     lairGrowth: saved.lairGrowth ?? (saved.lairAt ? undefined : Object.fromEntries((saved.lair ?? []).map((id) => [id, 1]))),
+    // step 10: Stockholm's seasons the app has found (sthlm-seasons.ts), none yet
+    sthlmSeasons: saved.sthlmSeasons ?? [],
   });
 }

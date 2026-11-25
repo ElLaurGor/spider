@@ -68,7 +68,7 @@ export default function MailScreen() {
                   ) : null}
                   {l.coins ? (
                     <T small style={{ color: C.green }}>
-                      +{l.coins} 🪙 for the bus.
+                      +{l.coins} 🪙 {l.from === 'cast' ? 'birthday money from Mamma.' : 'for the bus.'}
                     </T>
                   ) : null}
                   {l.from === 'mamma' ? (
