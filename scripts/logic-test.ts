@@ -262,6 +262,9 @@ import { LING_PLACES, lingMove } from '../src/lib/mail';
 import type { Spiderling } from '../src/lib/types';
 import { glassMist, skyTalk, TEMP_FRESH_MS } from '../src/lib/tank-life';
 import { LING_SOUVENIR, shelfOf as tankShelfOf, souvenirFor as tripSouvenirFor, SOUVENIR_BY_ID as SOUVENIRS_BY_ID } from '../src/lib/expeditions';
+// step 10 ask & meetings
+import { askGame, askGym, askTonight, bedtimeFor, freeGap } from '../src/lib/ask';
+import { dayLoad, isMeeting, LOAD_LINE, loadFacts, loadMood, loadVars, meetingLoad, readRange } from '../src/lib/meeting-load';
 import { guestFor as guestOnDay, LING_AWAY_DAYS, lingVisitor, settleGuests as settleGuestDays, guestOn as guestThatDay } from '../src/lib/guests';
 
 // levels
@@ -294,6 +297,7 @@ for (const k of ['when', 'happened', 'then', 'dmg', 'min']) known.add(k); // ste
 known.add('year'); // step 6 seasons: the yearly Wrapped
 for (const k of ['sunrise', 'sunset']) known.add(k); // step 6: the dark-day weather lines
 known.add('temp'); // the terrarium round: the thermometer
+known.add('hours'); // step 10 meetings: hours in meetings (meeting-load.ts)
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -8298,5 +8302,210 @@ function terrariumRound2Tests() {
   }
 }
 terrariumRound2Tests();
+
+function stepTenAskTests() {
+  type Pools = Record<string, { mild: string[]; savage: string[] }>;
+  const pools = LINES as Pools;
+  // A week in January 2027: Monday the 11th (no red days that week), Wednesday sick, Saturday a day off.
+  const ev = (key: string, from: string, to: string, title = 'Sync', o: Partial<CalEvent> = {}): CalEvent => ({
+    key: `${key}${from}${title}`,
+    title,
+    start: new Date(`${key}T${from}`).getTime(),
+    end: new Date(`${key}T${to}`).getTime(),
+    allDay: false,
+    location: null,
+    calendarId: 'work',
+    ...o,
+  });
+  const MON = '2027-01-11';
+  const TUE = '2027-01-12';
+  const WED = '2027-01-13';
+  const THU = '2027-01-14';
+  const SAT = '2027-01-16';
+  const SUN = '2027-01-17';
+  const events: CalEvent[] = [
+    ev(MON, '09:00', '10:00', 'Standup'),
+    ev(MON, '09:00', '10:00', 'Standup', { calendarId: 'home', key: 'dup' }), // the same event in two calendars counts once
+    ev(MON, '09:30', '10:30', 'Clash'),
+    ev(MON, '12:00', '12:30', 'Lunch'), // a block she keeps for herself
+    ev(MON, '13:00', '14:00', 'Planning'),
+    ev(MON, '14:00', '15:00', 'Focus time'),
+    ev(MON, '15:00', '16:00', 'Office hours', { free: true }), // marked free
+    ev(MON, '00:00', '23:59', 'Conference', { allDay: true }),
+    ev(MON, '16:30', '17:45', 'Late one'),
+    ev(MON, '19:00', '21:00', 'Dinner'), // an evening plan, not a meeting
+    ev(TUE, '08:00', '10:00', 'Workshop'),
+    ev(TUE, '10:05', '12:00', 'Review'),
+    ev(TUE, '12:05', '14:00', 'Steering'),
+    ev(TUE, '14:30', '16:45', 'Interviews'),
+    ev(WED, '10:00', '11:00', 'Sync'), // a sick day: not counted
+    ev(SAT, '10:00', '11:00', 'Weekend thing'), // a day off: not counted
+  ];
+  const s = defaultState();
+  s.pauses = [{ from: WED, to: WED, kind: 'sick' }];
+
+  // ---- what a meeting is ----
+  assert.ok(isMeeting(events[0]));
+  for (const i of [3, 5, 6, 7, 9]) assert.ok(!isMeeting(events[i]), events[i].title);
+  assert.ok(!isMeeting(ev(MON, '09:00', '18:00', 'Offsite', { end: new Date(`${MON}T09:00`).getTime() + 9 * 3_600_000 })), 'longer than 8 hours: a block');
+  assert.ok(!isMeeting(events[1], ['work']), 'a calendar left out of the meeting calendars');
+
+  // ---- one day ----
+  const mon = dayLoad(s, events, MON);
+  assert.deepEqual(
+    { meetings: mon.meetings, minutes: mon.minutes, focusGaps: mon.focusGaps, focusMin: mon.focusMin, late: mon.late, lateMin: mon.lateMin, clashes: mon.clashes },
+    { meetings: 4, minutes: 225, focusGaps: 2, focusMin: 300, late: 1, lateMin: 45, clashes: 1 },
+  );
+  const tue = dayLoad(s, events, TUE);
+  assert.deepEqual([tue.minutes, tue.focusGaps, tue.longestRun, tue.late], [485, 0, 360, 0], 'gaps under 10 minutes keep a run going');
+  assert.equal(dayLoad(s, events, WED).meetings, 0, 'sick');
+  assert.ok(!dayLoad(s, events, WED).workday);
+  assert.deepEqual([dayLoad(s, events, SAT).meetings, dayLoad(s, events, SAT).focusGaps], [0, 0], 'a day off has neither');
+  assert.deepEqual([dayLoad(s, events, THU).focusGaps, dayLoad(s, events, THU).focusMin], [1, 540], 'an empty workday is one long gap');
+
+  // ---- the week ----
+  const week = meetingLoad(s, events, MON, SUN, SUN);
+  assert.deepEqual(
+    [week.workdays, week.meetings, week.minutes, week.focusGaps, week.focusMin, week.late, week.clashes, week.longestRun, week.longestRunDay, week.busiest?.day],
+    [4, 8, 710, 4, 1380, 1, 1, 360, TUE, TUE],
+  );
+  assert.equal(meetingLoad(s, events, MON, SUN, TUE).days.length, 2, 'never past today');
+  assert.equal(loadMood(week), 'light', '710 min over 4 workdays is under 3 h a day');
+  assert.equal(loadMood(meetingLoad(s, events, MON, MON, SUN)), 'heavy');
+  assert.equal(loadMood(meetingLoad(s, events, TUE, TUE, SUN)), 'noFocus');
+  assert.equal(loadMood(meetingLoad(s, events, THU, THU, SUN)), 'none');
+  assert.equal(loadMood(meetingLoad(s, events, SAT, SUN, SUN)), null, 'no workdays');
+  const late = [ev(THU, '16:00', '17:30', 'A'), ev('2027-01-15', '16:30', '18:00', 'B')];
+  assert.equal(loadMood(meetingLoad(s, late, THU, '2027-01-15', SUN)), 'late');
+  assert.deepEqual(loadVars(week), { hours: '11h 50m', day: 'Tuesday', n: 1 });
+  const facts = loadFacts(week);
+  assert.ok(facts[0].startsWith('11h 50m in 8 meetings over 4 workdays'), facts[0]);
+  assert.ok(facts.some((f) => f.startsWith('Busiest: Tuesday, 8h 5m')));
+  assert.ok(facts.some((f) => f.startsWith('Longest back-to-back: 6h on Tuesday')));
+  // the meeting calendars setting: only the calendars picked count
+  const workOnly = { ...s, settings: { ...s.settings, meetingCalendars: ['home'] } };
+  assert.equal(meetingLoad(workOnly, events, MON, SUN, SUN).meetings, 1, 'only the copy in "home"');
+  // read a day either side (Android lists only events wholly inside the range)
+  const rr = readRange(MON, SUN);
+  assert.deepEqual([dayKey(rr.start), rr.start.getHours(), dayKey(rr.end), rr.end.getHours()], ['2027-01-10', 0, '2027-01-19', 0]);
+  // its lines: every mood has a pool, the calendar gets roasted with {hours}, {day} and {n} only
+  for (const k of Object.values(LOAD_LINE)) {
+    assert.ok(pools[k]?.mild.length >= 3 && pools[k].savage.length >= 3, k);
+    for (const t of [...pools[k].mild, ...pools[k].savage]) for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(['hours', 'day', 'n'].includes(m[1]), `${k}: {${m[1]}}`);
+  }
+
+  // Wrapped's slide: the month's load when the calendar could be read, nothing without one or without meetings
+  const jan = defaultState();
+  jan.days[MON] = { ...emptyDay(), water: [{ id: 'w', ml: 250, at: new Date(`${MON}T09:00`).getTime() }] };
+  const febFirst = new Date(2027, 1, 1, 10);
+  const slide = monthWrapped(jan, 2027, 0, febFirst, meetingLoad(jan, events, MON, '2027-01-31', '2027-01-31')).slides.find((x) => x.id === 'meetings');
+  assert.ok(slide && slide.big === '12h 50m' && slide.sub.includes('busiest 01-12 (8h 5m)'), JSON.stringify(slide));
+  assert.ok(!monthWrapped(jan, 2027, 0, febFirst).slides.some((x) => x.id === 'meetings'));
+  assert.ok(!monthWrapped(jan, 2027, 0, febFirst, meetingLoad(jan, [], MON, '2027-01-31', '2027-01-31')).slides.some((x) => x.id === 'meetings'));
+
+  // ---- Ask S.P.I.D.E.R.: gym or skip ----
+  const at = (key: string, hm: string) => new Date(`${key}T${hm}`);
+  const base = { events: [] as CalEvent[], calendar: true, weather: null };
+  const g = defaultState(); // Monday is Push, gym at 18:00, bedtime 23:00
+  const go = askGym(g, { ...base, now: at(MON, '15:00') });
+  assert.deepEqual([go.verdict, go.tone, go.line], ['Go.', 'go', 'askGymGo']);
+  assert.ok(go.reasons[0].startsWith('Push is on the plan today, gym time 18:00'));
+  assert.ok(go.reasons.includes('Calendar is clear around 18:00'));
+  const clash = askGym(g, { ...base, events: [ev(MON, '17:30', '18:30', 'Weekly sync')], now: at(MON, '15:00') });
+  assert.ok(clash.reasons.some((r) => r.startsWith('"Weekly sync" runs 17:30–18:30')));
+  assert.ok(clash.reasons.includes('Free gap: 15:00–17:30'));
+  assert.equal(clash.verdict, 'Go now, before the meeting.');
+  const later = askGym(g, { ...base, events: [ev(MON, '15:00', '17:00', 'Workshop'), ev(MON, '17:30', '18:30', 'Weekly sync')], now: at(MON, '15:00') });
+  assert.deepEqual([later.verdict, later.reasons.at(-1)], ['Go at 18:30.', 'Free gap: 18:30–21:00']);
+  const full = askGym(g, { ...base, events: [ev(MON, '15:00', '21:00', 'Offsite')], now: at(MON, '15:00') });
+  assert.deepEqual([full.verdict, full.line, full.reasons.at(-1)], ['Go easy.', 'askGymEasy', 'No free hour left before bedtime']);
+  assert.ok(askGym(g, { ...base, events: [ev(MON, '18:00', '19:00', 'Gym')], now: at(MON, '15:00') }).reasons.includes('Calendar is clear around 18:00'), 'the workout itself is no clash');
+  const rain = askGym(g, { ...base, now: at(MON, '15:00'), weather: { temp: 4, feels: 1, code: 61, days: [], soon: [{ at: at(MON, '18:00').getTime(), mm: 1.2 }], fetchedAt: at(MON, '15:00').getTime() } });
+  assert.ok(rain.reasons.some((r) => r.startsWith('Rain around 18:00')));
+  assert.equal(rain.verdict, 'Go.', 'rain is a reason to bring an umbrella, not to skip');
+  const trained = defaultState();
+  trained.days[MON] = { ...emptyDay(), sets: [{ id: 'x', exercise: 'Bench press', weight: 40, reps: 8, at: at(MON, '07:00').getTime() }] };
+  assert.equal(askGym(trained, { ...base, now: at(MON, '15:00') }).line, 'askGymDone');
+  const sick = defaultState();
+  sick.pauses = [{ from: MON, to: MON, kind: 'sick' }];
+  const sickAnswer = askGym(sick, { ...base, now: at(MON, '15:00') });
+  assert.deepEqual([sickAnswer.verdict, sickAnswer.tone, sickAnswer.line], ['Skip it.', 'stop', 'askGymSkip']);
+  const low = defaultState();
+  low.days[MON] = { ...emptyDay(), moods: [{ id: 'm', level: 1, emotions: [], at: at(MON, '08:00').getTime() }] };
+  assert.equal(askGym(low, { ...base, now: at(MON, '15:00') }).line, 'askGymEasy', 'a kind day: go easy');
+  low.days[WED] = { ...emptyDay(), moods: [{ id: 'm', level: 1, emotions: [], at: at(WED, '08:00').getTime() }] };
+  assert.equal(askGym(low, { ...base, now: at(WED, '15:00') }).line, 'askGymSkip', 'a kind day without a workout: skip, guilt-free');
+  const tired = defaultState();
+  tired.days[MON] = { ...emptyDay(), energy: 2 };
+  assert.equal(askGym(tired, { ...base, now: at(MON, '15:00') }).verdict, 'Go easy.');
+  const nearBed = askGym(g, { ...base, now: at(MON, '22:00') });
+  assert.deepEqual([nearBed.verdict, nearBed.line], ['Skip it.', 'askGymSkip']);
+  assert.ok(nearBed.reasons.includes('Bedtime 23:00 is 1h away'));
+  const c = defaultState();
+  c.days[MON] = { ...emptyDay(), sets: [{ id: 'x', exercise: 'Bench press', weight: 40, reps: 8, at: at(MON, '18:30').getTime() }] };
+  c.contract = { week: MON, from: MON, signedAt: 0, goal: 'train', target: 3, stake: 100, status: 'open' };
+  const bonus = askGym(c, { ...base, now: at(SAT, '10:00') });
+  assert.equal(bonus.verdict, 'Go: a bonus one.', 'Saturday, 1 of 3 with 2 days left: every day counts');
+  assert.ok(bonus.reasons.includes('Training contract: 1/3, 2 days left: every one counts now'));
+  assert.equal(askGym(defaultState(), { ...base, now: at(SAT, '10:00') }).verdict, 'Skip it.', 'a rest day');
+
+  // ---- one more game? ----
+  const game = (usedMin: number) => {
+    const x = defaultState();
+    x.settings.gamingBudgetMin = 60;
+    x.settings.phoneGamesCount = false;
+    x.days[MON] = { ...emptyDay(), games: [{ start: at(MON, '18:00').getTime(), end: at(MON, '18:00').getTime() + usedMin * MIN }] };
+    return x;
+  };
+  const yes = askGame(game(20), { ...base, events: [ev(TUE, '10:00', '11:00', 'Review')], now: at(MON, '20:00') });
+  assert.deepEqual([yes.verdict, yes.line], ['Yes.', 'askGameYes']);
+  assert.deepEqual(yes.reasons, ['Gaming budget: 20m of 1h used, 40m left', 'Bedtime 23:00, 3h away', 'First thing tomorrow: "Review" at 10:00']);
+  assert.equal(askGame(game(40), { ...base, now: at(MON, '20:00') }).line, 'askGameLast', 'only 20 minutes left');
+  assert.equal(askGame(game(70), { ...base, now: at(MON, '20:00') }).line, 'askGameNo', 'over budget');
+  assert.equal(askGame(game(0), { ...base, now: at(MON, '22:50') }).line, 'askGameNo', 'bedtime in 10 minutes');
+  assert.equal(askGame(game(0), { ...base, events: [ev(TUE, '08:00', '09:00', 'Standup')], now: at(MON, '20:00') }).line, 'askGameLast', 'an early start');
+  const night = askGame(game(0), { ...base, now: at(TUE, '01:00') });
+  assert.equal(night.line, 'askGameNo');
+  assert.ok(night.reasons.includes('Bedtime 23:00 was 2h ago') && night.reasons.includes('Nothing booked this morning'), night.reasons.join(' | '));
+  assert.equal(bedtimeFor(g, at(TUE, '01:00')), at(MON, '23:00').getTime());
+  assert.equal(freeGap([ev(MON, '15:30', '17:00')], at(MON, '15:00'), at(MON, '17:45').getTime(), 60), null, 'a 30 and a 45 minute gap are no hour');
+  assert.deepEqual(freeGap([ev(MON, '15:30', '17:00')], at(MON, '15:00'), at(MON, '18:00').getTime(), 60), { start: at(MON, '17:00').getTime(), end: at(MON, '18:00').getTime() });
+
+  // ---- say yes to tonight? ----
+  const t = defaultState();
+  const easy = askTonight(t, { ...base, events: [ev(TUE, '10:00', '11:00', 'Review')], now: at(MON, '18:00') });
+  assert.deepEqual([easy.verdict, easy.line, easy.vars.time], ['Yes.', 'askTonightYes', '22:00']);
+  const earlyStart = askTonight(t, { ...base, events: [ev(TUE, '08:30', '09:00', 'Standup')], now: at(MON, '18:00') });
+  assert.deepEqual([earlyStart.verdict, earlyStart.line], ['Yes, home by 22:00.', 'askTonightEarly']);
+  assert.ok(earlyStart.reasons.includes('First thing tomorrow: "Standup" at 08:30'));
+  assert.ok(earlyStart.reasons.includes('Pull is planned tomorrow at 18:00'));
+  const packed = askTonight(t, { ...base, events: events.filter((e) => e.title !== 'Dinner'), now: at(MON, '18:00') });
+  assert.equal(packed.line, 'askTonightEarly', 'tomorrow is back to back');
+  assert.ok(packed.reasons.includes('Back to back 08:00–14:00'), packed.reasons.join(' | '));
+  const booked = askTonight(t, { ...base, events: [ev(MON, '19:00', '21:00', 'Padel')], now: at(MON, '18:00') });
+  assert.deepEqual([booked.verdict, booked.line], ['Check the calendar first.', 'askTonightClash']);
+  assert.equal(askTonight(t, { ...base, events: [ev(MON, '17:30', '18:30', 'Weekly sync')], now: at(MON, '18:00') }).line, 'askTonightYes', 'a work meeting running late is no evening plan');
+  const friday = askTonight(t, { ...base, now: at('2027-01-15', '18:00') });
+  assert.ok(friday.reasons.includes('Tomorrow is a day off'), friday.reasons.join(' | '));
+  assert.ok(askTonight(t, { ...base, calendar: false, now: at(MON, '18:00') }).reasons.includes('No calendar connected: I can only see the plan'));
+  // today's check-in is context, never weighed
+  const checked = defaultState();
+  checked.days[MON] = { ...emptyDay(), energy: 1, moods: [{ id: 'm', level: 1, emotions: [], at: at(MON, '08:00').getTime() }] };
+  const ctx = askTonight(checked, { ...base, events: [ev(TUE, '10:00', '11:00', 'Review')], now: at(MON, '18:00') });
+  assert.deepEqual([ctx.verdict, ctx.line, ctx.reasons], [easy.verdict, easy.line, easy.reasons]);
+  assert.deepEqual(ctx.context, ['Energy today: 1/5', 'Mood check-in: 😞 Awful']);
+  assert.deepEqual(easy.context, []);
+
+  // the ask pools: there, kind enough for kind days (the mild list), never about the body, {time} only where passed
+  const ASK = ['askGymGo', 'askGymEasy', 'askGymSkip', 'askGymDone', 'askGameYes', 'askGameLast', 'askGameNo', 'askTonightYes', 'askTonightEarly', 'askTonightClash'];
+  for (const k of ASK) {
+    assert.ok(pools[k]?.mild.length >= 3 && pools[k].savage.length >= 3, k);
+    for (const line of [...pools[k].mild, ...pools[k].savage]) {
+      assert.ok(!/\b(weight|body|bodies|fat|kcal|calorie|belly|thigh|eat|ate|food)\b/i.test(line), `${k}: ${line}`);
+      for (const m of line.matchAll(/\{(\w+)\}/g)) assert.ok(m[1] === 'time' && k.startsWith('askTonight'), `${k}: {${m[1]}}`);
+    }
+  }
+}
+stepTenAskTests();
 
 console.log('synchronous logic tests passed');

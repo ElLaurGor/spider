@@ -6,11 +6,12 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BossPick } from '@/components/boss-pick';
 import { ContractCard } from '@/components/contract-card';
+import { MeetingLoadCard } from '@/components/meeting-load-card'; // step 10 meetings: the calendar autopsy
 import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, T, useNow } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { choreTitle, grimText, dueOn } from '@/lib/chores';
-import { dayKey, fmtTime, startOfWeek, WEEKDAYS } from '@/lib/dates';
+import { addDays, dayKey, fmtTime, startOfWeek, WEEKDAYS } from '@/lib/dates';
 import { doneTitle } from '@/lib/done-list';
 import { activeTasks } from '@/lib/horizons';
 import { taskAgeDays } from '@/lib/memory';
@@ -62,6 +63,9 @@ export default function WarRoom() {
           </T>
         ) : null}
       </Card>
+
+      {/* step 10 meetings: what the calendar did to the week looked back on */}
+      <MeetingLoadCard from={closing} to={dayKey(addDays(noonOf(closing), 6))} title="📅 The calendar's week" />
 
       <Zombies now={now} />
 

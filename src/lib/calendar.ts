@@ -49,6 +49,7 @@ export async function loadEvents(cals: CalInfo[], start: Date, end: Date): Promi
         calendarId: e.calendarId,
         color: colors.get(e.calendarId),
         recurring: !!e.recurrenceRule, // step 9 story: big days are one-off events only
+        ...(e.availability === Calendar.Availability.FREE ? { free: true } : {}), // step 10: "free" time is never a meeting
       };
     })
     .sort((a, b) => a.start - b.start);
