@@ -15,7 +15,7 @@ import { THEMES } from '@/constants/theme';
 import { activityInfo } from './body';
 import { calendarPermission, calendarSupported, loadCalendars, loadEvents } from './calendar';
 import { bankFor, CHEST_KEY_COST, cleanName, NAME_COST, PEEL_COST, PITY_AFTER, QUEST_CARD_COST, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
-import { nextPiece, withPiece } from './lair';
+import { nextPiece, withPiece, withPlace } from './lair';
 import { stageFor, themesUnlockedBetween } from './evolution';
 import { addDays, atTime, dayKey, fmtDuration, fmtTime, isDayKey, MIN, startOfDay, startOfWeek, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
@@ -3224,6 +3224,18 @@ function useStoreValue() {
           const more = Object.entries(growth).filter(([id, g]) => g > (kept[id] ?? 0));
           return more.length ? { ...s, lairGrowth: { ...kept, ...Object.fromEntries(more.map(([id, g]) => [id, Math.min(1, g)])) } } : s;
         }, { quiet: true });
+      },
+      /** The day's cricket was dropped in (once a day; looks only, no XP). */
+      feedTank() {
+        run((s) => (s.tankFed === dayKey() ? s : { ...s, tankFed: dayKey() }), { quiet: true });
+      },
+      /** A piece moved by hand in the 3D tank (lair.ts withPlace); (0, 0) puts it back. Looks only. */
+      moveLairPiece(id: string, dx: number, dz: number) {
+        run((s) => withPlace(s, id, dx, dz), { quiet: true });
+      },
+      /** Every moved piece back where it stood. */
+      resetLairPlaces() {
+        run((s) => (Object.keys(s.lairPlace ?? {}).length ? { ...s, lairPlace: {} } : s), { quiet: true });
       },
       /** The month's automatic snapshot of the tank (a file in the photo folder), for Wrapped. */
       tankSnapped(month: string, uri: string) {

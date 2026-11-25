@@ -253,6 +253,13 @@ import { bigDaysOn, bigKindOf, briefParts, withBigAnswer } from '../src/lib/big-
 import { accuse, cluesOf, guessesLeft, lettersKnown, memoFound, memoLine, memosFound, memoTexts, MOLE_PRIZE, moleOf, RUNES, runeMap, withMemo } from '../src/lib/cipher';
 import { metaEvents, OPENS_WINK, saidThisWeek, THEMES_WINK, withOpen, withRestore, withThemeSwitch } from '../src/lib/meta-winks';
 import { ROSTER_LIST } from '../src/lib/league';
+// the terrarium round
+import { CLEAR_SKY, cloudsOfCode, floorOf, floorSeason, moonPosition, MOSS_DAYS, SKY_FRESH_MS, skyAt, sunPosition } from '../src/lib/tank-life';
+import { clampPlace, moonShape } from '../src/lib/terrarium-3d';
+import { MOVABLE, placesOf, withPlace } from '../src/lib/lair';
+import { GROW_UP_DAYS, grownLing, lingAge, lingsAtHome, LINGS_SHOWN, tankLings } from '../src/lib/egg-sacs';
+import { LING_PLACES, lingMove } from '../src/lib/mail';
+import type { Spiderling } from '../src/lib/types';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -7959,5 +7966,198 @@ function step9StoryTests() {
   assert.deepEqual(appOnly.events, [], "the app's own bookkeeping isn't an edit");
 }
 step9StoryTests();
+
+function terrariumRoundTests() {
+  const deg = (r: number) => r / (Math.PI / 180);
+  const HOUR_MS = 3_600_000;
+  const DAY_MS = 24 * HOUR_MS;
+
+  // ---- the real sun and moon over Stockholm ----
+  const winterNoon = sunPosition(Date.UTC(2026, 11, 21, 10, 47));
+  assert.ok(deg(winterNoon.alt) > 6 && deg(winterNoon.alt) < 8.5, `midwinter noon is low: ${deg(winterNoon.alt)}`);
+  assert.ok(Math.abs(winterNoon.az) < 0.06, 'due south at solar noon');
+  const summerNoon = sunPosition(Date.UTC(2026, 5, 21, 10, 50));
+  assert.ok(deg(summerNoon.alt) > 53 && deg(summerNoon.alt) < 55.5, `midsummer noon is high: ${deg(summerNoon.alt)}`);
+  assert.ok(sunPosition(Date.UTC(2026, 5, 21, 5)).az < 0 && sunPosition(Date.UTC(2026, 5, 21, 16)).az > 0, 'east in the morning, west in the afternoon');
+  assert.ok(sunPosition(Date.UTC(2026, 11, 21, 22)).alt < 0, 'down at night');
+  const full = moonPosition(Date.UTC(2025, 0, 13, 22, 27)).phase;
+  assert.ok(Math.abs(full - 0.5) < 0.02, `full moon 13 Jan 2025: ${full}`);
+  const fresh = moonPosition(Date.UTC(2025, 0, 29, 12, 36)).phase;
+  assert.ok(fresh < 0.02 || fresh > 0.98, `new moon 29 Jan 2025: ${fresh}`);
+  const waxing = moonPosition(Date.UTC(2025, 0, 6, 23, 56)).phase;
+  assert.ok(Math.abs(waxing - 0.25) < 0.03, `first quarter 6 Jan 2025: ${waxing}`);
+  // the moon's lit shape: nothing when new, half at a quarter, all of it when full
+  const area = (g: THREE.BufferGeometry) => {
+    const pos = g.attributes.position;
+    const idx = g.index;
+    let a = 0;
+    const tri = (i: number, j: number, k: number) => Math.abs((pos.getX(j) - pos.getX(i)) * (pos.getY(k) - pos.getY(i)) - (pos.getX(k) - pos.getX(i)) * (pos.getY(j) - pos.getY(i))) / 2;
+    if (idx) for (let t = 0; t < idx.count; t += 3) a += tri(idx.getX(t), idx.getX(t + 1), idx.getX(t + 2));
+    return a;
+  };
+  assert.ok(Math.abs(area(moonShape(0.5, 1)) - Math.PI) < 0.05, 'full');
+  assert.ok(Math.abs(area(moonShape(0.25, 1)) - Math.PI / 2) < 0.05, 'first quarter: half');
+  assert.ok(Math.abs(area(moonShape(0.75, 1)) - Math.PI / 2) < 0.05, 'last quarter: half');
+  assert.ok(area(moonShape(0.01, 1)) < 0.05, 'new: next to nothing');
+  const xs = (g: THREE.BufferGeometry) => Array.from({ length: g.attributes.position.count }, (_, i) => g.attributes.position.getX(i));
+  assert.ok(Math.min(...xs(moonShape(0.2, 1))) > -0.01, 'waxing: lit on the right');
+  assert.ok(Math.max(...xs(moonShape(0.8, 1))) < 0.01, 'waning: lit on the left');
+
+  // ---- the sky: clouds, rain and snow only while the weather is fresh ----
+  const t = Date.UTC(2026, 10, 25, 11);
+  const w = (o: Partial<{ code: number; clouds: number; temp: number; fetchedAt: number; soon: { at: number; mm: number }[] }>) => ({ code: 2, temp: 4, fetchedAt: t - 10 * 60_000, ...o });
+  assert.deepEqual([skyAt(t).falling, skyAt(t).clouds], [null, CLEAR_SKY.clouds], 'no weather: a fair sky, nothing falling');
+  assert.equal(skyAt(t, null, w({ code: 63, fetchedAt: t - SKY_FRESH_MS - 1 })).falling, null, 'stale weather says nothing about now');
+  const rain = skyAt(t, null, w({ code: 63 }));
+  assert.ok(rain.falling === 'rain' && rain.clouds >= 0.8);
+  assert.equal(skyAt(t, null, w({ code: 73, temp: -2 })).falling, 'snow');
+  assert.equal(skyAt(t, null, w({ code: 3, clouds: 40 })).clouds, 0.4, "Open-Meteo's cloud cover wins over the code");
+  assert.equal(skyAt(t, null, w({ code: 2, soon: [{ at: t - 5 * 60_000, mm: 0.4 }] })).falling, 'rain', 'the 15-minute rain covering now');
+  assert.equal(skyAt(t, null, w({ code: 2, temp: -1, soon: [{ at: t - 5 * 60_000, mm: 0.4 }] })).falling, 'snow', 'and snow below zero');
+  assert.equal(skyAt(t, null, w({ code: 2, soon: [{ at: t - 20 * 60_000, mm: 0.4 }] })).falling, null, 'a slot that has passed');
+  assert.ok(skyAt(t, null, w({ code: 45 })).fog && skyAt(t, null, w({ code: 95 })).thunder);
+  assert.ok(cloudsOfCode(0) < cloudsOfCode(2) && cloudsOfCode(2) < cloudsOfCode(3));
+  assert.notDeepEqual(skyAt(t, { lat: 67.85, lon: 20.22 }).sun, skyAt(t).sun, 'the weather place, not always Stockholm');
+
+  // ---- the floor through the year, moss creeping in ----
+  assert.deepEqual([0, 3, 6, 9, 11].map(floorSeason), ['winter', 'spring', 'summer', 'autumn', 'winter']);
+  const nov = new Date(2026, 10, 25, 12).getTime();
+  const lairState = (daysAgo: number): SweState => ({ ...defaultState(), lairAt: { web: nov - daysAgo * DAY_MS, rug: nov - 2 * DAY_MS } });
+  assert.deepEqual(floorOf(defaultState(), nov), { season: 'autumn', month: 10, moss: 0 }, 'no pieces yet: no moss');
+  assert.equal(floorOf(lairState(MOSS_DAYS / 2), nov).moss, 0.5, 'from the first piece');
+  assert.equal(floorOf(lairState(MOSS_DAYS * 3), nov).moss, 1);
+
+  // ---- pieces moved by hand ----
+  const moved = withPlace(defaultState(), 'couch', 1.234, -0.51);
+  assert.deepEqual(placesOf(moved), { couch: [1.25, -0.5] }, 'rounded');
+  assert.deepEqual(placesOf(withPlace(moved, 'couch', 0.01, 0.01)), {}, 'back where it was: nothing kept');
+  assert.equal(withPlace(defaultState(), 'web', 1, 1).lairPlace, undefined, 'the corner web stays in its corner');
+  assert.ok(MOVABLE.length === LAIR.length - 1);
+  const [cx, cz] = clampPlace('couch', -10, 10);
+  assert.ok(-4.6 + cx >= -TANK.w / 2 && 1.4 + cz <= TANK.d / 2, 'kept inside the glass');
+  assert.deepEqual(clampPlace('web', 2, 2), [0, 0]);
+
+  // ---- spiderlings grow up and move out with a postcard ----
+  const ling = (id: string, daysAgo: number): Spiderling => ({ id, from: 'chest', key: id, laidAt: nov - 40 * DAY_MS, hatchedAt: nov - daysAgo * DAY_MS, km: 5, coins: 60 });
+  const nursery: SweState = { ...defaultState(), onboarded: true, settings: { ...defaultState().settings, userName: 'Elena' }, spiderlings: [ling('a', GROW_UP_DAYS + 1), ling('b', 10), ling('c', 2), ling('d', 1)] };
+  assert.equal(lingAge(ling('x', GROW_UP_DAYS / 2), nov), 0.5);
+  assert.deepEqual(tankLings(nursery).map((x) => x.id), ['b', 'c', 'd'], `the newest ${LINGS_SHOWN} at home`);
+  assert.equal(grownLing(nursery, nov)?.id, 'a');
+  const sent = withMail(nursery, new Date(nov));
+  assert.ok(sent.letter?.from === 'ling' && sent.letter.ref === 'ling:a', 'the grown one writes before Mamma');
+  const where = lingMove(nursery.spiderlings![0]);
+  assert.ok(sent.letter!.body.includes(where.place.where) && sent.letter!.body.includes(where.name) && sent.letter!.body.includes('Elena'));
+  assert.ok(LING_PLACES.some((p) => p.id === where.place.id));
+  const movedOut = sent.state.spiderlings!.find((x) => x.id === 'a')!;
+  assert.ok(movedOut.movedAt === nov && movedOut.name === where.name && movedOut.place === where.place.id);
+  assert.deepEqual(lingsAtHome(sent.state).map((x) => x.id), ['b', 'c', 'd'], 'moved out: room for the others');
+  assert.equal(grownLing(sent.state, nov + DAY_MS), null, 'once only');
+  assert.equal(sent.state.xp, nursery.xp, 'no XP');
+  const tomorrow = withMail(sent.state, new Date(nov + DAY_MS));
+  assert.ok(tomorrow.letter?.ref !== 'ling:a');
+  const life = tankLifeOf(nursery, { now: nov });
+  assert.deepEqual([life.spiderlings, life.lingAge], [3, [lingAge(ling('b', 10), nov), lingAge(ling('c', 2), nov), lingAge(ling('d', 1), nov)]]);
+
+  // ---- the world: the sky, the floor, feeding, things it does on its own, moved pieces, the camera ----
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const all = LAIR.map((x) => x.id);
+  const at = (o: Partial<TankLife>): TankLife => ({ ...IDLE_LIFE, ...o });
+  const night = { sun: { alt: -0.6, az: 0 }, moon: { alt: 0.15, az: 0.2, phase: 0.5 }, clouds: 0.05, fog: false, falling: null, thunder: false } as const;
+  const world = createWorld({ ids: all, next: null, marking: '#E23636', background: '#10141F', random: rnd, life: at({ sky: { ...night, sun: { ...night.sun }, moon: { ...night.moon } }, daylight: 0, light: lighting(0, false) }) });
+  let out = 0;
+  const run = (sec: number, each?: () => void) => {
+    for (let i = 0; i < sec * 30; i++) {
+      world.step(1 / 30);
+      const p = world.pose().pos;
+      if (Math.abs(p.x) > TANK.w / 2 || Math.abs(p.z) > TANK.d / 2 || p.y < -0.001 || p.y > TANK.h) out++;
+      each?.();
+    }
+  };
+  let shown = world.shown();
+  assert.ok(shown.stars && shown.moon && !shown.sun, 'a clear night: stars and the moon');
+  world.setLife(at({ sky: { ...night, sun: { alt: 0.3, az: -0.4 }, clouds: 0.1 } }));
+  shown = world.shown();
+  assert.ok(shown.sun && !shown.stars, 'by day: the sun, no stars');
+  world.setLife(at({ sky: { ...night, sun: { alt: 0.3, az: 0 }, clouds: 0.95, falling: 'rain' } }));
+  shown = world.shown();
+  assert.ok(!shown.sun && shown.clouds >= 12 && shown.rainOutside && !shown.snowOutside, 'overcast and raining outside');
+  world.setLife(at({ sky: { ...night, sun: { alt: 0.1, az: 0 }, clouds: 0.9, falling: 'snow' } }));
+  assert.ok(world.shown().snowOutside && !world.shown().rainOutside);
+  for (const [season, name] of [
+    ['autumn', 'floor-leaves'],
+    ['winter', 'floor-needles'],
+  ] as const) {
+    world.setLife(at({ floor: { season, month: season === 'autumn' ? 9 : 0, moss: 0 } }));
+    assert.ok(world.shown().floorNames.includes(name), `${season} on the floor`);
+  }
+  for (const season of ['spring', 'summer'] as const) {
+    world.setLife(at({ floor: { season, month: season === 'spring' ? 4 : 6, moss: 0 } }));
+    assert.ok(world.shown().floor >= 2, `${season} flowers`);
+  }
+  const bare = (world.setLife(at({ floor: { season: 'autumn', month: 9, moss: 0 } })), world.shown().floor);
+  world.setLife(at({ floor: { season: 'autumn', month: 9, moss: 1 } }));
+  assert.equal(world.shown().floor, bare + 1, 'moss patches once it has crept in');
+  // feeding: a cricket dropped in, stalked and eaten
+  world.setLife(at({}));
+  world.feed();
+  let cricket = false;
+  let ate = false;
+  run(45, () => {
+    if (world.shown().cricket) cricket = true;
+    if (world.act() === '😋') ate = true;
+  });
+  assert.ok(cricket && ate && !world.shown().cricket, 'the cricket came and went');
+  // on its own: grooming, stretching, digging, the front glass (more often while followed up close)
+  world.setFollow(true);
+  let onGlass = false;
+  run(400, () => {
+    const p = world.pose();
+    if (p.pos.z > TANK.d / 2 - 0.3 && p.pitch < -1.2 && p.pos.y > 1) onGlass = true;
+  });
+  assert.ok(world.shown().behaviours >= 4, `things it does on its own: ${world.shown().behaviours}`);
+  assert.ok(onGlass, 'up the front glass');
+  assert.equal(out, 0, 'never through the glass or the floor');
+  // the camera: following brings it close, a pinch zooms, letting go shows the whole tank
+  world.settle();
+  assert.ok(world.shown().camR <= 9.01, 'following: up close');
+  world.setFollow(false);
+  world.setZoom(1);
+  world.settle();
+  assert.ok(Math.abs(world.shown().camR - 18) < 0.01, 'the whole tank');
+  world.setZoom(2);
+  world.settle();
+  assert.ok(Math.abs(world.shown().camR - 9) < 0.01);
+  world.setZoom(9);
+  assert.equal(world.zoom(), 2.4, 'zoom has a limit');
+  world.setZoom(1);
+  world.settle();
+  // moved pieces: the hide stands somewhere else, and the spider hides there
+  world.setLife(at({ mode: 'storm', places: { couch: [2, 0] } }));
+  run(40);
+  assert.ok(world.spotId() === 'couch' && Math.abs(world.pose().pos.x - (-3.7 + 2)) < 0.05, `in the moved hide: ${world.pose().pos.x}`);
+  assert.deepEqual(world.placeOf('couch'), [2, 0]);
+  // a long press picks the piece under the finger; carried, it stays inside the glass
+  world.setLife(at({ places: {} }));
+  world.settle();
+  const q = new THREE.Vector3(-3.7, 0.5, 0.6).project(world.camera);
+  assert.equal(world.pickPiece((q.x + 1) / 2, (1 - q.y) / 2), 'couch');
+  assert.equal(world.pickPiece(0.02, 0.03), null);
+  world.liftPiece('couch');
+  const [mx] = world.movePiece('couch', -20, 0);
+  assert.ok(mx > -1.2 && mx < 0, 'clamped at the side glass');
+  world.liftPiece(null);
+  assert.ok(world.floorPoint(0.5, 0.7) !== null);
+  // spiderlings grow
+  world.setLife(at({ spiderlings: 1, lingAge: [0] }));
+  run(0.1);
+  const small = world.shown().lingScale;
+  world.setLife(at({ spiderlings: 1, lingAge: [1] }));
+  run(0.1);
+  assert.ok(world.shown().lingScale > small * 1.5, 'grown up');
+  world.collect();
+  world.dispose();
+}
+terrariumRoundTests();
 
 console.log('synchronous logic tests passed');

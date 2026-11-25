@@ -10,7 +10,7 @@ import { useToday } from '@/components/use-today';
 import { Btn, Card, H, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { worn } from '@/lib/cosmetics';
-import { eggKm } from '@/lib/egg-sacs';
+import { eggKm, GROW_UP_DAYS, LINGS_SHOWN, lingsAtHome } from '@/lib/egg-sacs';
 import { shelfOf } from '@/lib/expeditions';
 import { crashedInGl, glForgive } from '@/lib/gl-guard';
 import { GUESTS, guestLineKey } from '@/lib/guests';
@@ -184,7 +184,7 @@ export function TerrariumView({ onTap }: { onTap?: () => void }) {
   if (mode === '3d')
     return (
       <>
-        <Terrarium3D onFail={() => setMode('flat')} onTap={onTap} onPlay={() => setPlaying(true)} />
+        <Terrarium3D onFail={() => setMode('flat')} onTap={onTap} onPlay={() => setPlaying(true)} onExpand={() => router.push('/tank')} />
         {game}
       </>
     );
@@ -437,7 +437,8 @@ export function LairCard() {
 function TankFolk() {
   const { state } = useStore();
   const eggs = state.eggSacs ?? [];
-  const lings = state.spiderlings ?? [];
+  const lings = lingsAtHome(state);
+  const movedOut = (state.spiderlings ?? []).length - lings.length;
   const molt = moltState(state);
   const date = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return (
@@ -462,12 +463,17 @@ function TankFolk() {
         <Row>
           <Text style={{ fontSize: 18 }}>🕷️</Text>
           <T small style={{ flex: 1 }}>
-            {lings.length === 1 ? 'A spiderling' : `${lings.length} spiderlings`}, hatched by walking{lings.length > 3 ? ' (three at a time live in the tank)' : ''}
+            {lings.length === 1 ? 'A spiderling' : `${lings.length} spiderlings`}, hatched by walking{lings.length > LINGS_SHOWN ? ` (${LINGS_SHOWN} at a time live in the tank)` : ''}. Grown up after {GROW_UP_DAYS} days, they move out and write.
           </T>
           <T small dim mono>
             {date(lings[lings.length - 1].hatchedAt)}
           </T>
         </Row>
+      ) : null}
+      {movedOut ? (
+        <T dim small>
+          📮 {movedOut === 1 ? 'One spiderling has' : `${movedOut} spiderlings have`} grown up and moved out. Their postcards are in the mailbox.
+        </T>
       ) : null}
     </>
   );
@@ -487,9 +493,22 @@ export function LairShop() {
     <Card>
       <H>🕸️ Terrarium</H>
       <T dim small>
-        The spider&apos;s home, one piece at a time. It walks to each one and uses it, keeps your hours and acts out what you log; tap it to say hello, drag sideways to turn the tank. Looks only. The terrarium lives on HQ (Settings can move or hide it).
+        The spider&apos;s home, one piece at a time. It walks to each one and uses it, keeps your hours and acts out what you log; tap it to say hello, drag sideways to turn the tank, pinch to zoom, double-tap to follow it, and press and hold a piece to move it. ⤢ shows it full screen. Looks only. The terrarium lives on HQ (Settings can move or hide it).
       </T>
       <TerrariumView />
+      {Object.keys(state.lairPlace ?? {}).length ? (
+        <Btn
+          small
+          kind="ghost"
+          label="Put the pieces back"
+          onPress={() =>
+            Alert.alert('Put every piece back?', 'Everything you moved goes back to where it first stood.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Put back', onPress: () => actions.resetLairPlaces() },
+            ])
+          }
+        />
+      ) : null}
       <TankFolk />
       <TankShopFolk />
       {LAIR.map((p) => {

@@ -37,3 +37,36 @@ export function glForgive() {
   checked = Promise.resolve(false);
   write('0');
 }
+
+// Real shadows (the terrarium round) are new GL work: they're tried once, kept once a few frames drew fine, and
+// switched off for good after a crash while they were still being tried (or a shader that failed with them).
+const SHADOWS = 'spider:terr3d:shadows';
+let shadowState: Promise<'ok' | 'off' | 'new'> | null = null;
+let shadowWritten = false;
+
+/** Whether the 3D tank may draw real shadows. */
+export const shadowsAllowed = () =>
+  (shadowState ??= Promise.all([AsyncStorage.getItem(SHADOWS), crashedInGl()])
+    .then(([v, crashed]): 'ok' | 'off' | 'new' => {
+      if (v === 'off') return 'off';
+      if (v !== 'ok' && crashed) {
+        AsyncStorage.setItem(SHADOWS, 'off').catch(() => {});
+        return 'off';
+      }
+      return v === 'ok' ? 'ok' : 'new';
+    })
+    .catch((): 'off' => 'off')).then((x) => x !== 'off');
+
+/** Shadows drew fine for a while: keep them. */
+export function shadowsWorked() {
+  if (shadowWritten) return;
+  shadowWritten = true;
+  AsyncStorage.setItem(SHADOWS, 'ok').catch(() => {});
+}
+
+/** A shader failed with shadows on: the tank goes on without them, for good. */
+export function shadowsFailed() {
+  shadowWritten = true;
+  shadowState = Promise.resolve('off');
+  AsyncStorage.setItem(SHADOWS, 'off').catch(() => {});
+}

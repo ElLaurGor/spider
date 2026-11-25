@@ -10,7 +10,7 @@ import { useScreenState } from '@/components/use-awake';
 import { useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
 import { worn } from '@/lib/cosmetics';
-import { glLive } from '@/lib/gl-guard';
+import { glLive, shadowsAllowed, shadowsFailed, shadowsWorked } from '@/lib/gl-guard';
 import { lairPieces, nextPiece } from '@/lib/lair';
 import { importPhoto } from '@/lib/photos';
 import { useStore } from '@/lib/store';
@@ -28,6 +28,11 @@ const NARRATE_EVERY_MS = 25_000;
 const shortDate = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 /** The month's automatic snapshot waits this long on screen, so the spider has settled somewhere. */
 const AUTO_SNAP_MS = 9000;
+/** A press this long without moving picks up the piece under the finger; two taps this close together follow the spider. */
+const LONG_PRESS_MS = 450;
+const DOUBLE_TAP_MS = 320;
+/** Frames drawn with shadows before they count as working on this phone. */
+const SHADOW_TRIAL_FRAMES = 90;
 
 type Gfx = {
   world: World | null;
@@ -45,6 +50,13 @@ type Gfx = {
   snapping: boolean; // a snapshot is being read: no other frames until it's done
   w: number;
   h: number;
+  // the terrarium round
+  pinch: { d: number; zoom: number } | null; // two fingers: zooming, from this distance and zoom
+  carry: { id: string; from: THREE.Vector3; start: [number, number]; at: [number, number] } | null; // a piece picked up by a long press
+  press: ReturnType<typeof setTimeout> | null; // the long press's timer
+  lastTap: { t: number; x: number; y: number } | null;
+  tapLater: ReturnType<typeof setTimeout> | null; // a tap on nothing waits to see if it's a double tap
+  frames: number; // frames drawn with shadows, towards SHADOW_TRIAL_FRAMES
 };
 
 /**
@@ -93,7 +105,7 @@ async function snapshot(x: Gfx, onFail: () => void): Promise<string | null> {
  * still turns it). While it draws, lib/gl-guard.ts keeps a flag up, so a native crash sends the next session to
  * the flat terrarium. `onFail`: GL, three.js or a shader gave up.
  */
-export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onTap?: () => void; onPlay?: () => void }) {
+export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: { onFail: () => void; onTap?: () => void; onPlay?: () => void; onExpand?: () => void; onClose?: () => void; full?: boolean }) {
   const { state, actions, quip, say, weather, health, tank } = useStore();
   const ids = lairPieces(state)
     .map((p) => p.id)
@@ -104,7 +116,13 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
   const awake = visible && !still;
   const today = useToday();
   const now = useNow(60_000, visible);
-  const life = tankLifeOf(state, { now, forecast: weather.data?.days.find((d) => d.date === today) ?? null, nights: health.data?.nights ?? null });
+  const wx = weather.data;
+  const life = tankLifeOf(state, {
+    now,
+    forecast: wx?.days.find((d) => d.date === today) ?? null,
+    nights: health.data?.nights ?? null,
+    weatherNow: wx ? { code: wx.code, clouds: wx.clouds, temp: wx.temp, fetchedAt: wx.fetchedAt, soon: wx.soon } : null,
+  });
   const lifeKey = JSON.stringify(life);
   const gfx = useRef<Gfx>({
     world: null,
@@ -122,7 +140,22 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
     snapping: false,
     w: 0,
     h: 0,
+    pinch: null,
+    carry: null,
+    press: null,
+    lastTap: null,
+    tapLater: null,
+    frames: 0,
   });
+  // real shadows unless they failed on this phone before (lib/gl-guard.ts); the view waits to know
+  const [shadows, setShadows] = useState<boolean | null>(null);
+  useEffect(() => {
+    let on = true;
+    shadowsAllowed().then((ok) => on && setShadows(ok));
+    return () => {
+      on = false;
+    };
+  }, []);
   const [ready, setReady] = useState(false);
   const [gen, setGen] = useState(0); // a new GL context: Android makes one each time the tank shows again
   const [act, setAct] = useState<string | null>(null);
@@ -136,15 +169,59 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
     const dy = e.nativeEvent.pageY - gfx.current.touch.y;
     return Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.5;
   };
+  const touchGap = (e: GestureResponderEvent) => {
+    const t = e.nativeEvent.touches;
+    return t.length >= 2 ? Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY) : null;
+  };
+  const settleNow = (x: Gfx) => {
+    if (x.running) return;
+    x.world?.settle();
+    paint(x, onFail);
+  };
   const grant = (e: GestureResponderEvent) => {
     const x = gfx.current;
     x.from = x.yaw;
     x.touch = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
     x.dragging = false;
     x.moved = false;
+    x.pinch = null;
+    x.carry = null;
+    if (x.press) clearTimeout(x.press);
+    // a long press on a piece picks it up, to be moved round the floor
+    const at = { x: e.nativeEvent.locationX, y: e.nativeEvent.locationY };
+    x.press = setTimeout(() => {
+      x.press = null;
+      if (x.moved || x.dragging || x.pinch || !x.world || !x.w || !x.h) return;
+      const id = x.world.pickPiece(at.x / x.w, at.y / x.h);
+      const p = x.world.floorPoint(at.x / x.w, at.y / x.h);
+      if (!id || !p) return;
+      const start = x.world.placeOf(id);
+      x.carry = { id, from: p, start, at: start };
+      x.world.liftPiece(id);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      paint(x, onFail);
+    }, LONG_PRESS_MS);
   };
   const move = (e: GestureResponderEvent) => {
     const x = gfx.current;
+    // two fingers: pinch to zoom
+    const gap = touchGap(e);
+    if (gap != null) {
+      if (x.carry) return;
+      x.pinch ??= { d: Math.max(1, gap), zoom: x.world?.zoom() ?? 1 };
+      x.moved = true;
+      x.world?.setZoom((x.pinch.zoom * gap) / x.pinch.d);
+      settleNow(x);
+      return;
+    }
+    if (x.pinch) return; // one finger left after a pinch: nothing until it lifts
+    // carrying a piece: it follows the finger over the floor
+    if (x.carry && x.world && x.w && x.h) {
+      const p = x.world.floorPoint(e.nativeEvent.locationX / x.w, e.nativeEvent.locationY / x.h);
+      if (p) x.carry.at = x.world.movePiece(x.carry.id, x.carry.start[0] + p.x - x.carry.from.x, x.carry.start[1] + p.z - x.carry.from.z);
+      if (!x.running) paint(x, onFail);
+      return;
+    }
     const dx = e.nativeEvent.pageX - x.touch.x;
     if (Math.abs(dx) > 8 || Math.abs(e.nativeEvent.pageY - x.touch.y) > 8) x.moved = true;
     if (!x.dragging && sideways(e)) {
@@ -159,13 +236,58 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
     const x = gfx.current;
     x.dragging = false;
     x.world?.setDragging(false);
+    if (x.press) clearTimeout(x.press);
+    x.press = null;
+  };
+  /** The screen took the touch away (a scroll): a carried piece goes back where it was. */
+  const terminate = () => {
+    const x = gfx.current;
+    if (x.carry) {
+      x.world?.movePiece(x.carry.id, x.carry.start[0], x.carry.start[1]);
+      x.world?.liftPiece(null);
+      x.carry = null;
+      paint(x, onFail);
+    }
+    x.pinch = null;
+    endDrag();
   };
   const release = (e: GestureResponderEvent) => {
     const x = gfx.current;
+    if (x.carry) {
+      // put down where it is (lib/lair.ts withPlace)
+      const c = x.carry;
+      x.carry = null;
+      x.world?.liftPiece(null);
+      endDrag();
+      actions.moveLairPiece(c.id, c.at[0], c.at[1]);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      paint(x, onFail);
+      return;
+    }
+    if (x.pinch) {
+      x.pinch = null;
+      endDrag();
+      return;
+    }
     const tapped = !x.dragging && !x.moved;
     endDrag();
     if (!tapped) return;
-    const hit = x.world && x.w && x.h ? x.world.pick(e.nativeEvent.locationX / x.w, e.nativeEvent.locationY / x.h) : null;
+    // a double tap follows the spider up close (or lets it go)
+    const t = e.nativeEvent.timestamp; // the touch's own time
+    const loc = { x: e.nativeEvent.locationX, y: e.nativeEvent.locationY };
+    const last = x.lastTap;
+    if (last && t - last.t < DOUBLE_TAP_MS && Math.hypot(loc.x - last.x, loc.y - last.y) < 48) {
+      x.lastTap = null;
+      if (x.tapLater) clearTimeout(x.tapLater);
+      x.tapLater = null;
+      const on = !x.world?.following();
+      x.world?.setFollow(on);
+      setBubble(on ? '🎯 Following it. Double-tap to see the whole tank.' : '🔭 The whole tank again.');
+      settleNow(x);
+      return;
+    }
+    x.lastTap = { t, ...loc };
+    const hit = x.world && x.w && x.h ? x.world.pick(loc.x / x.w, loc.y / x.h) : null;
     if (hit === 'fly') actions.catchFly(); // its toast buzzes
     else if (hit === 'spider') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -186,7 +308,27 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
         x.world?.step(0);
         paint(x, onFail);
       }
-    } else onTap?.();
+    } else if (onTap) {
+      // wait a moment: a second tap makes it a double tap instead
+      if (x.tapLater) clearTimeout(x.tapLater);
+      x.tapLater = setTimeout(() => {
+        x.tapLater = null;
+        onTap();
+      }, DOUBLE_TAP_MS);
+    }
+  };
+  /** The day's cricket: dropped in once a day (State.tankFed); the spider hunts it when it's free. */
+  const fedToday = state.tankFed === today;
+  const feed = () => {
+    const x = gfx.current;
+    if (fedToday || !x.world) return;
+    actions.feedTank();
+    x.world.feed();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (!x.running) {
+      x.world.step(0);
+      paint(x, onFail);
+    }
   };
 
   const onContextCreate = (gl: ExpoWebGLRenderingContext) => {
@@ -214,6 +356,8 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
       };
       renderer.setPixelRatio(1);
       renderer.setSize(w, h, false);
+      renderer.shadowMap.enabled = !!shadows;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       const x = gfx.current;
       // The world (the spider and what it's doing) outlives a context: only the renderer is new each time.
       const world = x.world ?? createWorld({ ids: ids ? ids.split(',') : [], next, marking, background: C.card, life });
@@ -225,7 +369,19 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
         world.collect(); // what was taken out of the scene leaves the GPU here, while drawing is safe
         world.setYaw(x.yaw);
         renderer.render(world.scene, world.camera);
+        if (shaderError && renderer.shadowMap.enabled) {
+          // shadows are the newest GL here: without them first, before giving up on 3D
+          shaderError = false;
+          renderer.shadowMap.enabled = false;
+          shadowsFailed();
+          world.scene.traverse((o) => {
+            const m = (o as THREE.Mesh).material;
+            for (const mat of Array.isArray(m) ? m : m ? [m] : []) mat.needsUpdate = true;
+          });
+          renderer.render(world.scene, world.camera);
+        }
         if (shaderError) throw new Error('three.js shader error');
+        if (renderer.shadowMap.enabled && ++x.frames === SHADOW_TRIAL_FRAMES) shadowsWorked();
       };
       x.draw = () => {
         x.render?.();
@@ -432,7 +588,7 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
 
   return (
     <View
-      style={styles.wrap}
+      style={[styles.wrap, full && styles.full]}
       onLayout={(e) => {
         gfx.current.w = e.nativeEvent.layout.width;
         gfx.current.h = e.nativeEvent.layout.height;
@@ -443,13 +599,13 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
         gfx.current.touch = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
       }}
       onStartShouldSetResponder={() => true}
-      onMoveShouldSetResponder={sideways}
-      onResponderTerminationRequest={() => !gfx.current.dragging}
+      onMoveShouldSetResponder={(e) => sideways(e) || e.nativeEvent.touches.length > 1}
+      onResponderTerminationRequest={() => !gfx.current.dragging && !gfx.current.pinch && !gfx.current.carry}
       onResponderGrant={grant}
       onResponderMove={move}
       onResponderRelease={release}
-      onResponderTerminate={endDrag}>
-      {visible ? <GLView style={styles.gl} onContextCreate={onContextCreate} /> : <View style={styles.gl} />}
+      onResponderTerminate={terminate}>
+      {visible && shadows !== null ? <GLView style={styles.gl} onContextCreate={onContextCreate} /> : <View style={styles.gl} />}
       {act ? (
         <Animated.View style={[styles.act, { transform: anchor.getTranslateTransform() }]}>
           <Text style={styles.actText}>{act}</Text>
@@ -475,12 +631,25 @@ export function Terrarium3D({ onFail, onTap, onPlay }: { onFail: () => void; onT
           <Text style={styles.snapText}>✊ Play</Text>
         </Pressable>
       ) : null}
+      {ready && (onExpand || onClose) ? (
+        <Pressable onPress={full ? onClose : onExpand} style={styles.expand} hitSlop={8} accessibilityRole="button" accessibilityLabel={full ? 'Close the full-screen tank' : 'Show the tank full screen'}>
+          <Text style={styles.snapText}>{full ? '✕' : '⤢'}</Text>
+        </Pressable>
+      ) : null}
+      {ready && !fedToday && (life.mode === 'wander' || life.mode === 'cosy') ? (
+        <Pressable onPress={feed} style={[styles.feed, !(onExpand || onClose) && { left: 8 }]} hitSlop={8} accessibilityRole="button" accessibilityLabel="Feed the spider a cricket (once a day)">
+          <Text style={styles.snapText}>🦗 Feed</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { height: HEIGHT, borderRadius: 12, overflow: 'hidden', backgroundColor: C.card },
+  full: { flex: 1, height: undefined, borderRadius: 0 },
+  expand: { position: 'absolute', left: 8, bottom: 8, minWidth: 28, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border, opacity: 0.9 },
+  feed: { position: 'absolute', left: 46, bottom: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border, opacity: 0.9 },
   gl: { flex: 1 },
   act: { position: 'absolute', left: -9, top: -12, pointerEvents: 'none' },
   actText: { fontSize: 16 },

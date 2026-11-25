@@ -37,6 +37,18 @@ export const nextPiece = (s: State) => LAIR.find((p) => !has(s).includes(p.id)) 
 /** `s` with piece `id` in the terrarium (the caller checks it's the next one and takes the coins), noting when it went in (plants grow from then). */
 export const withPiece = (s: State, id: string, now = Date.now()): State => ({ ...s, lair: [...new Set([...has(s), id])], lairAt: { ...s.lairAt, [id]: s.lairAt?.[id] ?? now } });
 
+/** Pieces that can be moved by hand in the 3D tank (the corner web stays in its corner). */
+export const MOVABLE = ['lamp', 'rug', 'plant', 'couch', 'books', 'rack', 'radio', 'fireplace', 'arcade'];
+/** Where moved pieces stand: id -> (dx, dz) from their usual place, in the tank's units (terrarium-3d.ts clamps them to the floor). */
+export const placesOf = (s: State): Record<string, [number, number]> => s.lairPlace ?? {};
+/** `s` with piece `id` moved to (dx, dz) from its usual place (rounded; (0, 0) puts it back). */
+export function withPlace(s: State, id: string, dx: number, dz: number): State {
+  if (!MOVABLE.includes(id)) return s;
+  const r = (x: number) => Math.round(x * 20) / 20;
+  const rest = Object.fromEntries(Object.entries(placesOf(s)).filter(([k]) => k !== id));
+  return { ...s, lairPlace: r(dx) || r(dz) ? { ...rest, [id]: [r(dx), r(dz)] } : rest };
+}
+
 /** Coins still needed for every piece not bought yet. */
 export const lairLeft = (s: State) => LAIR.filter((p) => !has(s).includes(p.id)).reduce((a, p) => a + p.price, 0);
 

@@ -8,7 +8,9 @@ import { owns, withOwned, cosmeticOf } from './cosmetics';
 import { dayKey, fmtTime, startOfWeek, WEEKDAYS_LONG } from './dates';
 import { FINAL_BOSS, bossFor, kingWeeksOf } from './quests';
 import { LETTER_MEMO, memoFound, withMemo } from './cipher';
-import type { Letter, State } from './types';
+import { roll } from './critters';
+import { grownLing } from './egg-sacs';
+import type { Letter, Spiderling, State } from './types';
 
 export const MAIL_KEEP = 200;
 /** How long after a boss falls its resignation can still arrive (one letter a day, so a busy week may queue). */
@@ -225,13 +227,41 @@ function postcard(s: State, c: NonNullable<State['coop']>): Draft {
   return { from: 'rival', sender: c.partner.name, emoji: c.partner.emoji, ...card, ref: `coop:${c.week}` };
 }
 
+// A grown spiderling moves out (egg-sacs.ts GROW_UP_DAYS) and sends a postcard from its new home.
+const LING_NAMES = ['Sigge', 'Majken', 'Ebbe', 'Tyra', 'Bosse', 'Greta', 'Nisse', 'Svea', 'Folke', 'Dagny', 'Pelle', 'Vera', 'Tage', 'Signe', 'Kalle', 'Elsa'];
+export const LING_PLACES: { id: string; where: string; line: string }[] = [
+  { id: 'bergianska', where: 'the big greenhouse at Bergianska', line: 'It is 26 degrees in here all year. I live behind a banana plant that has never once asked me to leave.' },
+  { id: 'visby', where: 'the town wall in Visby', line: 'The wall is seven hundred years old and full of cracks. I picked the one with a sea view.' },
+  { id: 'uppsala', where: 'a second-hand bookshop in Uppsala', line: 'I live behind the poetry shelf. Nobody dusts the poetry shelf. It is perfect.' },
+  { id: 'bohuslan', where: 'a fishing hut in Bohuslän', line: 'It smells of herring and rope. So far I have caught eleven flies and one very confused shrimp.' },
+  { id: 'oland', where: 'a windmill on Öland', line: 'When the sails turn, my web hums. The cows outside have opinions about it.' },
+  { id: 'haparanda', where: 'a sauna in Haparanda', line: 'I stay up by the ceiling where it is warmest. People come in, say "oj", and sit very still.' },
+  { id: 'goteborg', where: 'a tram depot in Göteborg', line: 'The trams sleep here at night and so do I. We understand each other.' },
+  { id: 'abisko', where: 'a mountain station in Abisko', line: 'The air up here is so clean that my web squeaks. I wear the socks Mamma knitted. All of them.' },
+  { id: 'dalarna', where: 'a red cottage in Dalarna', line: 'There is a Dala horse on my windowsill. We are not friends yet, but we are working on it.' },
+  { id: 'vasa', where: 'a ship museum in Stockholm', line: 'I live under an old cannon. Nobody has fired it in almost four hundred years. I checked twice.' },
+  { id: 'smogen', where: 'a lighthouse in Smögen', line: 'The light goes round and round all night. I go round with it, then I lie down for a bit.' },
+  { id: 'smaland', where: "Mamma Spindel's house in Småland", line: 'Mamma has knitted me four socks so far. I have mentioned that I have eight legs. She is on it.' },
+];
+
+/** The name and new home a spiderling gets when it moves out: seeded by the spiderling, so it's always the same one. */
+export function lingMove(x: Spiderling) {
+  return { name: LING_NAMES[Math.floor(roll(`lingname:${x.id}`) * LING_NAMES.length) % LING_NAMES.length], place: LING_PLACES[Math.floor(roll(`lingplace:${x.id}`) * LING_PLACES.length) % LING_PLACES.length] };
+}
+
+function lingCard(s: State, x: Spiderling): Draft {
+  const { name, place } = lingMove(x);
+  const body = `Hej ${owner(s, 'there')}!\n\nGreetings from ${place.where}. I have moved in. ${place.line}\n\nYou walked ${x.km} km to hatch me, so I will walk the rest of the way myself. Say hej to the big spider from me. Tell it I still do the leg thing.\n\nYour spiderling,\n${name}`;
+  return { from: 'ling', sender: `${name}, a grown spiderling`, emoji: '🕷️', subject: `Postcard from ${place.where}`, body, ref: `ling:${x.id}` };
+}
+
 /** Today already had its letter. */
 export const mailedToday = (s: State, now = new Date()) => (s.mail ?? []).some((l) => l.day === dayKey(now));
 
 /**
  * The day's letter, if one is due and none came today: a care package first (when the rough-patch card would
- * show, at most every CARE_EVERY_DAYS), then a boss's resignation, a co-op postcard, Mamma's monthly letter and
- * the Couch King from exile. A care package's knitting goes straight into the wardrobe (or coins when she has
+ * show, at most every CARE_EVERY_DAYS), then a boss's resignation, a co-op postcard, a grown spiderling's postcard
+ * as it moves out, Mamma's monthly letter and the Couch King from exile. A care package's knitting goes straight into the wardrobe (or coins when she has
  * knitted everything already). Never XP.
  */
 export function withMail(s: State, now = new Date(), ctx: MailCtx = {}): { state: State; letter: Letter | null } {
@@ -260,6 +290,15 @@ export function withMail(s: State, now = new Date(), ctx: MailCtx = {}): { state
   if (!draft) {
     const c = postcardDue(s, now);
     if (c) draft = postcard(s, c);
+  }
+  if (!draft) {
+    // a grown spiderling moves out of the tank: its postcard, and a place in the tank for the next one
+    const x = grownLing(s, now.getTime());
+    if (x && !has(s, `ling:${x.id}`)) {
+      draft = lingCard(s, x);
+      const { name, place } = lingMove(x);
+      next = { ...next, spiderlings: (next.spiderlings ?? []).map((y) => (y.id === x.id ? { ...y, movedAt: now.getTime(), name, place: place.id } : y)) };
+    }
   }
   if (!draft && !has(s, `mamma:${month(dayKey(now))}`)) draft = mammaLetter(s, now);
   if (!draft) {

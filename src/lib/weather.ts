@@ -22,7 +22,7 @@ export type DayForecast = {
   sunshineMin: number;
 };
 export type RainSlot = { at: number; mm: number }; // 15-minute precipitation, next 4 hours
-export type Weather = { temp: number; feels: number; code: number; days: DayForecast[]; soon: RainSlot[]; fetchedAt: number };
+export type Weather = { temp: number; feels: number; code: number; clouds?: number; days: DayForecast[]; soon: RainSlot[]; fetchedAt: number }; // clouds: cloud cover now, %
 
 // Swedish names, so the county ("Stockholms län") matches SMHI and Krisinformation exactly.
 export async function findPlace(query: string): Promise<Place | null> {
@@ -64,13 +64,13 @@ export function meteoTime(t: string, offsetSec: number | undefined) {
 export async function fetchWeather(place: Place): Promise<Weather> {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}` +
-    '&current=temperature_2m,apparent_temperature,weather_code' +
+    '&current=temperature_2m,apparent_temperature,weather_code,cloud_cover' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset,daylight_duration,sunshine_duration' +
     '&minutely_15=precipitation&forecast_minutely_15=16' +
     '&timezone=auto&forecast_days=4';
   const j = await getJson<{
     utc_offset_seconds?: number;
-    current: { temperature_2m: number; apparent_temperature: number; weather_code: number };
+    current: { temperature_2m: number; apparent_temperature: number; weather_code: number; cloud_cover?: number | null };
     daily: {
       time: string[];
       weather_code: number[];
@@ -89,6 +89,7 @@ export async function fetchWeather(place: Place): Promise<Weather> {
     temp: Math.round(j.current.temperature_2m),
     feels: Math.round(j.current.apparent_temperature),
     code: j.current.weather_code,
+    clouds: j.current.cloud_cover ?? undefined,
     days: j.daily.time.map((date, i) => ({
       date,
       max: Math.round(j.daily.temperature_2m_max[i]),

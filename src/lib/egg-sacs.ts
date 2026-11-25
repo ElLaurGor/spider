@@ -15,6 +15,19 @@ export const EGG_KMS = [2, 5, 10] as const;
 export const EGG_COINS: Record<number, number> = { 2: 30, 5: 60, 10: 120 };
 /** Egg sacs waiting at once: a drop beyond this doesn't happen. */
 export const MAX_EGGS = 3;
+/** A spiderling grows up in the tank for this many days, then moves out (its postcard comes in the mailbox, mail.ts). */
+export const GROW_UP_DAYS = 21;
+/** Spiderlings living in the tank at once (the oldest at home move out first). */
+export const LINGS_SHOWN = 3;
+
+/** The spiderlings still at home (not moved out), oldest first. */
+export const lingsAtHome = (s: State) => (s.spiderlings ?? []).filter((x) => !x.movedAt);
+/** The ones in the tank: the newest LINGS_SHOWN at home. */
+export const tankLings = (s: State) => lingsAtHome(s).slice(-LINGS_SHOWN);
+/** How grown a spiderling is, 0 just hatched … 1 grown up (GROW_UP_DAYS). */
+export const lingAge = (x: Spiderling, now = Date.now()) => Math.round(Math.min(1, Math.max(0, (now - x.hatchedAt) / (GROW_UP_DAYS * 86_400_000))) * 100) / 100;
+/** The oldest spiderling at home that has grown up: it moves out with the next free letter (mail.ts). */
+export const grownLing = (s: State, now = Date.now()) => lingsAtHome(s).find((x) => lingAge(x, now) >= 1) ?? null;
 
 /** Kilometres walked toward an egg sac: every day's watch steps from the day it dropped (that day's earlier steps left out), at its step length. */
 export function eggKm(s: State, e: EggSac, now = new Date()): number {

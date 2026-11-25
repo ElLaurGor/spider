@@ -360,6 +360,11 @@ export default function RootLayout() {
                   headerShadowVisible: false,
                 }}
               />
+              {/* the terrarium round: the tank full screen, sideways */}
+              <Stack.Screen
+                name="tank"
+                options={{ animation: "fade" }}
+              />
               <Stack.Screen
                 name="onboarding"
                 options={{ gestureEnabled: false, animation: "fade" }}

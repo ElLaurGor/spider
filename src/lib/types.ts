@@ -429,6 +429,8 @@ export type State = {
   moltSeen?: number; // tank-life.ts: the level the spider last molted for (hydrate: the level reached); a molt is due below the peak level
   molts?: number; // molts acted out in the tank, a total (its shed skins)
   moltsAt?: number[]; // when the newest molts happened (ms, oldest first, at most SKINS_SHOWN): a skin lies in the tank for SKIN_DAYS
+  lairPlace?: Record<string, [number, number]>; // lair.ts: pieces moved by hand in the 3D tank, id -> (dx, dz) from their usual place
+  tankFed?: string; // the day the spider was last fed a cricket (once a day, looks only)
   lairAt?: Record<string, number>; // lair piece id -> when it went in (hydrate: first sight for older pieces), for the plants' growth
   lairGrowth?: Record<string, number>; // plant piece id -> the most it has grown (0–1), so a plant never shrinks
   tankSnaps?: Record<string, string>; // 'YYYY-MM' -> the month's automatic snapshot of the tank (a file in files/photos)
@@ -552,7 +554,7 @@ export type Pause = { from: string; to: string; kind: 'sick' | 'away'; endedAt?:
 /** An egg sac (egg-sacs.ts): hatches after `km` of watch steps from `since` (minus `skip`, that day's steps before it dropped), at `stepM` per step. */
 export type EggSac = { id: string; from: 'chest' | 'boss'; key: string; at: number; since: string; skip: number; km: number; stepM: number };
 /** A spiderling hatched from an egg sac, and the coins its hatching paid. */
-export type Spiderling = { id: string; from: 'chest' | 'boss'; key: string; laidAt: number; hatchedAt: number; km: number; coins: number };
+export type Spiderling = { id: string; from: 'chest' | 'boss'; key: string; laidAt: number; hatchedAt: number; km: number; coins: number; movedAt?: number; name?: string; place?: string }; // movedAt: grown up and moved out (its postcard, mail.ts)
 
 // step 8 sweden
 /** Built-in people days (people-days.ts): Mors dag, Fars dag, Alla hjärtans dag. */
@@ -680,7 +682,7 @@ export type RpsState = { past: string[]; live?: string; weeks?: Record<string, R
 /** A once-only remark (remarks.ts): when it was said (`kind`: its gentle version, on a quiet day), or `wait` for a day that isn't quiet. */
 export type RemarkMark = { at: number; kind?: true; wait?: true };
 /** Who writes (mail.ts): a beaten boss, the Couch King in exile, a co-op partner, Mamma Spindel in Småland. */
-export type MailFrom = 'boss' | 'king' | 'rival' | 'mamma';
+export type MailFrom = 'boss' | 'king' | 'rival' | 'mamma' | 'ling';
 /**
  * A letter in the mailbox (mail.ts). `ref` is what it's about, so each is sent once ('resign:<week>', 'coop:<week>',
  * 'mamma:<YYYY-MM>', 'care:<day>', 'exile:<week>'). `gift`: a knitted cosmetic that came with it, `coins` in its place

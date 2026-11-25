@@ -7,8 +7,10 @@
 import { worn } from './cosmetics';
 import { logEvents } from './critters';
 import { dayKey, HOUR, MIN } from './dates';
+import { lingAge, tankLings } from './egg-sacs';
 import { morningOf, shelfOf, tripOn, type SouvenirShape } from './expeditions';
 import { GUESTS, guestAwake, guestOn, type GuestLook } from './guests';
+import { placesOf } from './lair';
 import { PARTY_GUESTS, partyOn } from './hatch-day';
 import { isAllSaintsDay, isSnow, seasonOn, winterOf } from './seasons';
 import { dayOf } from './selectors';
@@ -233,6 +235,121 @@ export function tankWeather(day: DayForecast | null | undefined, o: { firstSnow?
   return { rain: key === 'weatherRain', frost, snowing, snowLid: snowLid || (snowing && winter), sun: (key === 'weatherNice' || key === 'weatherHot') && day.sunshineMin >= 120 };
 }
 
+// ---------- the real sky behind the tank ----------
+
+const E = 23.4397 * rad; // the tilt of the Earth's axis
+const daysJ2000 = (t: number) => t / 86_400_000 + JD_UNIX - J2000;
+const sidereal = (d: number, lon: number) => rad * (280.16 + 360.9856235 * d) + lon * rad;
+/** Altitude (radians above the horizon) and azimuth (radians from south, west positive) of a body at right ascension `ra`, declination `dec`. */
+function horizontal(ra: number, dec: number, d: number, lat: number, lon: number) {
+  const h = sidereal(d, lon) - ra;
+  const phi = lat * rad;
+  return {
+    alt: Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(h)),
+    az: Math.atan2(Math.sin(h), Math.cos(h) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)),
+  };
+}
+const sunCoords = (d: number) => {
+  const m = rad * (357.5291 + 0.98560028 * d);
+  const l = m + rad * (1.9148 * Math.sin(m) + 0.02 * Math.sin(2 * m) + 0.0003 * Math.sin(3 * m)) + rad * 102.9372 + Math.PI;
+  return { ra: Math.atan2(Math.sin(l) * Math.cos(E), Math.cos(l)), dec: Math.asin(Math.sin(E) * Math.sin(l)) };
+};
+const moonCoords = (d: number) => {
+  const l0 = rad * (218.316 + 13.176396 * d);
+  const m = rad * (134.963 + 13.064993 * d);
+  const f = rad * (93.272 + 13.22935 * d);
+  const l = l0 + rad * 6.289 * Math.sin(m);
+  const b = rad * 5.128 * Math.sin(f);
+  return {
+    ra: Math.atan2(Math.sin(l) * Math.cos(E) - Math.tan(b) * Math.sin(E), Math.cos(l)),
+    dec: Math.asin(Math.sin(b) * Math.cos(E) + Math.cos(b) * Math.sin(E) * Math.sin(l)),
+    dist: 385001 - 20905 * Math.cos(m),
+  };
+};
+
+/** Where the sun is at `t` (the same astronomy as sunTimes; SunCalc's formulas). */
+export function sunPosition(t: number, lat = STOCKHOLM.lat, lon = STOCKHOLM.lon): { alt: number; az: number } {
+  const d = daysJ2000(t);
+  const s = sunCoords(d);
+  return horizontal(s.ra, s.dec, d, lat, lon);
+}
+
+/** Where the moon is at `t` and its phase: 0 new, 0.25 first quarter (lit on the right), 0.5 full, 0.75 last quarter. */
+export function moonPosition(t: number, lat = STOCKHOLM.lat, lon = STOCKHOLM.lon): { alt: number; az: number; phase: number } {
+  const d = daysJ2000(t);
+  const s = sunCoords(d);
+  const m = moonCoords(d);
+  const sdist = 149_598_000;
+  const phi = Math.acos(Math.sin(s.dec) * Math.sin(m.dec) + Math.cos(s.dec) * Math.cos(m.dec) * Math.cos(s.ra - m.ra));
+  const inc = Math.atan2(sdist * Math.sin(phi), m.dist - sdist * Math.cos(phi));
+  const angle = Math.atan2(Math.cos(s.dec) * Math.sin(s.ra - m.ra), Math.sin(s.dec) * Math.cos(m.dec) - Math.cos(s.dec) * Math.sin(m.dec) * Math.cos(s.ra - m.ra));
+  const phase = 0.5 + (0.5 * inc * (angle < 0 ? -1 : 1)) / Math.PI;
+  return { ...horizontal(m.ra, m.dec, d, lat, lon), phase: Math.round(phase * 1000) / 1000 };
+}
+
+/** The sky right now, as the tank shows it behind the glass: the real sun and moon, clouds, and what's falling. */
+export type TankSky = {
+  sun: { alt: number; az: number };
+  moon: { alt: number; az: number; phase: number };
+  clouds: number; // 0 clear … 1 overcast
+  fog: boolean;
+  falling: 'rain' | 'snow' | null;
+  thunder: boolean;
+};
+export const CLEAR_SKY: TankSky = { sun: { alt: 0.6, az: 0 }, moon: { alt: -0.5, az: 0, phase: 0.5 }, clouds: 0.2, fog: false, falling: null, thunder: false };
+/** The current weather counts as "now" this long after it was fetched; after that only the sun and moon are real. */
+export const SKY_FRESH_MS = 3 * HOUR;
+
+/** How cloudy a weather code looks, 0–1. */
+export function cloudsOfCode(code: number): number {
+  if (code <= 0) return 0.05;
+  if (code === 1) return 0.25;
+  if (code === 2) return 0.55;
+  if (code === 45 || code === 48) return 0.9;
+  if (code >= 95) return 1;
+  if (code >= 51) return 0.9;
+  return 0.95; // 3: overcast
+}
+const isWet = (code: number) => (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95;
+const isSnowCode = (code: number) => (code >= 71 && code <= 77) || code === 85 || code === 86;
+
+export type SkyWeather = { code: number; clouds?: number; temp: number; fetchedAt: number; soon?: { at: number; mm: number }[] };
+
+/**
+ * The sky at `now` over the weather place: the sun and moon where they really are, and, while the current weather
+ * is fresh (SKY_FRESH_MS), its clouds (Open-Meteo's cloud cover, else the weather code), fog, and rain or snow
+ * falling (the code, or the 15-minute precipitation covering now). Without fresh weather: a fair sky, nothing falling.
+ */
+export function skyAt(now: number, place?: { lat: number; lon: number } | null, w?: SkyWeather | null): TankSky {
+  const lat = place?.lat ?? STOCKHOLM.lat;
+  const lon = place?.lon ?? STOCKHOLM.lon;
+  const round = (x: number) => Math.round(x * 1000) / 1000;
+  const sun = sunPosition(now, lat, lon);
+  const moon = moonPosition(now, lat, lon);
+  const base = { sun: { alt: round(sun.alt), az: round(sun.az) }, moon: { alt: round(moon.alt), az: round(moon.az), phase: moon.phase } };
+  if (!w || now - w.fetchedAt > SKY_FRESH_MS || now < w.fetchedAt - HOUR) return { ...base, clouds: CLEAR_SKY.clouds, fog: false, falling: null, thunder: false };
+  const slot = w.soon?.find((x) => now >= x.at && now < x.at + 15 * MIN);
+  const wet = isWet(w.code) || isSnowCode(w.code) || (slot?.mm ?? 0) >= 0.1;
+  const snow = isSnowCode(w.code) || (wet && !isWet(w.code) && w.temp <= 0);
+  const clouds = w.clouds != null ? Math.max(0, Math.min(1, w.clouds / 100)) : cloudsOfCode(w.code);
+  return { ...base, clouds: round(wet ? Math.max(0.8, clouds) : clouds), fog: w.code === 45 || w.code === 48, falling: wet ? (snow ? 'snow' : 'rain') : null, thunder: w.code >= 95 };
+}
+
+// ---------- the floor through the year ----------
+
+/** The floor's own season: fallen leaves in autumn, spruce needles and cones in winter, wood anemones in spring, clover and wild strawberries in summer. */
+export type FloorSeason = 'spring' | 'summer' | 'autumn' | 'winter';
+/** Moss creeps across the floor over this many days from the first piece. */
+export const MOSS_DAYS = 120;
+export const floorSeason = (month: number): FloorSeason => (month >= 2 && month <= 4 ? 'spring' : month >= 5 && month <= 7 ? 'summer' : month >= 8 && month <= 10 ? 'autumn' : 'winter');
+
+/** The floor at `now`: its season, the month (early autumn is brighter than late), and how far the moss has crept (0–1, a total from the first piece). */
+export function floorOf(s: State, now = Date.now()): { season: FloorSeason; month: number; moss: number } {
+  const month = new Date(now).getMonth();
+  const first = Math.min(...Object.values(s.lairAt ?? {}), now);
+  return { season: floorSeason(month), month, moss: Math.round(Math.min(1, Math.max(0, (now - first) / 86_400_000 / MOSS_DAYS)) * 20) / 20 };
+}
+
 // ---------- the season ----------
 
 export type Dressing = 'star' | 'candles' | 'sprig' | 'sparkles' | 'feathers' | 'embers' | 'pole' | 'pumpkin';
@@ -363,6 +480,11 @@ export type TankLife = {
   souvenirs: { shape: SouvenirShape; color: string }[]; // the shelf's newest souvenirs (expeditions.ts)
   guest: { id: GuestId; awake: boolean; look: GuestLook } | null; // today's rare guest (guests.ts)
   party: { gentle: boolean; guests: number; candles: number } | null; // hatch day or a hundredth day (hatch-day.ts)
+  // the terrarium round
+  sky: TankSky; // the real sky behind the glass (skyAt)
+  floor: { season: FloorSeason; month: number; moss: number }; // floorOf
+  lingAge: number[]; // each spiderling in the tank, 0 just hatched … 1 grown (it moves out then, egg-sacs.ts)
+  places: Record<string, [number, number]>; // pieces moved by hand: id -> (dx, dz) from where they stand by default
 };
 
 /** The tank before it knows anything: daytime, wandering, a bare web. */
@@ -386,12 +508,17 @@ export const IDLE_LIFE: TankLife = {
   souvenirs: [],
   guest: null,
   party: null,
+  sky: CLEAR_SKY,
+  floor: { season: 'autumn', month: 9, moss: 0 },
+  lingAge: [],
+  places: {},
 };
 
 export type TankInputs = {
   now: number;
   forecast?: DayForecast | null; // today's, from the weather side state
   nights?: { key: string; night: { wakeAt: number } | null }[] | null; // the health read's nights
+  weatherNow?: SkyWeather | null; // the current weather (its code, cloud cover, temperature, the next 15-minute rain), for the sky
 };
 
 /** Everything the tank shows at `now`. */
@@ -414,6 +541,7 @@ export function tankLifeOf(s: State, o: TankInputs): TankLife {
   const w = worn(s);
   const season = dressingFor(now);
   const weather = tankWeather(forecast, { firstSnow: s.firstSnow, now });
+  const lings = tankLings(s);
   return {
     mode,
     daylight,
@@ -429,10 +557,14 @@ export function tankLifeOf(s: State, o: TankInputs): TankLife {
     pet: w.pet?.fly ? { fly: w.pet.fly, motion: petMotion(w.pet.fly) } : null,
     hat: w.hat ? { id: w.hat.id, shape: hatShape(w.hat.id) } : null,
     fly: !!s.pendingFly && s.pendingFly.until > o.now,
-    spiderlings: Math.min(3, (s.spiderlings ?? []).length),
+    spiderlings: lings.length,
     eggs: Math.min(3, (s.eggSacs ?? []).length),
     souvenirs: shelfOf(s).map((x) => ({ shape: x.shape, color: x.color })),
     guest: guest ? { id: guest, awake: guestAwake(s, key), look: GUESTS[guest].look } : null,
     party: party ? { gentle: party.gentle, guests: party.gentle ? 0 : Math.min(PARTY_GUESTS, s.league?.rivals.length || 3), candles: party.kind === 'year' ? Math.min(5, party.n) : 1 } : null,
+    sky: skyAt(o.now, place, o.weatherNow),
+    floor: floorOf(s, o.now),
+    lingAge: lings.map((x) => lingAge(x, o.now)),
+    places: placesOf(s),
   };
 }
