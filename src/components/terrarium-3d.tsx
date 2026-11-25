@@ -2,7 +2,7 @@ import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
+import { Animated, Dimensions, Pressable, StyleSheet, Text, useWindowDimensions, View, type GestureResponderEvent } from 'react-native';
 import * as THREE from 'three';
 
 import { useNow } from '@/components/ui';
@@ -116,6 +116,21 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
   const next = nextPiece(state)?.id ?? null;
   const marking = worn(state).aura?.ring ?? C.red;
   const { visible, still } = useScreenState();
+  // The GL surface gets its size when it's made, so it's only made once the screen has turned the right way (the
+  // full-screen tank is landscape, HQ portrait) and made again whenever the view's size changes: a surface made
+  // mid-turn drew at the old size (half the screen, or shifted to the right back on HQ). A window that stays the
+  // "wrong" way (split screen, a lock that failed) gets its surface after a moment anyway.
+  const win = useWindowDimensions();
+  const turned = full ? win.width > win.height : win.height >= win.width;
+  const winKey = `${Math.round(win.width)}x${Math.round(win.height)}`;
+  const [waitedOut, setWaitedOut] = useState<string | null>(null);
+  useEffect(() => {
+    if (turned) return;
+    const t = setTimeout(() => setWaitedOut(winKey), 1500);
+    return () => clearTimeout(t);
+  }, [turned, winKey]);
+  const orientOk = turned || waitedOut === winKey;
+  const [box, setBox] = useState<string | null>(null);
   // scrolled out of sight on HQ: no frames (the battery), checked a few times a second while the screen shows
   const wrap = useRef<View>(null);
   const [onScreen, setOnScreen] = useState(true);
@@ -643,10 +658,19 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
   return (
     <View
       ref={wrap}
-      style={[styles.wrap, full && styles.full]}
+      style={full ? styles.full : styles.wrap}
       onLayout={(e) => {
-        gfx.current.w = e.nativeEvent.layout.width;
-        gfx.current.h = e.nativeEvent.layout.height;
+        const x = gfx.current;
+        x.w = e.nativeEvent.layout.width;
+        x.h = e.nativeEvent.layout.height;
+        const key = `${Math.round(x.w)}x${Math.round(x.h)}`;
+        if (key === box) return;
+        // a new size: the old surface goes, nothing may draw on it until the new one is made
+        x.draw = null;
+        x.render = null;
+        x.gl = null;
+        x.dirty = true;
+        setBox(key);
       }}
       accessible
       accessibilityLabel={ids ? `The terrarium in 3D: the spider and ${ids.split(',').length} things for it. Tap the spider to say hello; drag sideways to turn the tank.` : 'The terrarium in 3D: just the spider so far. Tap it to say hello; drag sideways to turn the tank.'}
@@ -660,7 +684,7 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
       onResponderMove={move}
       onResponderRelease={release}
       onResponderTerminate={terminate}>
-      {visible && shadows !== null ? <GLView style={styles.gl} onContextCreate={onContextCreate} /> : <View style={styles.gl} />}
+      {visible && shadows !== null && box && orientOk ? <GLView key={box} style={styles.gl} onContextCreate={onContextCreate} /> : <View style={styles.gl} />}
       {act ? (
         <Animated.View style={[styles.act, { transform: anchor.getTranslateTransform() }]}>
           <Text style={styles.actText}>{act}</Text>
@@ -702,7 +726,7 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
 
 const styles = StyleSheet.create({
   wrap: { height: HEIGHT, borderRadius: 12, overflow: 'hidden', backgroundColor: C.card },
-  full: { flex: 1, height: undefined, borderRadius: 0 },
+  full: { flex: 1, overflow: 'hidden', backgroundColor: '#000000' },
   expand: { position: 'absolute', left: 8, bottom: 8, minWidth: 28, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border, opacity: 0.9 },
   feed: { position: 'absolute', left: 46, bottom: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border, opacity: 0.9 },
   gl: { flex: 1 },

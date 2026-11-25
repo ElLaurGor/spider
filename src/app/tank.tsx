@@ -9,7 +9,12 @@ import { View } from 'react-native';
 
 import { Terrarium3D } from '@/components/terrarium-3d';
 
-const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
+/** Back to portrait first, then back: HQ's tank is made once the screen has turned (components/terrarium-3d.tsx). */
+const close = () => {
+  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP)
+    .catch(() => {})
+    .finally(() => (router.canGoBack() ? router.back() : router.replace('/')));
+};
 
 export default function TankScreen() {
   useEffect(() => {
