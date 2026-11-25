@@ -31,7 +31,11 @@ import {
 import { SECRET_ACHIEVEMENTS } from '../src/lib/xp';
 import { changeOver, recentAverage, rolling, series } from '../src/lib/body-log';
 import { ACHIEVEMENTS, activityXp, focusXp, levelForXp, levelProgress } from '../src/lib/xp';
-import { HQ_SECTIONS, hqHidden, hqOrder, hqVisible, moveSection, toggleSection, WEEK_PARTS, withWeekCard } from '../src/lib/hq-layout';
+import { HQ_SECTIONS, hqHidden, hqOrder, hqVisible, hqWhen, moveSection, moveSectionTo, toggleSection, WEEK_PARTS, withWeekCard } from '../src/lib/hq-layout';
+// step 10 ux
+import { eveningParts } from '../src/lib/evening';
+import { sectionAt, SETTINGS_SECTIONS, settingsLink, settingsSectionOf } from '../src/lib/settings-sections';
+import { withoutTask, withTaskBack } from '../src/lib/task-trash';
 import { medalLine, weekDaysLeft } from '../src/lib/week-card';
 import { fmtTime } from '../src/lib/dates';
 import { allRivalLines, rivalTalk } from '../src/lib/rival-talk';
@@ -4260,8 +4264,8 @@ void (async () => {
   const ids = HQ_SECTIONS.map((x) => x.id);
   assert.deepEqual(hqOrder(), ids);
   // the SL card sits right after weather; the check-ins card has no neighbour before it, so it goes on top
-  assert.deepEqual(hqOrder({ order: ['achievements', 'gone', 'weather'], hidden: [] }).slice(0, 4), ['care', 'achievements', 'weather', 'commute']);
-  const saved = hqOrder({ order: ['achievements', 'weather'], hidden: [] });
+  assert.deepEqual(hqOrder({ order: ['wild', 'gone', 'weather'], hidden: [] }).slice(0, 4), ['care', 'wild', 'weather', 'commute']);
+  const saved = hqOrder({ order: ['wild', 'weather'], hidden: [] });
   assert.equal(saved.length, ids.length);
   assert.equal(new Set(saved).size, ids.length);
   const moved = moveSection(null, 'quests', -1);
@@ -8298,5 +8302,105 @@ function terrariumRound2Tests() {
   }
 }
 terrariumRound2Tests();
+
+/** step 10 ux: the Evening card's merge into the HQ layout, its parts, Settings' sections, a deleted task's undo. */
+function stepTenUxTests() {
+  // ---- HQ layout: wind-down + debrief became Evening; achievements left for Records ----
+  const ids = HQ_SECTIONS.map((x) => x.id) as string[];
+  assert.equal(new Set(ids).size, ids.length, 'one entry per card');
+  assert.ok(ids.includes('evening') && !ids.includes('winddown') && !ids.includes('debrief') && !ids.includes('achievements'));
+  // a layout saved before: Evening takes the wind-down's place, the debrief's slot goes, achievements drop out
+  const old = { order: ['weather', 'winddown', 'tiles', 'debrief', 'achievements', 'level'], hidden: ['achievements'] };
+  const order = hqOrder(old);
+  assert.ok(order.indexOf('weather') < order.indexOf('evening') && order.indexOf('evening') < order.indexOf('tiles'), "in the first merged card's place");
+  assert.equal(order.filter((x) => x === 'evening').length, 1);
+  assert.equal(new Set(order).size, ids.length, 'every card once, nothing lost');
+  assert.ok(!(order as string[]).includes('winddown') && !(order as string[]).includes('achievements'));
+  assert.ok(hqVisible(old).includes('evening'), 'neither was hidden');
+  // hidden only if both old cards were; a switch brings it back for good
+  assert.ok(hqVisible({ order: old.order, hidden: ['winddown'] }).includes('evening'), 'the debrief was on: Evening stays on');
+  const bothOff = { order: old.order, hidden: ['winddown', 'debrief', 'silk'] };
+  assert.ok(!hqVisible(bothOff).includes('evening') && hqHidden(bothOff).includes('silk'));
+  const back = toggleSection(bothOff, 'evening');
+  assert.ok(hqVisible(back).includes('evening'), 'switched on, it stays on');
+  assert.ok(!back.hidden.includes('winddown') && !back.hidden.includes('debrief'), 'the old ids are gone from the saved list');
+  assert.ok(!hqVisible(toggleSection(back, 'evening')).includes('evening'), 'and off again');
+  // the one-time This week repair keeps the merge too
+  assert.ok(withWeekCard(old).order.includes('evening') && !withWeekCard(old).order.includes('winddown'));
+  assert.ok(hqVisible().includes('evening') && hqVisible().includes('worry'), 'on by default');
+  // cards that only show sometimes say when; the others don't
+  assert.equal(hqWhen('evening'), 'evenings');
+  assert.equal(hqWhen('weather'), undefined);
+  assert.ok(hqWhen('weekend') && hqWhen('review') && hqWhen('chores'));
+
+  // moves: past the next card of the same kind, so the Shown list always changes; held: to the top or bottom
+  const lay = { order: [...ids], hidden: ['tiles'] };
+  const up = moveSection(lay, 'buttons', -1); // 'tiles' (hidden) sits between 'sleep' and 'buttons'
+  const shownUp = hqVisible(up);
+  assert.equal(shownUp.indexOf('buttons'), shownUp.indexOf('sleep') - 1, 'past the shown card, not the hidden one');
+  assert.deepEqual(up.hidden, ['tiles']);
+  assert.deepEqual(moveSection(lay, 'care', -1).order, hqOrder(lay), 'the first one stays first');
+  const top = moveSectionTo(lay, 'wild', 'top');
+  assert.equal(top.order[0], 'wild');
+  assert.equal(top.order.length, ids.length);
+  const bottom = moveSectionTo(lay, 'care', 'bottom');
+  assert.equal(bottom.order.at(-1), 'care');
+  assert.deepEqual(bottom.hidden, ['tiles']);
+  assert.equal(moveSectionTo(null, 'weather', 'top').order[0], 'weather');
+  assert.ok(moveSectionTo(null, 'weather', 'top').hidden.includes('silk'), 'default hidden cards stay hidden');
+
+  // ---- the Evening card's parts (the old cards' hours: wind-down 2 h before bedtime, debrief 3 h, both until 04:00) ----
+  const at = (d: number, h: number, m = 0) => new Date(2027, 2, d, h, m).getTime(); // March 2027
+  const eve = defaultState(); // bedtime 23, wake 7, worry slot 17:30
+  assert.deepEqual(eveningParts(eve, at(2, 12)), { windDown: false, debrief: false, shutdown: null });
+  assert.deepEqual(eveningParts(eve, at(2, 17, 30)), { windDown: false, debrief: false, shutdown: 'open' }, 'the shutdown from the worry slot');
+  assert.deepEqual(eveningParts(eve, at(2, 20)), { windDown: false, debrief: true, shutdown: 'open' });
+  assert.deepEqual(eveningParts(eve, at(2, 21)), { windDown: true, debrief: true, shutdown: 'open' });
+  assert.deepEqual(eveningParts(eve, at(3, 1)), { windDown: true, debrief: true, shutdown: null }, 'after midnight it is still last night; the shutdown waits for the slot');
+  assert.deepEqual(eveningParts(eve, at(3, 4)), { windDown: false, debrief: false, shutdown: null });
+  const picked = { ...eve, topTomorrow: { day: '2027-03-03', ids: [] } };
+  assert.ok(!eveningParts(picked, at(2, 21)).debrief && eveningParts(picked, at(3, 21)).debrief, "picked for tomorrow: done until the next evening");
+  const wound = { ...eve, days: { '2027-03-02': { ...emptyDay(), windDownDone: true } } };
+  assert.ok(!eveningParts(wound, at(2, 22)).windDown && !eveningParts(wound, at(3, 1)).windDown, 'ticked off, through the night');
+  assert.ok(!eveningParts({ ...eve, windDownItems: [] }, at(2, 22)).windDown, 'no checklist, no checklist');
+  const shut = withShutdown(eve, at(2, 21, 30));
+  assert.equal(eveningParts(shut, at(2, 21, 31)).shutdown, 'quiet');
+  assert.equal(eveningParts(shut, at(3, 6)).shutdown, 'quiet', 'until the wake-up hour');
+  assert.equal(eveningParts(shut, at(3, 7)).shutdown, null);
+  assert.equal(eveningParts(shut, at(3, 18)).shutdown, 'open', 'the next evening it opens again');
+
+  // ---- Settings' sections and their links ----
+  assert.deepEqual(
+    SETTINGS_SECTIONS.map((x) => x.id),
+    ['me', 'hq', 'goals', 'pings', 'care', 'places', 'sweden', 'devices', 'data'],
+  );
+  assert.equal(settingsLink('data'), '/settings?section=data');
+  assert.equal(settingsSectionOf('places'), 'places');
+  assert.equal(settingsSectionOf('backup'), null);
+  assert.equal(settingsSectionOf(undefined), null);
+  const tops = { me: 0, hq: 900, goals: 1500, pings: 2300 };
+  assert.equal(sectionAt(tops, 10), 'me');
+  assert.equal(sectionAt(tops, 900), 'hq');
+  assert.equal(sectionAt(tops, 2000), 'goals');
+  assert.equal(sectionAt({}, 500), 'me', 'nothing measured yet');
+
+  // ---- a deleted task's undo: the same task, back where it was ----
+  const t = (id: string) => ({ id, title: id, done: false, createdAt: 0 });
+  const listed = { ...defaultState(), tasks: [t('a'), t('b'), t('c')] };
+  assert.equal(withoutTask(listed, 'zz'), null);
+  const cut = withoutTask(listed, 'b')!;
+  assert.deepEqual(cut.state.tasks.map((x) => x.id), ['a', 'c']);
+  assert.deepEqual(cut.trashed, { task: listed.tasks[1], index: 1, next: 'c' });
+  assert.deepEqual(withTaskBack(cut.state, cut.trashed).tasks.map((x) => x.id), ['a', 'b', 'c']);
+  assert.equal(withTaskBack(cut.state, cut.trashed).tasks[1], listed.tasks[1], 'the very same task');
+  // a task added on top meanwhile doesn't shift it; a neighbour deleted too: its old index
+  const added = { ...cut.state, tasks: [t('new'), ...cut.state.tasks] };
+  assert.deepEqual(withTaskBack(added, cut.trashed).tasks.map((x) => x.id), ['new', 'a', 'b', 'c']);
+  const noC = { ...cut.state, tasks: [t('a')] };
+  assert.deepEqual(withTaskBack(noC, cut.trashed).tasks.map((x) => x.id), ['a', 'b']);
+  const twice = withTaskBack(cut.state, cut.trashed);
+  assert.equal(withTaskBack(twice, cut.trashed), twice, 'an undo tapped twice puts it back once');
+}
+stepTenUxTests();
 
 console.log('synchronous logic tests passed');

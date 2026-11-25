@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BigDayCard } from '@/components/big-day-card'; // step 9 story
-import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, T } from '@/components/ui';
+import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey, fmtTime } from '@/lib/dates';
 import { doneOn, doneTitle } from '@/lib/done-list';
@@ -20,6 +20,7 @@ import { gentleDay, toneOn } from '@/lib/tone';
 // step 9 admin: tasks on a horizon wait, due chores can be picked
 import { choresDueBy, choreTaskOf, choreTitle, grimText } from '@/lib/chores';
 import { activeTasks } from '@/lib/horizons';
+import { shutdownOpen, shutdownQuiet } from '@/lib/worry'; // step 10 ux: shut down right after the verdict
 
 /** The evening debrief: mood, loose ends, tomorrow's top 3, then the day's verdict. */
 export default function Debrief() {
@@ -55,6 +56,10 @@ export default function Debrief() {
   const score = dayScoreFor(state, date);
   // A low-mood (an awful check-in a minute ago included), sick, away or period day gets no grade at all.
   const kind = toneOn(state, key).kind || gentleDay(state, key);
+  // step 10 ux: after the verdict, "Shutdown complete" (worry.ts) without going back to HQ: open from the worry slot until it's done
+  const now = useNow(60_000);
+  const canShutDown = shutdownOpen(state, now);
+  const shutDown = shutdownQuiet(state, now);
 
   useEffect(() => {
     if (!verdict) return;
@@ -214,6 +219,18 @@ export default function Debrief() {
             <T dim small>
               {verdict.done}
             </T>
+            {canShutDown ? (
+              <>
+                <Btn label="Shutdown complete" icon="bedtime" kind="blue" small onPress={() => actions.shutDown()} />
+                <T dim small>
+                  Done for the day? Tasks and calendar go quiet until morning; parked worries still waiting move to tomorrow&apos;s slot.
+                </T>
+              </>
+            ) : shutDown ? (
+              <T dim small>
+                🌙 Shut down. Tasks and calendar stay quiet until morning.
+              </T>
+            ) : null}
           </Animated.View>
         ) : (
           <Btn label="Reveal the verdict" icon="gavel" onPress={() => setVerdict({ text: quip(nightVerdictKey(score, kind)), done: quip('debriefDone'), kind })} />

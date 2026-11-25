@@ -1,9 +1,8 @@
-import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { Card, H, Icon, Row, T, useNow } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
-import { tomorrowKey, topToday } from '@/lib/memory';
+import { topToday } from '@/lib/memory';
 import { whenLabel, whenNow } from '@/lib/plan-slots';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
@@ -46,25 +45,6 @@ export function TopThreeCard() {
         </T>
       )}
     </Card>
-  );
-}
-
-/** Evenings (from 3 h before bedtime until 04:00), until tomorrow's top 3 is picked. */
-export function DebriefCard() {
-  const { state } = useStore();
-  const now = useNow(60_000);
-  const hour = new Date(now).getHours();
-  const evening = hour >= state.settings.sleepHour - 3 || hour < 4;
-  if (!evening || state.topTomorrow?.day === tomorrowKey(now)) return null;
-  return (
-    <Pressable onPress={() => router.push('/debrief')}>
-      <Card accent={C.purple}>
-        <H right={<T dim small>open →</T>}>🌙 Evening debrief</H>
-        <T dim small>
-          30 seconds: your mood, loose ends, tomorrow&apos;s top 3 and the verdict on today.
-        </T>
-      </Card>
-    </Pressable>
   );
 }
 

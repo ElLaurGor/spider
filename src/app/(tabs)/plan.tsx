@@ -15,6 +15,7 @@ import { HorizonLists, HorizonPicker } from '@/components/task-horizons';
 import { activeTasks, taskLabel } from '@/lib/horizons';
 import { Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, T } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
+import { usePullRefresh } from '@/components/use-refresh'; // step 10 ux
 import { C } from '@/constants/theme';
 import { addDays, dayKey, fmtTime, pad, WEEKDAYS } from '@/lib/dates';
 import { IMMORTAL_DAYS, taskAgeDays } from '@/lib/memory';
@@ -74,9 +75,10 @@ export default function Plan() {
     actions.addTask(draft);
     setDraft('');
   };
+  const refresh = usePullRefresh(['cal']); // step 10 ux: pull to refresh re-reads the calendar
 
   return (
-    <Screen title="PLAN" subtitle="Calendar · habits · tasks">
+    <Screen title="PLAN" subtitle="Calendar · tasks · habits" onRefresh={refresh}>
       <Card>
         <H right={cal.status === 'granted' ? <Pressable onPress={cal.refresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="Refresh calendar"><Icon name="refresh" size={20} color={C.dim} /></Pressable> : undefined}>
           Calendar
@@ -217,14 +219,7 @@ export default function Plan() {
         )}
       </Card>
 
-      <HabitsCard />
-
-      <CountdownsCard />
-
-      <AwayOffers />
-
-      <WeekBigCard />
-
+      {/* step 10 ux: the task list (and its add field) right under the calendar */}
       <Card>
         <H right={<T dim small>{open.length} open</T>}>Tasks</H>
         <Row>
@@ -300,6 +295,15 @@ export default function Plan() {
           />
         ) : null}
       </Card>
+
+      <HabitsCard />
+
+      <CountdownsCard />
+
+      <AwayOffers />
+
+      <WeekBigCard />
+
       <ChoresCard />
 
       <ShelfCard />
@@ -332,7 +336,7 @@ function TaskRow({
 }) {
   return (
     <Row>
-      <Pressable onPress={onToggle} onLongPress={onEdit} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+      <Pressable onPress={onToggle} onLongPress={onEdit} hitSlop={{ top: 8, bottom: 8, left: 8 }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
         <Icon name={done ? 'check_circle' : 'radio_button_unchecked'} size={22} color={done ? C.green : C.dim} />
         <View style={{ flex: 1 }}>
           <T dim={done} style={done ? { textDecorationLine: 'line-through' } : undefined}>
@@ -350,24 +354,32 @@ function TaskRow({
           </T>
         ) : null}
       </Pressable>
-      {onFocus ? (
-        <Pressable onPress={onFocus} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Focus on ${title}`}>
-          <Icon name="timer" size={18} color={C.dim} />
+      {/* step 10 ux: padded targets instead of hitSlop, so the clock and the × can't swallow each other's taps */}
+      <Row gap={2}>
+        {onFocus ? (
+          <Pressable onPress={onFocus} hitSlop={VSLOP} style={styles.rowBtn} accessibilityRole="button" accessibilityLabel={`Focus on ${title}`}>
+            <Icon name="timer" size={18} color={C.dim} />
+          </Pressable>
+        ) : null}
+        {onLater ? (
+          <Pressable onPress={onLater} hitSlop={VSLOP} style={styles.rowBtn} accessibilityRole="button" accessibilityLabel={`${title}: not today, someday or waiting on`}>
+            <Icon name="schedule" size={18} color={C.dim} />
+          </Pressable>
+        ) : null}
+        <Pressable onPress={onDelete} hitSlop={VSLOP} style={[styles.rowBtn, styles.delete]} accessibilityRole="button" accessibilityLabel={`Delete ${title}`}>
+          <Icon name="close" size={18} color={C.faint} />
         </Pressable>
-      ) : null}
-      {onLater ? (
-        <Pressable onPress={onLater} hitSlop={8} accessibilityRole="button" accessibilityLabel={`${title}: not today, someday or waiting on`}>
-          <Icon name="schedule" size={18} color={C.dim} />
-        </Pressable>
-      ) : null}
-      <Pressable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Delete ${title}`}>
-        <Icon name="close" size={18} color={C.faint} />
-      </Pressable>
+      </Row>
     </Row>
   );
 }
 
+/** Taller than the 30 dp button, never wider, so side-by-side buttons keep their own taps. */
+const VSLOP = { top: 9, bottom: 9 };
+
 const styles = StyleSheet.create({
+  rowBtn: { padding: 6, borderRadius: 8 },
+  delete: { marginLeft: 8 },
   event: { backgroundColor: C.card2, borderRadius: 12, padding: 10, alignItems: 'stretch' },
   bar: { width: 4, borderRadius: 2 },
   sheet: { gap: 8, backgroundColor: C.card2, borderRadius: 12, padding: 10 },

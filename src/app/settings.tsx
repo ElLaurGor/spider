@@ -1,8 +1,20 @@
 import Constants from 'expo-constants';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as Updates from 'expo-updates';
-import { useState, type ReactNode } from 'react';
-import { Alert, DevSettings, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Alert,
+  DevSettings,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
 
 import { Btn, Card, Chip, Field, H, Icon, Row, SpiderSays, Stepper, T, useNow } from '@/components/ui';
 import { C, saveTheme, THEME_ID, THEMES, type ThemeId } from '@/constants/theme';
@@ -11,7 +23,8 @@ import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { backupNudge } from '@/lib/backup-due';
 import { dayKey, pad } from '@/lib/dates';
 import { lastCallClock } from '@/lib/caffeine';
-import { hqHidden, hqLabel, hqOrder, moveSection, toggleSection } from '@/lib/hq-layout';
+import { hqHidden, hqLabel, hqOrder, hqWhen, moveSection, moveSectionTo, toggleSection, type HqLayout, type HqSectionId } from '@/lib/hq-layout';
+import { sectionAt, SETTINGS_SECTIONS, settingsSectionOf, type SettingsSection } from '@/lib/settings-sections'; // step 10 ux
 import { ACRONYM_REAL, bannedLines, line } from '@/lib/lines';
 import { openHealthSettings } from '@/lib/health';
 import { guardSupported, hasUsageAccess, openUsageSettings, screenTimeSupported } from '@/lib/screentime';
@@ -172,391 +185,528 @@ export default function SettingsScreen() {
       },
     ]);
 
+  // step 10 ux: the chip row jumps to a section; `?section=` lands on one (settings-sections.ts).
+  const { section } = useLocalSearchParams<{ section?: string }>();
+  const target = settingsSectionOf(section);
+  const scroller = useRef<ScrollView>(null);
+  const chipRow = useRef<ScrollView>(null);
+  const tops = useRef<Partial<Record<SettingsSection, number>>>({});
+  const chipX = useRef<Partial<Record<SettingsSection, number>>>({});
+  const barH = useRef(0);
+  const jumpTo = useRef<SettingsSection | null>(null); // a jump keeps its chip lit (the last section can't scroll to the top) until she scrolls
+  const touched = useRef(false); // after her first touch, a late layout shift no longer re-lands the link
+  const [active, setActive] = useState<SettingsSection>(target ?? 'me');
+  const devices = (cal.status === 'granted' && cal.calendars.length > 0) || screenTimeSupported || health.status !== 'unsupported';
+  const chips = SETTINGS_SECTIONS.filter((x) => x.id !== 'devices' || devices);
+  const jump = (id: SettingsSection, animated = true) => {
+    const y = tops.current[id];
+    if (y == null) return;
+    jumpTo.current = id;
+    scroller.current?.scrollTo({ y: Math.max(0, y - barH.current), animated });
+    setActive(id);
+  };
+  // Measured tops; the linked section is landed on, and again if a card above it grows (calendars loading) before she touches anything.
+  const place = (id: SettingsSection, e: LayoutChangeEvent) => {
+    tops.current[id] = e.nativeEvent.layout.y;
+    if (target && !touched.current) setTimeout(() => !touched.current && jump(target, false), 0);
+  };
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (jumpTo.current) return;
+    const at = sectionAt(tops.current, e.nativeEvent.contentOffset.y + barH.current + 24);
+    if (at !== active) setActive(at);
+  };
+  useEffect(() => {
+    const x = chipX.current[active];
+    if (x != null) chipRow.current?.scrollTo({ x: Math.max(0, x - 48), animated: true });
+  }, [active]);
+
   return (
-    <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
-      <Card>
-        <H>Personality</H>
-        <T dim small>
-          What should I call you?
-        </T>
-        <Field value={name} onChangeText={setName} onEndEditing={() => set({ userName: name.trim() })} placeholder="Your name" />
-        <T dim small>
-          Birthday (optional, MM-DD): a fresh start, so HQ offers a new chapter that day.
-        </T>
-        <Field value={birthday} onChangeText={setBirthday} onEndEditing={saveBirthday} placeholder="e.g. 03-14" keyboardType="numbers-and-punctuation" maxLength={5} />
-        <SettingRow label="Savage level" hint={SAVAGE_LABEL(s.savageLevel)}>
-          <Stepper
-            value={s.savageLevel}
-            min={1}
-            max={10}
-            onChange={(v) => {
-              set({ savageLevel: v });
-              setPreview(line('spiderTap', v, { name: s.userName || 'boss' }));
-            }}
-          />
-        </SettingRow>
-        <SpiderSays text={preview} onPress={() => setPreview(line('spiderTap', s.savageLevel, { name: s.userName || 'boss' }))} />
-        <TodayTone />
-        <Toggle label="Go easy on period days" hint="no roasts on period days" value={s.easyOnPeriod} onChange={(v) => set({ easyOnPeriod: v })} />
-        <RetiredLines />
-      </Card>
+    <ScrollView
+      ref={scroller}
+      style={{ backgroundColor: C.bg }}
+      contentContainerStyle={{ paddingBottom: 48 }}
+      keyboardShouldPersistTaps="handled"
+      stickyHeaderIndices={[0]}
+      onScroll={onScroll}
+      scrollEventThrottle={100}
+      onTouchStart={() => (touched.current = true)}
+      onScrollBeginDrag={() => {
+        touched.current = true;
+        jumpTo.current = null;
+      }}>
+      <View style={styles.bar} onLayout={(e) => (barH.current = e.nativeEvent.layout.height)}>
+        <ScrollView ref={chipRow} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+          {chips.map((x) => (
+            <View key={x.id} onLayout={(e) => (chipX.current[x.id] = e.nativeEvent.layout.x)}>
+              <Chip label={x.label} active={active === x.id} onPress={() => jump(x.id)} />
+            </View>
+          ))}
+        </ScrollView>
+      </View>
 
-      <Card>
-        <H>Themes</H>
-        <T dim small>
-          New themes unlock as you level up. You are level {level}.
-        </T>
-        {themeIds.map((id) => {
-          const t = THEMES[id];
-          const open = themeUnlocked(id, level, state);
-          return (
-            <Pressable key={id} onPress={() => applyTheme(id)} style={({ pressed }) => [{ opacity: open ? (pressed ? 0.7 : 1) : 0.4 }]}>
-              <Row>
-                <View style={{ flexDirection: 'row' }}>
-                  {[t.colors.bg, t.colors.red, t.colors.blue].map((c, i) => (
-                    <View key={i} style={{ width: 18, height: 28, backgroundColor: c, borderRadius: 4, marginRight: 2, borderWidth: 1, borderColor: C.border }} />
-                  ))}
-                </View>
-                <T style={{ flex: 1 }}>{t.name}</T>
-                <Text style={{ color: id === THEME_ID ? C.green : C.dim, fontWeight: '700', fontSize: 12 }}>
-                  {id === THEME_ID ? '✓ active' : open ? 'tap to use' : 'unlock' in t ? '🔒 trophy' : `🔒 LVL ${t.level}`}
-                </Text>
-              </Row>
-            </Pressable>
-          );
-        })}
-      </Card>
+      <View style={styles.group} onLayout={(e) => place('me', e)}>
+        <Card>
+          <H>Personality</H>
+          <T dim small>
+            What should I call you?
+          </T>
+          <Field value={name} onChangeText={setName} onEndEditing={() => set({ userName: name.trim() })} placeholder="Your name" />
+          <T dim small>
+            Birthday (optional, MM-DD): a fresh start, so HQ offers a new chapter that day.
+          </T>
+          <Field value={birthday} onChangeText={setBirthday} onEndEditing={saveBirthday} placeholder="e.g. 03-14" keyboardType="numbers-and-punctuation" maxLength={5} />
+          <SettingRow label="Savage level" hint={SAVAGE_LABEL(s.savageLevel)}>
+            <Stepper
+              value={s.savageLevel}
+              min={1}
+              max={10}
+              onChange={(v) => {
+                set({ savageLevel: v });
+                setPreview(line('spiderTap', v, { name: s.userName || 'boss' }));
+              }}
+            />
+          </SettingRow>
+          <SpiderSays text={preview} onPress={() => setPreview(line('spiderTap', s.savageLevel, { name: s.userName || 'boss' }))} />
+          <TodayTone />
+          <Toggle label="Go easy on period days" hint="no roasts on period days" value={s.easyOnPeriod} onChange={(v) => set({ easyOnPeriod: v })} />
+          <RetiredLines />
+        </Card>
 
-      <PauseCard planner />
-
-      <Card>
-        <H
-          right={
-            s.hq ? (
-              <Text style={{ color: C.red, fontWeight: '700', fontSize: 13 }} onPress={() => set({ hq: undefined })}>
-                Reset
-              </Text>
-            ) : undefined
-          }>
-          HQ layout
-        </H>
-        <T dim small>
-          Order HQ&apos;s cards and hide the ones you don&apos;t look at. The spider, health alerts and banners stay on top.
-        </T>
-        {hqOrder(s.hq).map((id, i, all) => {
-          const shown = !hqHidden(s.hq).includes(id);
-          return (
-            <Row key={id} gap={6}>
-              <T style={{ flex: 1, opacity: shown ? 1 : 0.45 }}>{hqLabel(id)}</T>
-              <Pressable
-                onPress={() => set({ hq: moveSection(s.hq, id, -1) })}
-                disabled={i === 0}
-                hitSlop={6}
-                style={{ opacity: i === 0 ? 0.25 : 1 }}
-                accessibilityRole="button"
-                accessibilityLabel={`Move ${hqLabel(id)} up`}>
-                <Icon name="expand_less" size={24} color={C.dim} />
-              </Pressable>
-              <Pressable
-                onPress={() => set({ hq: moveSection(s.hq, id, 1) })}
-                disabled={i === all.length - 1}
-                hitSlop={6}
-                style={{ opacity: i === all.length - 1 ? 0.25 : 1 }}
-                accessibilityRole="button"
-                accessibilityLabel={`Move ${hqLabel(id)} down`}>
-                <Icon name="expand_more" size={24} color={C.dim} />
-              </Pressable>
-              <Switch value={shown} onValueChange={() => set({ hq: toggleSection(s.hq, id) })} trackColor={{ true: C.red, false: C.card2 }} thumbColor={C.text} />
-            </Row>
-          );
-        })}
-      </Card>
-
-      <Card>
-        <H>Daily goals</H>
-        <SettingRow label="Water goal">
-          <Stepper value={s.waterGoalMl} step={250} min={500} max={6000} format={(v) => `${v} ml`} onChange={(v) => set({ waterGoalMl: v })} />
-        </SettingRow>
-        <Toggle
-          label="Adapt water to the day"
-          hint="+300–500 ml on hot days (22° and up). Training days keep the plain goal."
-          value={s.adaptiveWater !== false}
-          onChange={(v) => set({ adaptiveWater: v })}
-        />
-        <SettingRow label="Glass size">
-          <Stepper value={s.glassMl} step={50} min={100} max={1000} format={(v) => `${v} ml`} onChange={(v) => set({ glassMl: v })} />
-        </SettingRow>
-        <SettingRow label="Calories">
-          <Stepper value={s.kcalGoal} step={100} min={1000} max={6000} format={(v) => `${v}`} onChange={(v) => set({ kcalGoal: v })} />
-        </SettingRow>
-        <SettingRow label="Protein">
-          <Stepper value={s.proteinGoal} step={5} min={0} max={400} format={(v) => `${v} g`} onChange={(v) => set({ proteinGoal: v })} />
-        </SettingRow>
-        <SettingRow label="Step goal">
-          <Stepper value={s.stepGoal} step={500} min={1000} max={30000} format={(v) => v.toLocaleString('sv-SE')} onChange={(v) => set({ stepGoal: v })} />
-        </SettingRow>
-        <SettingRow label="Coffee limit" hint={`${s.coffeeLimit * s.caffeinePerCupMg} mg caffeine`}>
-          <Stepper value={s.coffeeLimit} min={1} max={10} format={(v) => `${v} cups`} onChange={(v) => set({ coffeeLimit: v })} />
-        </SettingRow>
-        <SettingRow label="Caffeine per cup">
-          <Stepper value={s.caffeinePerCupMg} step={10} min={20} max={300} format={(v) => `${v} mg`} onChange={(v) => set({ caffeinePerCupMg: v })} />
-        </SettingRow>
-        <SettingRow label="Coffee curfew" hint={`later cups get roasted · by the caffeine math, last call is ${lastCallClock(s.sleepHour, s.caffeinePerCupMg)}`}>
-          <Stepper value={s.coffeeCutoffHour} min={10} max={22} format={(v) => `${pad(v)}:00`} onChange={(v) => set({ coffeeCutoffHour: v })} />
-        </SettingRow>
-        <SettingRow label="Gaming budget" hint="per day, before bonuses">
-          <Stepper value={s.gamingBudgetMin} step={15} min={0} max={600} format={(v) => `${v} min`} onChange={(v) => set({ gamingBudgetMin: v })} />
-        </SettingRow>
-      </Card>
-
-      <Card>
-        <H>Schedule</H>
-        <SettingRow label="Wake up">
-          <Stepper value={s.wakeHour} min={4} max={12} format={(v) => `${pad(v)}:00`} onChange={(v) => set({ wakeHour: v })} />
-        </SettingRow>
-        <SettingRow label="Bedtime">
-          <Stepper value={s.sleepHour} min={19} max={24} format={(v) => `${pad(v % 24)}:00`} onChange={(v) => set({ sleepHour: v })} />
-        </SettingRow>
-        <SettingRow label="Water nag every">
-          <Stepper value={s.waterEveryMin} step={15} min={30} max={240} format={(v) => `${v} min`} onChange={(v) => set({ waterEveryMin: v })} />
-        </SettingRow>
-        <SettingRow label="Gym time">
-          <Stepper
-            value={s.gymHour * 60 + s.gymMinute}
-            step={30}
-            min={5 * 60}
-            max={22 * 60}
-            format={(v) => `${pad(Math.floor(v / 60))}:${pad(v % 60)}`}
-            onChange={(v) => set({ gymHour: Math.floor(v / 60), gymMinute: v % 60 })}
-          />
-        </SettingRow>
-        <SettingRow label="Rest timer">
-          <Stepper value={s.restSeconds} step={15} min={0} max={600} format={(v) => (v ? `${v} s` : 'off')} onChange={(v) => set({ restSeconds: v })} />
-        </SettingRow>
-        <Toggle label="Red days are rest days" hint="no planned workout or gym reminders on Swedish public holidays" value={s.redDaysOff} onChange={(v) => set({ redDaysOff: v })} />
-      </Card>
-
-      <Card>
-        <H>Notifications</H>
-        <Toggle label="Water reminders" value={s.notify.water} onChange={(v) => setNotify('water', v)} />
-        <Toggle label="Gym reminders" value={s.notify.gym} onChange={(v) => setNotify('gym', v)} />
-        <Toggle label="Morning briefing" value={s.notify.morning} onChange={(v) => setNotify('morning', v)} />
-        <Toggle label="Evening report card" value={s.notify.evening} onChange={(v) => setNotify('evening', v)} />
-        <Toggle label="Gaming alerts" value={s.notify.gaming} onChange={(v) => setNotify('gaming', v)} />
-        <Toggle label="Mood check-ins" hint="13:00 and 20:00" value={s.notify.mood} onChange={(v) => setNotify('mood', v)} />
-        <Toggle label="Habit reminders" hint="per habit, if it has a time" value={s.notify.habits} onChange={(v) => setNotify('habits', v)} />
-        <Toggle label="Weekly report card" hint="Sundays 19:00" value={s.notify.report} onChange={(v) => setNotify('report', v)} />
-        <Toggle label="Sleep rating prompt" hint="an hour after you wake up" value={s.notify.sleep} onChange={(v) => setNotify('sleep', v)} />
-        <Toggle label="Countdown reminders" hint="the day before and on the day" value={s.notify.countdowns} onChange={(v) => setNotify('countdowns', v)} />
-        <Toggle label="Wrapped & Prizes" hint="monthly on the 1st, the year on 1 Jan, the Prizes on 10 Dec" value={s.notify.wrapped} onChange={(v) => setNotify('wrapped', v)} />
-        <Toggle label="Wind-down reminder" hint="an hour before bedtime" value={s.notify.windDown} onChange={(v) => setNotify('windDown', v)} />
-        <Toggle label="League reminder" hint="Sundays 17:00" value={s.notify.league} onChange={(v) => setNotify('league', v)} />
-        <Toggle
-          label="Weekend boss finisher"
-          hint="Sat & Sun 15:00, when today can still finish the boss"
-          value={s.notify.weekendBoss}
-          onChange={(v) => setNotify('weekendBoss', v)}
-        />
-        <Toggle label="Period heads-up" hint="2 days before it's predicted" value={s.notify.cycle} onChange={(v) => setNotify('cycle', v)} />
-        <Toggle
-          label="Status line"
-          hint="a silent summary in the notification shade, with +1 glass and Focus buttons"
-          value={s.notify.statusLine}
-          onChange={(v) => setNotify('statusLine', v)}
-        />
-        <Toggle label="Stay quiet during meetings" value={s.respectMeetings} onChange={(v) => set({ respectMeetings: v })} />
-        <Btn label="Send me a test roast" icon="notifications" kind="ghost" onPress={testRoast} />
-      </Card>
-
-      <CareSettings />
-
-      <Card>
-        <H>Weather</H>
-        <T dim small>
-          {s.weather ? `Showing weather for ${s.weather.name}.` : 'Pick a city to get the forecast on HQ and in your morning briefing.'}
-        </T>
-        <Row>
-          <Field value={city} onChangeText={setCity} placeholder={s.weather ? 'Change city…' : 'City, e.g. Stockholm'} onSubmitEditing={setPlace} style={{ flex: 1 }} />
-          <Btn label="Set" kind="ghost" onPress={setPlace} disabled={!city.trim()} />
-        </Row>
-      </Card>
-
-      <SlSettings />
-      <WeekendSettings />
-
-      <SwedenSettings />
-
-      <Card>
-        <H>Outside: pollen, air & warnings</H>
-        <T dim small>
-          {s.weather
-            ? `SMHI warnings and VMA for ${s.weather.county ?? 'your county (looking it up…)'}. Pollen and air quality for ${s.weather.name.split(',')[0]}.`
-            : 'Set a city above first.'}
-        </T>
-        <T small>Your allergies</T>
-        <Row style={{ flexWrap: 'wrap' }} gap={8}>
-          {POLLEN.map((p) => {
-            const on = s.allergies.includes(p.type);
+        <Card>
+          <H>Themes</H>
+          <T dim small>
+            New themes unlock as you level up. You are level {level}.
+          </T>
+          {themeIds.map((id) => {
+            const t = THEMES[id];
+            const open = themeUnlocked(id, level, state);
             return (
-              <Chip
-                key={p.type}
-                label={`${p.emoji} ${p.label}`}
-                active={on}
-                onPress={() => set({ allergies: on ? s.allergies.filter((x) => x !== p.type) : [...s.allergies, p.type] })}
-              />
+              <Pressable key={id} onPress={() => applyTheme(id)} style={({ pressed }) => [{ opacity: open ? (pressed ? 0.7 : 1) : 0.4 }]}>
+                <Row>
+                  <View style={{ flexDirection: 'row' }}>
+                    {[t.colors.bg, t.colors.red, t.colors.blue].map((c, i) => (
+                      <View key={i} style={{ width: 18, height: 28, backgroundColor: c, borderRadius: 4, marginRight: 2, borderWidth: 1, borderColor: C.border }} />
+                    ))}
+                  </View>
+                  <T style={{ flex: 1 }}>{t.name}</T>
+                  <Text style={{ color: id === THEME_ID ? C.green : C.dim, fontWeight: '700', fontSize: 12 }}>
+                    {id === THEME_ID ? '✓ active' : open ? 'tap to use' : 'unlock' in t ? '🔒 trophy' : `🔒 LVL ${t.level}`}
+                  </Text>
+                </Row>
+              </Pressable>
             );
           })}
-        </Row>
-        <SettingRow label="Pollen alert from">
-          <Row gap={6}>
-            <Chip label="Moderate" active={s.pollenAlertLevel === 2} onPress={() => set({ pollenAlertLevel: 2 })} />
-            <Chip label="High" active={s.pollenAlertLevel === 3} onPress={() => set({ pollenAlertLevel: 3 })} />
-          </Row>
-        </SettingRow>
-        <SettingRow label="Air quality alert" hint="European AQI: 40 fair, 60 poor, 80 very poor">
-          <Stepper value={s.aqiAlert} step={10} min={20} max={100} format={(v) => `${v}+`} onChange={(v) => set({ aqiAlert: v })} />
-        </SettingRow>
-        <Toggle label="Pollen alerts" hint="morning, for your allergies only" value={s.notify.pollen} onChange={(v) => setNotify('pollen', v)} />
-        <Toggle label="Air quality alerts" hint="morning, when AQI hits your limit" value={s.notify.air} onChange={(v) => setNotify('air', v)} />
-        <Toggle
-          label="SMHI weather warnings"
-          hint="a ping for yellow, orange and red, right away. Outside lists them either way"
-          value={s.notify.smhi}
-          onChange={(v) => setNotify('smhi', v)}
-        />
-        <Toggle
-          label="VMA"
-          hint="Viktigt meddelande till allmänheten: a ping right away. Outside lists them either way"
-          value={s.notify.vma}
-          onChange={(v) => setNotify('vma', v)}
-        />
-        <Btn label="Open Outside" icon="air" kind="ghost" onPress={() => router.push('/outside')} disabled={!s.weather} />
-      </Card>
-
-      <Card accent={nudge ? C.yellow : undefined}>
-        <H right={nudge ? <T small style={{ color: C.yellow }}>{nudge === 'stale' ? '⚠ no backup this week' : '⚠ not set up'}</T> : undefined}>Backup & restore</H>
-        <T dim small>
-          Last backup: {state.lastBackupAt ? new Date(state.lastBackupAt).toLocaleString('sv-SE').slice(0, 16) : 'never'}
-          {state.lastSharedAt ? ` · last sent: ${new Date(state.lastSharedAt).toLocaleString('sv-SE').slice(0, 10)}` : ''}. A backup is a folder with all
-          your data and photos. Pick e.g. Documents. Send backup puts your data (no photos) in Drive, mail or wherever you like: off the phone.
-        </T>
-        <Row>
-          <Btn label="Back up now" icon="save" onPress={doBackup} disabled={busy} style={{ flex: 1 }} />
-          <Btn label="Send backup" icon="share" kind="ghost" onPress={doShare} disabled={busy} style={{ flex: 1 }} />
-        </Row>
-        <Btn label="Restore" kind="ghost" onPress={doRestore} disabled={busy} />
-        <Toggle
-          label="Daily backup"
-          hint={
-            state.backupFolderUri
-              ? 'Every day when you open the app, into "SPIDER-auto-backup" in the folder you picked. Keeps the last 7 days, plus one a week for 5 weeks before that.'
-              : 'Pick a folder once and S.P.I.D.E.R. backs up there every day.'
-          }
-          value={!!state.backupFolderUri}
-          onChange={(v) => (v ? void autoBackupOn() : actions.stopAutoBackup())}
-        />
-        <StorageRow />
-      </Card>
-
-      {cal.status === 'granted' && cal.calendars.length > 0 ? (
-        <Card>
-          <H>Calendars</H>
-          {cal.calendars.map((c) => (
-            <Toggle
-              key={c.id}
-              label={c.title}
-              hint={c.account}
-              color={c.color}
-              value={chosen ? chosen.includes(c.id) : true}
-              onChange={(v) => toggleCal(c.id, v)}
-            />
-          ))}
         </Card>
-      ) : null}
 
-      {screenTimeSupported ? (
+        <PauseCard planner />
+      </View>
+
+      <View style={styles.group} onLayout={(e) => place('hq', e)}>
+        <HqLayoutCard />
+      </View>
+
+      <View style={styles.group} onLayout={(e) => place('goals', e)}>
         <Card>
-          <H>Phone screen time</H>
-          <T dim small>
-            {hasUsageAccess() ? 'Usage access is on. S.P.I.D.E.R. reads app names and minutes, on this phone only.' : 'Usage access is off. Turn it on to track phone time and auto-detect phone gaming.'}
-          </T>
-          <Btn label="Usage access settings" kind="ghost" onPress={openUsageSettings} />
-          <Toggle label="Count phone games in gaming budget" value={s.phoneGamesCount} onChange={(v) => set({ phoneGamesCount: v })} />
-          {guardSupported ? (
-            <Toggle
-              label="Focus guard"
-              hint="during Web Focus, a nudge the moment you open a social app"
-              value={s.focusGuard !== false}
-              onChange={(v) => set({ focusGuard: v })}
-            />
-          ) : null}
-          <SettingRow label="Daily phone limit" hint="above this, the roasts get louder">
-            <Stepper value={s.phoneLimitMin} step={30} min={30} max={720} format={(v) => `${Math.floor(v / 60)}h${v % 60 ? ` ${v % 60}m` : ''}`} onChange={(v) => set({ phoneLimitMin: v })} />
+          <H>Daily goals</H>
+          <SettingRow label="Water goal">
+            <Stepper value={s.waterGoalMl} step={250} min={500} max={6000} format={(v) => `${v} ml`} onChange={(v) => set({ waterGoalMl: v })} />
+          </SettingRow>
+          <Toggle
+            label="Adapt water to the day"
+            hint="+300–500 ml on hot days (22° and up). Training days keep the plain goal."
+            value={s.adaptiveWater !== false}
+            onChange={(v) => set({ adaptiveWater: v })}
+          />
+          <SettingRow label="Glass size">
+            <Stepper value={s.glassMl} step={50} min={100} max={1000} format={(v) => `${v} ml`} onChange={(v) => set({ glassMl: v })} />
+          </SettingRow>
+          <SettingRow label="Calories">
+            <Stepper value={s.kcalGoal} step={100} min={1000} max={6000} format={(v) => `${v}`} onChange={(v) => set({ kcalGoal: v })} />
+          </SettingRow>
+          <SettingRow label="Protein">
+            <Stepper value={s.proteinGoal} step={5} min={0} max={400} format={(v) => `${v} g`} onChange={(v) => set({ proteinGoal: v })} />
+          </SettingRow>
+          <SettingRow label="Step goal">
+            <Stepper value={s.stepGoal} step={500} min={1000} max={30000} format={(v) => v.toLocaleString('sv-SE')} onChange={(v) => set({ stepGoal: v })} />
+          </SettingRow>
+          <SettingRow label="Coffee limit" hint={`${s.coffeeLimit * s.caffeinePerCupMg} mg caffeine`}>
+            <Stepper value={s.coffeeLimit} min={1} max={10} format={(v) => `${v} cups`} onChange={(v) => set({ coffeeLimit: v })} />
+          </SettingRow>
+          <SettingRow label="Caffeine per cup">
+            <Stepper value={s.caffeinePerCupMg} step={10} min={20} max={300} format={(v) => `${v} mg`} onChange={(v) => set({ caffeinePerCupMg: v })} />
+          </SettingRow>
+          <SettingRow label="Coffee curfew" hint={`later cups get roasted · by the caffeine math, last call is ${lastCallClock(s.sleepHour, s.caffeinePerCupMg)}`}>
+            <Stepper value={s.coffeeCutoffHour} min={10} max={22} format={(v) => `${pad(v)}:00`} onChange={(v) => set({ coffeeCutoffHour: v })} />
+          </SettingRow>
+          <SettingRow label="Gaming budget" hint="per day, before bonuses">
+            <Stepper value={s.gamingBudgetMin} step={15} min={0} max={600} format={(v) => `${v} min`} onChange={(v) => set({ gamingBudgetMin: v })} />
           </SettingRow>
         </Card>
-      ) : null}
 
-      {health.status !== 'unsupported' ? (
         <Card>
-          <H>Watch (Zepp → Health Connect)</H>
+          <H>Schedule</H>
+          <SettingRow label="Wake up">
+            <Stepper value={s.wakeHour} min={4} max={12} format={(v) => `${pad(v)}:00`} onChange={(v) => set({ wakeHour: v })} />
+          </SettingRow>
+          <SettingRow label="Bedtime">
+            <Stepper value={s.sleepHour} min={19} max={24} format={(v) => `${pad(v % 24)}:00`} onChange={(v) => set({ sleepHour: v })} />
+          </SettingRow>
+          <SettingRow label="Water nag every">
+            <Stepper value={s.waterEveryMin} step={15} min={30} max={240} format={(v) => `${v} min`} onChange={(v) => set({ waterEveryMin: v })} />
+          </SettingRow>
+          <SettingRow label="Gym time">
+            <Stepper
+              value={s.gymHour * 60 + s.gymMinute}
+              step={30}
+              min={5 * 60}
+              max={22 * 60}
+              format={(v) => `${pad(Math.floor(v / 60))}:${pad(v % 60)}`}
+              onChange={(v) => set({ gymHour: Math.floor(v / 60), gymMinute: v % 60 })}
+            />
+          </SettingRow>
+          <SettingRow label="Rest timer">
+            <Stepper value={s.restSeconds} step={15} min={0} max={600} format={(v) => (v ? `${v} s` : 'off')} onChange={(v) => set({ restSeconds: v })} />
+          </SettingRow>
+          <Toggle label="Red days are rest days" hint="no planned workout or gym reminders on Swedish public holidays" value={s.redDaysOff} onChange={(v) => set({ redDaysOff: v })} />
+        </Card>
+      </View>
+
+      <View style={styles.group} onLayout={(e) => place('pings', e)}>
+        <Card>
+          <H>Notifications</H>
+          <Toggle label="Water reminders" value={s.notify.water} onChange={(v) => setNotify('water', v)} />
+          <Toggle label="Gym reminders" value={s.notify.gym} onChange={(v) => setNotify('gym', v)} />
+          <Toggle label="Morning briefing" value={s.notify.morning} onChange={(v) => setNotify('morning', v)} />
+          <Toggle label="Evening report card" value={s.notify.evening} onChange={(v) => setNotify('evening', v)} />
+          <Toggle label="Gaming alerts" value={s.notify.gaming} onChange={(v) => setNotify('gaming', v)} />
+          <Toggle label="Mood check-ins" hint="13:00 and 20:00" value={s.notify.mood} onChange={(v) => setNotify('mood', v)} />
+          <Toggle label="Habit reminders" hint="per habit, if it has a time" value={s.notify.habits} onChange={(v) => setNotify('habits', v)} />
+          <Toggle label="Weekly report card" hint="Sundays 19:00" value={s.notify.report} onChange={(v) => setNotify('report', v)} />
+          <Toggle label="Sleep rating prompt" hint="an hour after you wake up" value={s.notify.sleep} onChange={(v) => setNotify('sleep', v)} />
+          <Toggle label="Countdown reminders" hint="the day before and on the day" value={s.notify.countdowns} onChange={(v) => setNotify('countdowns', v)} />
+          <Toggle label="Wrapped & Prizes" hint="monthly on the 1st, the year on 1 Jan, the Prizes on 10 Dec" value={s.notify.wrapped} onChange={(v) => setNotify('wrapped', v)} />
+          <Toggle label="Wind-down reminder" hint="an hour before bedtime" value={s.notify.windDown} onChange={(v) => setNotify('windDown', v)} />
+          <Toggle label="League reminder" hint="Sundays 17:00" value={s.notify.league} onChange={(v) => setNotify('league', v)} />
+          <Toggle
+            label="Weekend boss finisher"
+            hint="Sat & Sun 15:00, when today can still finish the boss"
+            value={s.notify.weekendBoss}
+            onChange={(v) => setNotify('weekendBoss', v)}
+          />
+          <Toggle label="Period heads-up" hint="2 days before it's predicted" value={s.notify.cycle} onChange={(v) => setNotify('cycle', v)} />
+          <Toggle
+            label="Status line"
+            hint="a silent summary in the notification shade, with +1 glass and Focus buttons"
+            value={s.notify.statusLine}
+            onChange={(v) => setNotify('statusLine', v)}
+          />
+          <Toggle label="Stay quiet during meetings" value={s.respectMeetings} onChange={(v) => set({ respectMeetings: v })} />
+          <Btn label="Send me a test roast" icon="notifications" kind="ghost" onPress={testRoast} />
+          {/* step 10 ux: the other pings live next to what they're about */}
           <T dim small>
-            {health.status === 'connected'
-              ? health.missing.length
-                ? `Connected, but without access to ${health.missing.join(' and ')}.`
-                : 'Connected. Steps, heart rate and sleep are read from Health Connect; steps every minute while the app is open.'
-              : health.status === 'unavailable'
-                ? 'Health Connect is not available. Install it from the Play Store.'
-                : 'Not connected yet. In Zepp: Profile → Add accounts → Health Connect, then connect here.'}
+            More pings live with their features:
+          </T>
+          <Row gap={8} style={{ flexWrap: 'wrap' }}>
+            <Chip label="Pollen, air & warnings →" onPress={() => jump('places')} />
+            <Chip label="Care corner →" onPress={() => jump('care')} />
+            <Chip label="Swedish calendar →" onPress={() => jump('sweden')} />
+          </Row>
+        </Card>
+      </View>
+
+      <View style={styles.group} onLayout={(e) => place('care', e)}>
+        <CareSettings />
+      </View>
+
+      <View style={styles.group} onLayout={(e) => place('places', e)}>
+        <Card>
+          <H>Weather</H>
+          <T dim small>
+            {s.weather ? `Showing weather for ${s.weather.name}.` : 'Pick a city to get the forecast on HQ and in your morning briefing.'}
           </T>
           <Row>
-            {health.status !== 'connected' ? <Btn label="Connect" icon="monitor_heart" onPress={health.connect} style={{ flex: 1 }} /> : null}
-            {health.status === 'connected' && health.missing.length ? (
-              <Btn label="Grant missing access" icon="monitor_heart" onPress={health.connect} style={{ flex: 1 }} />
-            ) : null}
-            <Btn label="Health Connect settings" kind="ghost" onPress={openHealthSettings} style={{ flex: 1 }} />
+            <Field value={city} onChangeText={setCity} placeholder={s.weather ? 'Change city…' : 'City, e.g. Stockholm'} onSubmitEditing={setPlace} style={{ flex: 1 }} />
+            <Btn label="Set" kind="ghost" onPress={setPlace} disabled={!city.trim()} />
           </Row>
-          {health.status === 'connected' ? (
-            <>
-              <Toggle
-                label="Fill Zepp's delay with the phone's steps"
-                hint="Zepp writes to Health Connect late; until it does, the phone's own step count covers today's newest steps"
-                value={s.stepsFill !== false}
-                onChange={(v) => {
-                  set({ stepsFill: v });
-                  setTimeout(health.refresh, 0); // re-read with the new setting (the store reads it at the next read)
-                }}
-                color={C.green}
-              />
-              <StepsCheckPanel fill={s.stepsFill !== false} />
-            </>
-          ) : null}
         </Card>
+
+        <Card>
+          <H>Outside: pollen, air & warnings</H>
+          <T dim small>
+            {s.weather
+              ? `SMHI warnings and VMA for ${s.weather.county ?? 'your county (looking it up…)'}. Pollen and air quality for ${s.weather.name.split(',')[0]}.`
+              : 'Set a city above first.'}
+          </T>
+          <T small>Your allergies</T>
+          <Row style={{ flexWrap: 'wrap' }} gap={8}>
+            {POLLEN.map((p) => {
+              const on = s.allergies.includes(p.type);
+              return (
+                <Chip
+                  key={p.type}
+                  label={`${p.emoji} ${p.label}`}
+                  active={on}
+                  onPress={() => set({ allergies: on ? s.allergies.filter((x) => x !== p.type) : [...s.allergies, p.type] })}
+                />
+              );
+            })}
+          </Row>
+          <SettingRow label="Pollen alert from">
+            <Row gap={6}>
+              <Chip label="Moderate" active={s.pollenAlertLevel === 2} onPress={() => set({ pollenAlertLevel: 2 })} />
+              <Chip label="High" active={s.pollenAlertLevel === 3} onPress={() => set({ pollenAlertLevel: 3 })} />
+            </Row>
+          </SettingRow>
+          <SettingRow label="Air quality alert" hint="European AQI: 40 fair, 60 poor, 80 very poor">
+            <Stepper value={s.aqiAlert} step={10} min={20} max={100} format={(v) => `${v}+`} onChange={(v) => set({ aqiAlert: v })} />
+          </SettingRow>
+          <Toggle label="Pollen alerts" hint="morning, for your allergies only" value={s.notify.pollen} onChange={(v) => setNotify('pollen', v)} />
+          <Toggle label="Air quality alerts" hint="morning, when AQI hits your limit" value={s.notify.air} onChange={(v) => setNotify('air', v)} />
+          <Toggle
+            label="SMHI weather warnings"
+            hint="a ping for yellow, orange and red, right away. Outside lists them either way"
+            value={s.notify.smhi}
+            onChange={(v) => setNotify('smhi', v)}
+          />
+          <Toggle
+            label="VMA"
+            hint="Viktigt meddelande till allmänheten: a ping right away. Outside lists them either way"
+            value={s.notify.vma}
+            onChange={(v) => setNotify('vma', v)}
+          />
+          <Btn label="Open Outside" icon="air" kind="ghost" onPress={() => router.push('/outside')} disabled={!s.weather} />
+        </Card>
+
+        <SlSettings />
+        <WeekendSettings />
+      </View>
+
+      <View style={styles.group} onLayout={(e) => place('sweden', e)}>
+        <SwedenSettings />
+      </View>
+
+      {devices ? (
+        <View style={styles.group} onLayout={(e) => place('devices', e)}>
+          {cal.status === 'granted' && cal.calendars.length > 0 ? (
+            <Card>
+              <H>Calendars</H>
+              {cal.calendars.map((c) => (
+                <Toggle
+                  key={c.id}
+                  label={c.title}
+                  hint={c.account}
+                  color={c.color}
+                  value={chosen ? chosen.includes(c.id) : true}
+                  onChange={(v) => toggleCal(c.id, v)}
+                />
+              ))}
+            </Card>
+          ) : null}
+
+          {screenTimeSupported ? (
+            <Card>
+              <H>Phone screen time</H>
+              <T dim small>
+                {hasUsageAccess() ? 'Usage access is on. S.P.I.D.E.R. reads app names and minutes, on this phone only.' : 'Usage access is off. Turn it on to track phone time and auto-detect phone gaming.'}
+              </T>
+              <Btn label="Usage access settings" kind="ghost" onPress={openUsageSettings} />
+              <Toggle label="Count phone games in gaming budget" value={s.phoneGamesCount} onChange={(v) => set({ phoneGamesCount: v })} />
+              {guardSupported ? (
+                <Toggle
+                  label="Focus guard"
+                  hint="during Web Focus, a nudge the moment you open a social app"
+                  value={s.focusGuard !== false}
+                  onChange={(v) => set({ focusGuard: v })}
+                />
+              ) : null}
+              <SettingRow label="Daily phone limit" hint="above this, the roasts get louder">
+                <Stepper value={s.phoneLimitMin} step={30} min={30} max={720} format={(v) => `${Math.floor(v / 60)}h${v % 60 ? ` ${v % 60}m` : ''}`} onChange={(v) => set({ phoneLimitMin: v })} />
+              </SettingRow>
+            </Card>
+          ) : null}
+
+          {health.status !== 'unsupported' ? (
+            <Card>
+              <H>Watch (Zepp → Health Connect)</H>
+              <T dim small>
+                {health.status === 'connected'
+                  ? health.missing.length
+                    ? `Connected, but without access to ${health.missing.join(' and ')}.`
+                    : 'Connected. Steps, heart rate and sleep are read from Health Connect; steps every minute while the app is open.'
+                  : health.status === 'unavailable'
+                    ? 'Health Connect is not available. Install it from the Play Store.'
+                    : 'Not connected yet. In Zepp: Profile → Add accounts → Health Connect, then connect here.'}
+              </T>
+              <Row>
+                {health.status !== 'connected' ? <Btn label="Connect" icon="monitor_heart" onPress={health.connect} style={{ flex: 1 }} /> : null}
+                {health.status === 'connected' && health.missing.length ? (
+                  <Btn label="Grant missing access" icon="monitor_heart" onPress={health.connect} style={{ flex: 1 }} />
+                ) : null}
+                <Btn label="Health Connect settings" kind="ghost" onPress={openHealthSettings} style={{ flex: 1 }} />
+              </Row>
+              {health.status === 'connected' ? (
+                <>
+                  <Toggle
+                    label="Fill Zepp's delay with the phone's steps"
+                    hint="Zepp writes to Health Connect late; until it does, the phone's own step count covers today's newest steps"
+                    value={s.stepsFill !== false}
+                    onChange={(v) => {
+                      set({ stepsFill: v });
+                      setTimeout(health.refresh, 0); // re-read with the new setting (the store reads it at the next read)
+                    }}
+                    color={C.green}
+                  />
+                  <StepsCheckPanel fill={s.stepsFill !== false} />
+                </>
+              ) : null}
+            </Card>
+          ) : null}
+        </View>
       ) : null}
 
-      <Card>
-        <H>About</H>
-        <T dim small>
-          S.P.I.D.E.R. officially stands for Savage Personal Intelligence for Daily Execution &amp; Reminders. Unofficially: {ACRONYM_REAL}.
-        </T>
-        <T dim small>
-          {state.xp} XP total · {Object.keys(state.achievements).length} achievements · all data stays on this phone.
-        </T>
-        {/* step 9 story: a long-press on the version turns up an intercepted memo (cipher.ts) */}
-        <Pressable onLongPress={() => actions.interceptMemo('version')} delayLongPress={800} accessibilityLabel="Version">
-        <T dim small mono>
-          v{Constants.expoConfig?.version ?? '?'}
-          {Updates.isEnabled && Updates.updateId
-            ? ` · ${Updates.isEmbeddedLaunch ? 'built-in' : 'update'} ${Updates.updateId.slice(0, 8)}${
-                Updates.createdAt ? ` (${Updates.createdAt.toLocaleString('sv-SE').slice(0, 16)})` : ''
-              }`
-            : ' · dev'}
-        </T>
-        </Pressable>
-        <Btn label="Reset everything" icon="delete" kind="danger" onPress={reset} />
-      </Card>
+      <View style={styles.group} onLayout={(e) => place('data', e)}>
+        <Card accent={nudge ? C.yellow : undefined}>
+          <H right={nudge ? <T small style={{ color: C.yellow }}>{nudge === 'stale' ? '⚠ no backup this week' : '⚠ not set up'}</T> : undefined}>Backup & restore</H>
+          <T dim small>
+            Last backup: {state.lastBackupAt ? new Date(state.lastBackupAt).toLocaleString('sv-SE').slice(0, 16) : 'never'}
+            {state.lastSharedAt ? ` · last sent: ${new Date(state.lastSharedAt).toLocaleString('sv-SE').slice(0, 10)}` : ''}. A backup is a folder with all
+            your data and photos. Pick e.g. Documents. Send backup puts your data (no photos) in Drive, mail or wherever you like: off the phone.
+          </T>
+          <Row>
+            <Btn label="Back up now" icon="save" onPress={doBackup} disabled={busy} style={{ flex: 1 }} />
+            <Btn label="Send backup" icon="share" kind="ghost" onPress={doShare} disabled={busy} style={{ flex: 1 }} />
+          </Row>
+          <Btn label="Restore" kind="ghost" onPress={doRestore} disabled={busy} />
+          <Toggle
+            label="Daily backup"
+            hint={
+              state.backupFolderUri
+                ? 'Every day when you open the app, into "SPIDER-auto-backup" in the folder you picked. Keeps the last 7 days, plus one a week for 5 weeks before that.'
+                : 'Pick a folder once and S.P.I.D.E.R. backs up there every day.'
+            }
+            value={!!state.backupFolderUri}
+            onChange={(v) => (v ? void autoBackupOn() : actions.stopAutoBackup())}
+          />
+          <StorageRow />
+        </Card>
+
+        <Card>
+          <H>About</H>
+          <T dim small>
+            S.P.I.D.E.R. officially stands for Savage Personal Intelligence for Daily Execution &amp; Reminders. Unofficially: {ACRONYM_REAL}.
+          </T>
+          <T dim small>
+            {state.xp} XP total · {Object.keys(state.achievements).length} achievements · all data stays on this phone.
+          </T>
+          {/* step 9 story: a long-press on the version turns up an intercepted memo (cipher.ts) */}
+          <Pressable onLongPress={() => actions.interceptMemo('version')} delayLongPress={800} accessibilityLabel="Version">
+          <T dim small mono>
+            v{Constants.expoConfig?.version ?? '?'}
+            {Updates.isEnabled && Updates.updateId
+              ? ` · ${Updates.isEmbeddedLaunch ? 'built-in' : 'update'} ${Updates.updateId.slice(0, 8)}${
+                  Updates.createdAt ? ` (${Updates.createdAt.toLocaleString('sv-SE').slice(0, 16)})` : ''
+                }`
+              : ' · dev'}
+          </T>
+          </Pressable>
+          <Btn label="Reset everything" icon="delete" kind="danger" onPress={reset} />
+        </Card>
+      </View>
     </ScrollView>
   );
 }
+
+/**
+ * HQ's cards in two lists, Shown (in order, with arrows) and Hidden (a switch brings one back to its place).
+ * An arrow moves a card past the next shown one; held, it sends it to the top or the bottom. Cards that only
+ * appear sometimes say when (hq-layout.ts `when`). Reset asks first: it throws the whole order away.
+ */
+function HqLayoutCard() {
+  const { state, actions } = useStore();
+  const hq = state.settings.hq;
+  const set = (next: HqLayout | undefined) => actions.updateSettings({ hq: next });
+  const order = hqOrder(hq);
+  const hidden = hqHidden(hq);
+  const shown = order.filter((id) => !hidden.includes(id));
+  const off = order.filter((id) => hidden.includes(id));
+  const reset = () =>
+    Alert.alert('Reset the HQ layout?', 'Every card goes back to its default place, and the full weekly cards are hidden again. Your own order is lost.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Reset', style: 'destructive', onPress: () => set(undefined) },
+    ]);
+  return (
+    <Card>
+      <H
+        right={
+          hq ? (
+            <Text style={{ color: C.red, fontWeight: '700', fontSize: 13 }} onPress={reset} accessibilityRole="button">
+              Reset
+            </Text>
+          ) : undefined
+        }>
+        HQ layout
+      </H>
+      <T dim small>
+        Order HQ&apos;s cards and hide the ones you don&apos;t look at. The spider, health alerts and banners stay on top. Hold an arrow to send a card
+        to the top or the bottom. ⏱ marks a card that only shows up sometimes.
+      </T>
+      <Text style={styles.listHead}>Shown · {shown.length}</Text>
+      {shown.map((id, i) => (
+        <Row key={id} gap={4}>
+          <LayoutLabel id={id} />
+          <ArrowBtn id={id} dir={-1} disabled={i === 0} onMove={() => set(moveSection(hq, id, -1))} onJump={() => set(moveSectionTo(hq, id, 'top'))} />
+          <ArrowBtn id={id} dir={1} disabled={i === shown.length - 1} onMove={() => set(moveSection(hq, id, 1))} onJump={() => set(moveSectionTo(hq, id, 'bottom'))} />
+          <Switch value onValueChange={() => set(toggleSection(hq, id))} trackColor={{ true: C.red, false: C.card2 }} thumbColor={C.text} accessibilityLabel={`Show ${hqLabel(id)}`} />
+        </Row>
+      ))}
+      {off.length ? <Text style={styles.listHead}>Hidden · {off.length}</Text> : null}
+      {off.map((id) => (
+        <Row key={id} gap={4}>
+          <LayoutLabel id={id} dim />
+          <Switch value={false} onValueChange={() => set(toggleSection(hq, id))} trackColor={{ true: C.red, false: C.card2 }} thumbColor={C.text} accessibilityLabel={`Show ${hqLabel(id)}`} />
+        </Row>
+      ))}
+    </Card>
+  );
+}
+
+function LayoutLabel({ id, dim }: { id: HqSectionId; dim?: boolean }) {
+  const when = hqWhen(id);
+  return (
+    <View style={{ flex: 1, opacity: dim ? 0.55 : 1 }}>
+      <T>{hqLabel(id)}</T>
+      {when ? (
+        <T dim small>
+          ⏱ only {when}
+        </T>
+      ) : null}
+    </View>
+  );
+}
+
+/** Up or down one card; a long-press goes all the way. Padded instead of hitSlop, so neighbouring arrows' touch areas never overlap. */
+function ArrowBtn({ id, dir, disabled, onMove, onJump }: { id: HqSectionId; dir: -1 | 1; disabled: boolean; onMove: () => void; onJump: () => void }) {
+  return (
+    <Pressable
+      onPress={onMove}
+      onLongPress={onJump}
+      disabled={disabled}
+      hitSlop={{ top: 6, bottom: 6 }}
+      style={({ pressed }) => [styles.arrow, { opacity: disabled ? 0.25 : pressed ? 0.6 : 1 }]}
+      accessibilityRole="button"
+      accessibilityLabel={`Move ${hqLabel(id)} ${dir < 0 ? 'up' : 'down'}`}
+      accessibilityHint={`Long-press to move it to the ${dir < 0 ? 'top' : 'bottom'}`}>
+      <Icon name={dir < 0 ? 'expand_less' : 'expand_more'} size={24} color={C.dim} />
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  bar: { backgroundColor: C.bg, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  group: { paddingHorizontal: 16, paddingTop: 14, gap: 14 },
+  listHead: { color: C.dim, fontSize: 11, fontWeight: '800', letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 4 },
+  arrow: { padding: 4, borderRadius: 8 },
+});
 
 const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
 

@@ -187,13 +187,17 @@ import { accuse, memoFound, withMemo, type MemoPlace } from './cipher';
 import { withOpen, withRestore, withThemeSwitch } from './meta-winks';
 import { installId } from './install-id';
 import { roughPatch, showRoughPatch } from './rough-patch';
+import { TASK_UNDO_MS, withoutTask, withTaskBack, type TrashedTask } from './task-trash'; // step 10 ux
 
 export type Tone = 'info' | 'good' | 'bad' | 'epic';
 /**
  * What a toast's Undo takes back: one entry just logged with one tap (it lasts as long as the toast).
- * `restoreFood` undoes a delete: the meal comes back (photo included) while its toast is up.
+ * `restoreFood` undoes a delete: the meal comes back (photo included) while its toast is up. `restoreTask`
+ * (step 10 ux) does the same for a deleted task (task-trash.ts).
  */
-export type UndoRef = { kind: 'water' | 'coffee' | 'food' | 'set' | 'task' | 'restoreFood' | 'move'; id: string; day: string };
+export type UndoRef = { kind: 'water' | 'coffee' | 'food' | 'set' | 'task' | 'restoreFood' | 'move' | 'restoreTask'; id: string; day: string };
+/** step 10 ux: deleted tasks waiting for their toast's Undo (task-trash.ts), by id. */
+const taskTrash = new Map<string, TrashedTask>();
 /** A button on a toast: "Catch it!" on a fly (cluster G), or an Undo. */
 export type ToastAction = 'catchFly' | { undo: UndoRef };
 export type Toast = { id: number; text: string; tone: Tone; action?: ToastAction };
@@ -2439,8 +2443,19 @@ function useStoreValue() {
         });
       },
 
+      /** step 10 ux: a toast offers Undo (restoreTask), which puts the same task back where it was. */
       deleteTask(id: string) {
-        run((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
+        const cut = withoutTask(stateRef.current, id);
+        if (!cut) return;
+        taskTrash.set(id, cut.trashed);
+        setTimeout(() => taskTrash.get(id) === cut.trashed && taskTrash.delete(id), TASK_UNDO_MS); // a later delete of the same task keeps its own
+        const title = cut.trashed.task.title;
+        run((s, msgs) => {
+          const out = withoutTask(s, id);
+          if (!out) return s;
+          msgs.push({ text: `🗑️ "${title.length > 60 ? `${title.slice(0, 59)}…` : title}" deleted.`, tone: 'info', action: { undo: { kind: 'restoreTask', id, day: dayKey() } } });
+          return out.state;
+        });
       },
 
       /**
@@ -2452,6 +2467,10 @@ function useStoreValue() {
         const s = stateRef.current;
         if (ref.kind === 'move') {
           actions.unmoveWorkout(ref.id);
+          return;
+        }
+        if (ref.kind === 'restoreTask') {
+          actions.restoreTask(ref.id); // step 10 ux
           return;
         }
         if (ref.kind === 'restoreFood') {
@@ -3869,6 +3888,18 @@ function useStoreValue() {
       /** A theme switch, just before the reload: the third in a day leaves a wink for after it (meta-winks.ts). */
       noteThemeSwitch() {
         commit(withThemeSwitch(stateRef.current));
+      },
+
+      // --- step 10 ux ---
+      /** A deleted task's Undo (deleteTask's toast): the same task back where it was. Nothing is paid or taken. */
+      restoreTask(id: string) {
+        const t = taskTrash.get(id);
+        if (!t || !taskTrash.delete(id)) return;
+        run((s, msgs) => {
+          const next = withTaskBack(s, t);
+          if (next !== s) msgs.push({ text: '↩️ Back on the list.', tone: 'info' });
+          return next;
+        });
       },
     }),
     [run, commit, say, refreshHealth, runAutoBackup],

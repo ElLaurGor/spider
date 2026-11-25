@@ -9,6 +9,7 @@ import { IfThenEditor } from '@/components/if-then-editor';
 import { PastYouAsk, PastYouLine } from '@/components/past-you';
 import { ProgressPhotos } from '@/components/progress-photos';
 import { Big, Btn, Card, Chip, Field, H, Icon, Row, Screen, SpiderSays, Stepper, T, useNow } from '@/components/ui';
+import { usePullRefresh } from '@/components/use-refresh'; // step 10 ux
 import { WatchCard } from '@/components/watch-card';
 import { HiddenEgg } from '@/components/swedish-year';
 import { noonOf, useToday } from '@/components/use-today';
@@ -54,9 +55,10 @@ export default function Gym() {
     if (n) setExtra([...extra, n]);
     setNewEx('');
   };
+  const refresh = usePullRefresh(['health', 'weather']); // step 10 ux: pull to refresh: the watch, and the weather plan B reads
 
   return (
-    <Screen title="GYM" subtitle={`${WEEKDAYS_LONG[now.getDay()]} · ${plan ? `${plan.name} day` : 'Rest day'}`}>
+    <Screen title="GYM" subtitle={`${WEEKDAYS_LONG[now.getDay()]} · ${plan ? `${plan.name} day` : 'Rest day'}`} onRefresh={refresh}>
       <GymSpider workout={plan?.name ?? null} minutes={trainMinutes(today)} sets={today.sets.length} />
 
       <PlanBCard />

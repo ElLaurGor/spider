@@ -3,6 +3,7 @@ import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -43,23 +44,55 @@ export function useNow(ms = 1000, active = true, until?: number) {
   return now;
 }
 
+/** A pull that never settles (a read that hangs) stops spinning after this long anyway. */
+const REFRESH_CAP_MS = 15_000;
+
 export function Screen({
   title,
   subtitle,
   right,
+  onRefresh,
   children,
 }: {
   title: string;
   subtitle?: string;
   right?: ReactNode;
+  /** Pull to refresh (step 10 ux): spins until the returned promise settles. */
+  onRefresh?: () => Promise<unknown>;
   children: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const [refreshing, setRefreshing] = useState(false);
+  const pull = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    let cap: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([onRefresh(), new Promise((done) => (cap = setTimeout(done, REFRESH_CAP_MS)))]);
+    } catch {
+      // each refresher reports its own failure (or keeps the last good data); the spinner just stops
+    } finally {
+      clearTimeout(cap);
+      setRefreshing(false);
+    }
+  };
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: C.bg }}
       contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 40, gap: 14 }}
-      keyboardShouldPersistTaps="handled">
+      keyboardShouldPersistTaps="handled"
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void pull()}
+            colors={[C.red]}
+            progressBackgroundColor={C.card}
+            tintColor={C.red}
+            progressViewOffset={insets.top}
+          />
+        ) : undefined
+      }>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>{title}</Text>

@@ -23,6 +23,7 @@ import {
   type SlDeviation,
 } from '@/lib/sl';
 import { useStore } from '@/lib/store';
+import { settingsLink } from '@/lib/settings-sections'; // step 10 ux: lands on its own card
 
 /** The last answers from SL for one stop. Kept outside the component, so moving between tabs doesn't call SL again. */
 type Snap = {
@@ -186,7 +187,7 @@ export function SlCard() {
         </View>
       )}
 
-      <Pressable onPress={() => router.push('/settings')} accessibilityRole="button" accessibilityLabel="Change the SL stop and lines in Settings">
+      <Pressable onPress={() => router.push(settingsLink('places'))} accessibilityRole="button" accessibilityLabel="Change the SL stop and lines in Settings">
         <T dim small>
           {cfg.walkMin} min walk to the stop{cfg.routes.length ? ` · ${cfg.routes.length} line${cfg.routes.length === 1 ? '' : 's'}` : ' · all lines'} · change in Settings
         </T>

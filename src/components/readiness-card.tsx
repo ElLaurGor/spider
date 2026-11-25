@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { Card, H, T } from '@/components/ui';
+import { noonOf, useToday } from '@/components/use-today';
 import { C } from '@/constants/theme';
 import { readinessFor, type ReadinessTier } from '@/lib/readiness';
 import { useStore } from '@/lib/store';
@@ -15,7 +16,8 @@ const LOOK: Record<ReadinessTier, { emoji: string; title: string; color: string 
 /** Today's readiness on the Fuel tab: sleep, resting heart rate, sleep rating and energy against her normal. */
 export function ReadinessCard() {
   const { state, health } = useStore();
-  const now = new Date();
+  const today = useToday(); // kept current on a tab that stays mounted past midnight
+  const now = noonOf(today);
   const r = readinessFor(state, health.data?.restingDays ?? [], now);
   if (!r) return null;
   const look = LOOK[r.tier];
