@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Btn, Card, H, Icon, Row, T, useNow } from '@/components/ui';
+import { Btn, Card, H, Row, T, useNow } from '@/components/ui';
 import { useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
 import { coopSummary } from '@/lib/coop';
@@ -10,7 +10,7 @@ import { WEEKDAYS_LONG } from '@/lib/dates';
 import { PITY_AFTER } from '@/lib/economy';
 import { nemesisOf, standings, TIERS } from '@/lib/league';
 import { chestShelf, GOLD_SCORE, SHELF_MAX } from '@/lib/loot';
-import { eveningKey, topToday } from '@/lib/memory';
+import { topToday } from '@/lib/memory';
 import { dayOf, lowBattery } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import { activeTasks } from '@/lib/horizons'; // step 9 admin
@@ -178,40 +178,10 @@ export function LowBatteryCard() {
   );
 }
 
-/** Evening wind-down checklist on HQ (from 2 h before bedtime until 04:00). */
-export function WindDownCard() {
-  const { state, actions } = useStore();
-  const now = useNow(60_000);
-  const hour = new Date(now).getHours();
-  const startHour = state.settings.sleepHour - 2;
-  const evening = hour >= startHour || hour < 4;
-  const key = eveningKey(now);
-  const log = dayOf(state, key);
-  if (!evening || log.windDownDone || state.windDownItems.length === 0) return null;
-  const done = log.windDown ?? [];
-  return (
-    <Card accent={C.purple}>
-      <H right={<Text style={styles.link} onPress={() => router.push('/breathe')}>breathe →</Text>}>🌙 Wind-down</H>
-      {state.windDownItems.map((item) => {
-        const on = done.includes(item);
-        return (
-          <Pressable key={item} onPress={() => actions.toggleWindDown(item)}>
-            <Row>
-              <Icon name={on ? 'check_circle' : 'radio_button_unchecked'} size={22} color={on ? C.green : C.dim} />
-              <T style={[{ flex: 1 }, on && { color: C.dim }]}>{item}</T>
-            </Row>
-          </Pressable>
-        );
-      })}
-    </Card>
-  );
-}
-
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: '#000000CC', alignItems: 'center', justifyContent: 'center', padding: 24 },
   reveal: { backgroundColor: C.card, borderRadius: 24, borderWidth: 2, borderColor: C.yellow, padding: 28, alignItems: 'center', gap: 12 },
   prize: { color: C.text, fontSize: 22, fontWeight: '900', textAlign: 'center' },
   rank: { color: C.yellow, fontSize: 34, fontWeight: '900', fontFamily: MONO, width: 72 },
   num: { color: C.yellow, fontWeight: '900', fontFamily: MONO, width: 18 },
-  link: { color: C.red, fontWeight: '700', fontSize: 13 },
 });

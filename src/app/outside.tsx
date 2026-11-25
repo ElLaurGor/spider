@@ -6,6 +6,7 @@ import { C, MONO } from '@/constants/theme';
 import { addDays, dayKey, WEEKDAYS } from '@/lib/dates';
 import { ALERT_COLOR, ALERT_LABEL, alertWhen, aqiBand, LEVEL_LABEL, POLLEN, pollenLevel, shortDate, sourceNote, sourceOk, type Alert } from '@/lib/outside';
 import { useStore } from '@/lib/store';
+import { settingsLink } from '@/lib/settings-sections'; // step 10 ux: lands on its own card
 import { staleNote } from '@/lib/weather';
 
 const LEVEL_COLOR = ['#545C6E', '#33D17A', '#FFC53D', '#E23636'];
@@ -48,7 +49,7 @@ export default function OutsideScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, padding: 16, gap: 14 }}>
         <T>Set your city first, so I know where to check pollen, air quality and warnings.</T>
-        <Btn label="Open Settings" icon="settings" onPress={() => router.push('/settings')} />
+        <Btn label="Open Settings" icon="settings" onPress={() => router.push(settingsLink('places'))} />
       </View>
     );
   }

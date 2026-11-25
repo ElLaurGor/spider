@@ -1,14 +1,15 @@
-import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useRef } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 
-import { Card, H, Row, T } from '@/components/ui';
+import { Card, H, Icon, Row, T } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { themeIds, themeUnlocked } from '@/lib/evolution';
 import { fillLine, GOLDEN, GOLDEN_CHANCE } from '@/lib/lines';
 import { MEDAL_EMOJI, medalTotals } from '@/lib/medals';
 import { hallOfFame, type Rec } from '@/lib/records';
 import { useStore } from '@/lib/store';
-import { BADGE_NOTE, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
+import { ACHIEVEMENTS, BADGE_NOTE, levelForXp, SECRET_ACHIEVEMENTS, SECRET_COINS, XP } from '@/lib/xp';
 // step 8 game: the month's calls and the contract ledger
 import { ContractLedgerCard } from '@/components/contract-ledger';
 import { CallsCard } from '@/components/shot-call';
@@ -23,8 +24,18 @@ export default function RecordsScreen() {
   const found = state.goldenFound ?? {};
   const golden = GOLDEN.filter((g) => found[g.id]).sort((a, b) => found[b.id] - found[a.id]);
   const medals = medalTotals(state);
+  // step 10 ux: HQ's "next: …" opens Records at the achievements (`?show=achievements`), once
+  const { show } = useLocalSearchParams<{ show?: string }>();
+  const scroller = useRef<ScrollView>(null);
+  const landed = useRef(false);
+  const onAchievements = (e: LayoutChangeEvent) => {
+    if (show !== 'achievements' || landed.current) return;
+    landed.current = true;
+    const y = e.nativeEvent.layout.y;
+    setTimeout(() => scroller.current?.scrollTo({ y: Math.max(0, y - 16), animated: true }), 50);
+  };
   return (
-    <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
+    <ScrollView ref={scroller} style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
       <Card accent={C.yellow}>
         <H
           right={
@@ -57,6 +68,10 @@ export default function RecordsScreen() {
 
       <CallsCard />
       <ContractLedgerCard />
+
+      <View onLayout={onAchievements}>
+        <AchievementsCard />
+      </View>
 
       <Card accent={C.purple}>
         <H right={<T dim small>{`${Object.keys(state.secrets).length}/${SECRET_ACHIEVEMENTS.length}`}</T>}>🔓 Secret achievements</H>
@@ -119,6 +134,30 @@ export default function RecordsScreen() {
   );
 }
 
+/** step 10 ux: the achievements with what each one takes (they used to sit on HQ), unlocked ones first lit. */
+function AchievementsCard() {
+  const { state } = useStore();
+  const got = ACHIEVEMENTS.filter((a) => state.achievements[a.id]).length;
+  return (
+    <Card accent={C.yellow}>
+      <H right={<T dim small>{`${got}/${ACHIEVEMENTS.length}`}</T>}>🏆 Achievements</H>
+      <View style={styles.achGrid}>
+        {ACHIEVEMENTS.map((a) => {
+          const at = state.achievements[a.id];
+          return (
+            <View key={a.id} style={[styles.ach, !at && { opacity: 0.4 }]} accessible accessibilityLabel={`${a.title}: ${a.desc}. ${at ? 'Unlocked' : 'Locked'}`}>
+              <Icon name={a.icon} size={22} color={at ? C.yellow : C.dim} />
+              <Text style={styles.achTitle}>{a.title}</Text>
+              <Text style={styles.achDesc}>{a.desc}</Text>
+              {at ? <Text style={styles.achDate}>{new Date(at).toLocaleDateString('sv-SE')}</Text> : null}
+            </View>
+          );
+        })}
+      </View>
+    </Card>
+  );
+}
+
 /** step 9 story: the once-only remarks (remarks.ts) and the mailbox (mail.ts), next to the Roast Book. */
 function StoryLinks() {
   const { state } = useStore();
@@ -159,4 +198,9 @@ function RecordRow({ r }: { r: Rec }) {
 
 const styles = StyleSheet.create({
   value: { color: C.text, fontFamily: MONO, fontWeight: '800', fontSize: 15 },
+  achGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  ach: { width: '31%', flexGrow: 1, backgroundColor: C.card2, borderRadius: 12, padding: 10, gap: 4 },
+  achTitle: { color: C.text, fontSize: 12, fontWeight: '800' },
+  achDesc: { color: C.dim, fontSize: 11 },
+  achDate: { color: C.faint, fontSize: 10, fontFamily: MONO },
 });

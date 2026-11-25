@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { CaffeineCurve } from '@/components/caffeine-curve';
 import { lastCallText } from '@/lib/caffeine';
@@ -24,15 +24,44 @@ import { deletePhoto, getPhoto, type PhotoSource } from '@/lib/photos';
 import type { QuickFood } from '@/lib/types';
 import { useStore } from '@/lib/store';
 
+/** Away from the app longer than this, Fuel is back on today when she returns. */
+const AWAY_RESET_MS = 5 * 60_000;
+
 export default function Fuel() {
   const { state, actions, quip } = useStore();
   const { photo: sharedPhoto } = useLocalSearchParams<{ photo?: string }>();
   const s = state.settings;
-  const [picked, setPicked] = useState<string | null>(null); // a past day being fixed; null = today
+  // A past day being fixed (null = today), with the day it was picked on. step 10 ux: the tab stays mounted for
+  // days, so it goes back to today when she leaves the tab, the app is away for a while, or the day turns: a
+  // "+250" later never lands on yesterday unseen (no XP, no Undo). The barcode scanner, opened for the shown
+  // day, comes back to it.
+  const [picked, setPickedOn] = useState<{ day: string; on: string } | null>(null);
   const [weekBack, setWeekBack] = useState(0); // the food week card's week, which the meal rhythm follows
   const todayKey = useToday();
+  if (picked && picked.on !== todayKey) setPickedOn(null);
+  const keep = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      keep.current = false;
+      return () => {
+        if (!keep.current) setPickedOn(null);
+      };
+    }, []),
+  );
+  useEffect(() => {
+    let away = 0; // a photo picked from the camera leaves the app for a moment: that keeps the day
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'background') away = Date.now();
+      else if (st === 'active') {
+        if (away && Date.now() - away > AWAY_RESET_MS) setPickedOn(null);
+        away = 0;
+      }
+    });
+    return () => sub.remove();
+  }, []);
+  const setPicked = (k: string) => setPickedOn(k === todayKey ? null : { day: k, on: todayKey });
   const now = useNow(60_000);
-  const day = picked ?? todayKey;
+  const day = picked?.day ?? todayKey;
   const isToday = day === todayKey;
   const today = dayOf(state, todayKey);
   const shown = dayOf(state, day);
@@ -54,7 +83,7 @@ export default function Fuel() {
   return (
     <Screen title="FUEL" subtitle="Water · coffee · food">
       <SpiderSays text={spiderLine} />
-      <DayPicker value={day} onChange={(k) => setPicked(k === todayKey ? null : k)} />
+      <DayPicker value={day} onChange={setPicked} />
       {isToday ? <ReadinessCard /> : null}
 
       <Card accent={C.water}>
@@ -101,8 +130,8 @@ export default function Fuel() {
       </Card>
 
       <CoffeeCard day={day} />
-      <FoodCard day={day} sharedPhoto={sharedPhoto} />
-      <FoodWeekCard onOpenDay={(k) => setPicked(k === todayKey ? null : k)} back={weekBack} onBack={setWeekBack} />
+      <FoodCard day={day} sharedPhoto={sharedPhoto} onScan={() => (keep.current = true)} />
+      <FoodWeekCard onOpenDay={setPicked} back={weekBack} onBack={setWeekBack} />
       <MealRhythm back={weekBack} />
       <HiddenEgg id="fuel" align="flex-end" />
     </Screen>
@@ -166,7 +195,7 @@ function CoffeeCard({ day }: { day: string }) {
 
 type Picked = { name: string; kcal100: number; protein100: number };
 
-function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
+function FoodCard({ day, sharedPhoto, onScan }: { day: string; sharedPhoto?: string; onScan: () => void }) {
   const { state, actions, say } = useStore();
   const todayKey = useToday();
   const s = state.settings;
@@ -325,7 +354,15 @@ function FoodCard({ day, sharedPhoto }: { day: string; sharedPhoto?: string }) {
           placeholder="What did you eat? (e.g. havregryn)"
           style={{ flex: 1 }}
         />
-        <Btn icon="barcode_scanner" kind="ghost" small onPress={() => router.push({ pathname: '/scan', params: { day } })} />
+        <Btn
+          icon="barcode_scanner"
+          kind="ghost"
+          small
+          onPress={() => {
+            onScan(); // the scanner logs to this day and comes back to it
+            router.push({ pathname: '/scan', params: { day } });
+          }}
+        />
         <Btn icon="photo_camera" kind="ghost" small onPress={() => snap('camera')} />
         <Btn icon="photo_library" kind="ghost" small onPress={() => snap('library')} />
       </Row>

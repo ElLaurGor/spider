@@ -10,8 +10,9 @@ import { ExperimentCard } from '@/components/experiment-card';
 import { CountdownRow } from '@/components/countdowns-card';
 import { SwedishDaysRow } from '@/components/swedish-year';
 import { FikaBanner, SwedenCard } from '@/components/sweden-card';
-import { DebriefCard, TopThreeCard } from '@/components/debrief-cards';
-import { LeagueCard, LowBatteryCard, WindDownCard } from '@/components/hq-extras';
+import { TopThreeCard } from '@/components/debrief-cards';
+import { EveningCard } from '@/components/evening-card'; // step 10 ux: wind-down, debrief and shutdown in one
+import { LeagueCard, LowBatteryCard } from '@/components/hq-extras';
 import { LairCard } from '@/components/lair-card';
 import { SilkTrackCard } from '@/components/silk-track';
 import { AdventCard, JulfridCard, PrizesCard } from '@/components/season-cards';
@@ -25,6 +26,7 @@ import { SleepCheckIn } from '@/components/sleep-checkin';
 import { SpiderAvatar } from '@/components/spider-avatar';
 import { Bar, Btn, Card, H, Icon, Row, Screen, SpiderSays, T, useNow } from '@/components/ui';
 import { noonOf, useToday } from '@/components/use-today';
+import { usePullRefresh } from '@/components/use-refresh'; // step 10 ux
 import { OutsideAlerts } from '@/components/outside-alerts';
 import { WeatherRow } from '@/components/weather-row';
 import { SlCard } from '@/components/sl-card';
@@ -44,6 +46,7 @@ import { dayKey, fmtDuration, fmtTime, timeOfDay } from '@/lib/dates';
 import { bedtimeOn, lastCallOn } from '@/lib/caffeine';
 import { slipping } from '@/lib/workout-move';
 import { hqVisible, type HqSectionId } from '@/lib/hq-layout';
+import { settingsLink } from '@/lib/settings-sections'; // step 10 ux
 import { ACRONYM, type LineKey } from '@/lib/lines';
 import { cycleInfo, sleepInfo } from '@/lib/body';
 import { shownTitle } from '@/lib/cosmetics';
@@ -80,7 +83,7 @@ import {
 } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
 import type { MoodLevel } from '@/lib/types';
-import { ACHIEVEMENTS, levelProgress, SECRET_ACHIEVEMENTS } from '@/lib/xp';
+import { ACHIEVEMENTS, levelProgress } from '@/lib/xp';
 import { TankBanner } from '@/components/tank-extras'; // step 9 tank: the party banner; settles nights out and guests
 
 const GREETING: Record<ReturnType<typeof timeOfDay>, LineKey> = {
@@ -127,11 +130,12 @@ export default function HQ() {
   const openTasks = activeTasks(state, todayKey); // step 9 admin: tasks on a horizon wait off the list
   const upcoming = eventsOn(cal.events, now).filter((e) => e.end > now && !e.allDay).slice(0, 3);
   const unlocked = ACHIEVEMENTS.filter((a) => state.achievements[a.id]).length;
+  const nextAch = ACHIEVEMENTS.find((a) => !state.achievements[a.id]); // step 10 ux: the grid lives in Records
   const coffees = coffeeOf(today).length;
   // Typed-in steps win (syncedSteps); a read from before midnight isn't today's.
   const stepsNow = health.data || today.stepsManual ? shownSteps(today, health.data?.key === todayKey ? health.data.steps : undefined) : undefined;
   const lastCall = lastCallOn(state, todayKey);
-  const coffeeHint = now >= bedtimeOn(todayKey, s.sleepHour) ? 'tap to add one' : lastCall != null && lastCall > now ? `fine till ${fmtTime(lastCall)}` : 'decaf from here';
+  const coffeeHint = now >= bedtimeOn(todayKey, s.sleepHour) ? '' : lastCall != null && lastCall > now ? ` · fine till ${fmtTime(lastCall)}` : ' · decaf from here';
   const cycle = cycleInfo(state);
   const stage = stageFor(lvl.level);
   const next = nextStage(lvl.level);
@@ -155,6 +159,7 @@ export default function HQ() {
   const emptyKey = shutdownQuiet(state, now) ? 'shutdownQuiet' : cal.status === 'granted' ? 'calFree' : 'tasksEmpty';
   const emptyLine = useMemo(() => quip(emptyKey), [quip, emptyKey]);
   const visible = hqVisible(s.hq);
+  const refresh = usePullRefresh(['cal', 'health', 'weather', 'outside', 'screen']); // step 10 ux: pull to refresh
 
   // A tap on the spider: a random jab, its opinion of your week, or a word about the task that won't die.
   const tapSpider = () => {
@@ -171,8 +176,7 @@ export default function HQ() {
     countdowns: () => <CountdownRow />,
     sleep: () => <SleepCheckIn />,
     top3: () => <TopThreeCard />,
-    winddown: () => <WindDownCard />,
-    debrief: () => <DebriefCard />,
+    evening: () => <EveningCard />, // step 10 ux: was winddown + debrief (+ the worry card's shutdown)
     level: () => (
       <Card accent={C.red}>
         <Row style={{ justifyContent: 'space-between' }}>
@@ -204,9 +208,17 @@ export default function HQ() {
           <T dim small mono>
             {lvl.into} / {lvl.needed} XP
           </T>
-          <T dim small>
-            🏆 {unlocked}/{ACHIEVEMENTS.length}
-          </T>
+          <Pressable
+            onPress={() => router.push('/records?show=achievements')}
+            hitSlop={8}
+            style={{ flexShrink: 1 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Achievements: ${unlocked} of ${ACHIEVEMENTS.length}${nextAch ? `, next: ${nextAch.title}` : ''}. Opens Records`}>
+            <Text style={styles.nextAch} numberOfLines={1}>
+              🏆 {unlocked}/{ACHIEVEMENTS.length}
+              {nextAch ? ` · next: ${nextAch.title}` : ' · all of them'} →
+            </Text>
+          </Pressable>
         </Row>
         <T dim small mono>
           {ledgerLine(ledgerOn(state, todayKey))}
@@ -289,13 +301,14 @@ export default function HQ() {
           </Text>
           <Bar pct={usedMs / (budgetMin * 60_000)} color={usedMs > budgetMin * 60_000 ? C.red : C.purple} height={6} />
         </Tile>
-        <Tile icon="coffee" color={C.yellow} label="Coffee" onPress={() => actions.addCoffee()}>
+        {/* step 10 ux: opens Fuel like the other tiles; "+1 coffee" is in the buttons row */}
+        <Tile icon="coffee" color={C.yellow} label="Coffee" onPress={() => router.navigate('/fuel')}>
           <Text style={styles.tileVal}>
             {coffees}
             <Text style={styles.tileUnit}> / {s.coffeeLimit} cups</Text>
           </Text>
           <T dim small>
-            {caffeineMg(today)} mg · {coffeeHint}
+            {caffeineMg(today)} mg{coffeeHint}
           </T>
         </Tile>
         {health.status !== 'unsupported' ? (
@@ -335,14 +348,18 @@ export default function HQ() {
       </View>
     ),
     buttons: () => (
-      <Row>
-        <Btn label={`+${s.glassMl} ml`} icon="water_drop" kind="blue" onPress={() => actions.addWater(s.glassMl)} style={{ flex: 1 }} />
+      <View style={{ gap: 10 }}>
+        <Row>
+          <Btn label={`+${s.glassMl} ml`} icon="water_drop" kind="blue" onPress={() => actions.addWater(s.glassMl)} style={{ flex: 1 }} />
+          {/* addCoffee takes an optional day: never hand it straight to onPress */}
+          <Btn label="+1 coffee" icon="coffee" kind="ghost" onPress={() => actions.addCoffee()} style={{ flex: 1 }} />
+        </Row>
         {state.activeGame ? (
-          <Btn label="Stop gaming" icon="stop" onPress={() => actions.stopGame()} style={{ flex: 1 }} />
+          <Btn label="Stop gaming" icon="stop" small onPress={() => actions.stopGame()} />
         ) : (
-          <Btn label="Start gaming" icon="play_arrow" kind="ghost" onPress={() => actions.startGame()} style={{ flex: 1 }} />
+          <Btn label="Start gaming" icon="play_arrow" kind="ghost" small onPress={() => actions.startGame()} />
         )}
-      </Row>
+      </View>
     ),
     upnext: () => (
       <Card>
@@ -372,34 +389,6 @@ export default function HQ() {
         ) : null}
       </Card>
     ),
-    achievements: () => (
-      <Card>
-        <H
-          right={
-            <Text style={styles.link} onPress={() => router.push('/records')}>
-              🔓 {Object.keys(state.secrets).length}/{SECRET_ACHIEVEMENTS.length} secrets →
-            </Text>
-          }>
-          Achievements
-        </H>
-        <View style={styles.achGrid}>
-          {ACHIEVEMENTS.map((a) => {
-            const got = !!state.achievements[a.id];
-            return (
-              <View key={a.id} style={[styles.ach, !got && { opacity: 0.35 }]}>
-                <Icon name={a.icon} size={22} color={got ? C.yellow : C.dim} />
-                <Text style={styles.achTitle} numberOfLines={2}>
-                  {a.title}
-                </Text>
-                <Text style={styles.achDesc} numberOfLines={2}>
-                  {a.desc}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      </Card>
-    ),
     swedishDays: () => <SwedishDaysRow />,
     sweden: () => <SwedenCard />,
     progress: () => <ProgressChips />,
@@ -420,6 +409,7 @@ export default function HQ() {
     <Screen
       title={candles ? `S.P.I.D.E.R. ${'🕯️'.repeat(candles)}` : 'S.P.I.D.E.R.'} // Advent: a candle more each Sunday
       subtitle={ACRONYM}
+      onRefresh={refresh}
       right={
         <Pressable onPress={() => router.push('/settings')} hitSlop={10} style={styles.gear} accessibilityRole="button" accessibilityLabel="Settings">
           <Icon name="settings" color={C.dim} />
@@ -503,7 +493,7 @@ export default function HQ() {
         <Fragment key={id}>{SECTIONS[id]()}</Fragment>
       ))}
 
-      <Pressable onPress={() => router.push('/settings')} hitSlop={8}>
+      <Pressable onPress={() => router.push(settingsLink('hq'))} hitSlop={8}>
         <T dim small style={{ textAlign: 'center' }}>
           Arrange or hide HQ cards in Settings →
         </T>
@@ -626,8 +616,5 @@ const styles = StyleSheet.create({
   tileUnit: { color: C.dim, fontSize: 12, fontWeight: '600' },
   link: { color: C.red, fontWeight: '700', fontSize: 13 },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  achGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  ach: { width: '31%', flexGrow: 1, backgroundColor: C.card2, borderRadius: 12, padding: 10, gap: 4 },
-  achTitle: { color: C.text, fontSize: 12, fontWeight: '800' },
-  achDesc: { color: C.dim, fontSize: 10.5 },
+  nextAch: { color: C.dim, fontSize: 13, lineHeight: 18 },
 });

@@ -4,21 +4,25 @@ import { View } from 'react-native';
 import { ParkIt } from '@/components/care-offers';
 import { Btn, Card, H, Row, T, useNow } from '@/components/ui';
 import { C } from '@/constants/theme';
+import { hqVisible } from '@/lib/hq-layout';
 import { useStore } from '@/lib/store';
 import { shutdownOpen, shutdownQuiet, slotText, worriesDue, worriesOf } from '@/lib/worry';
 
 /**
  * step 9 care, HQ card `worry`: park a worry until the worry slot; at the slot each one becomes a task, is let
  * go, or waits for tomorrow; then "Shutdown complete" quiets task and calendar talk until morning (worry.ts).
- * Never a count of worries anywhere.
+ * Never a count of worries anywhere. step 10 ux: the shutdown and its quiet line live in the Evening card
+ * (evening-card.tsx); this card keeps them only while worries are back for review, or when Evening is hidden.
  */
 export function WorryCard() {
   const { state, actions, quip } = useStore();
   const now = useNow(60_000);
   const quiet = shutdownQuiet(state, now);
-  const quietLine = useMemo(() => (quiet ? quip('shutdownQuiet') : ''), [quip, quiet]);
+  const evening = hqVisible(state.settings.hq).includes('evening');
+  const quietLine = useMemo(() => (quiet && !evening ? quip('shutdownQuiet') : ''), [quip, quiet, evening]);
   const due = worriesDue(state, now);
   const slot = slotText(state);
+  if (quiet && evening) return null;
   if (quiet) {
     return (
       <Card>
@@ -58,7 +62,7 @@ export function WorryCard() {
     <Card>
       <H>🅿️ Worry parking</H>
       <ParkIt hint={shutdownOpen(state, now) ? 'Something still on your mind? Park it for tomorrow.' : waiting ? `Parked worries wait for ${slot}. Add one more?` : `Something on your mind? Park it until ${slot}.`} />
-      {shutdownOpen(state, now) ? (
+      {shutdownOpen(state, now) && !evening ? (
         <>
           <Btn label="Shutdown complete" icon="bedtime" kind="ghost" small onPress={actions.shutDown} />
           <T dim small>

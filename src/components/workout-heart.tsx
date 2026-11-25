@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card, H, Row, T } from '@/components/ui';
+import { useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
-import { dayKey, fmtTime } from '@/lib/dates';
+import { fmtTime } from '@/lib/dates';
 import { readHeartDay } from '@/lib/health';
 import { dayOf } from '@/lib/selectors';
 import { useStore } from '@/lib/store';
@@ -72,7 +73,7 @@ export function WorkoutHeart({ samples, windows }: { samples: Sample[]; windows:
 /** Today's training heart rate on the Gym tab, once there's a logged workout and watch data for it. */
 export function WorkoutHeartCard() {
   const { state, health } = useStore();
-  const key = dayKey();
+  const key = useToday(); // the tab stays mounted past midnight: a bare dayKey() would stay yesterday's
   const windows = workoutWindows(dayOf(state, key));
   const [samples, setSamples] = useState<Sample[]>([]);
   const connected = health.status === 'connected';

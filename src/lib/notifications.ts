@@ -59,6 +59,7 @@ import { marathonGap, movePingOf } from './marathon';
 import { shutdownQuiet, worryPings } from './worry';
 import { shelfPings } from './shelf'; // step 9 admin
 import { bigDayBrief } from './big-days'; // step 9 story
+import { settingsLink } from './settings-sections'; // step 10 ux
 
 const CH = { remind: 'spider-reminders', gym: 'spider-gym', game: 'spider-gaming', status: 'spider-status', warn: 'spider-warnings', private: 'spider-private' } as const;
 
@@ -98,7 +99,7 @@ const LINKS: [prefix: string, href: Href][] = [
   ['alert-', '/outside'],
   ['game-', '/game'],
   [FOCUS_ID, '/focus'],
-  ['backup-', '/settings'],
+  ['backup-', settingsLink('data')], // step 10 ux: straight to Backup & restore
   ['evening-', '/debrief'],
   ['move-', '/movement'],
   ['siren-', '/outside'], // step 8 sweden: people days and the tax return open HQ

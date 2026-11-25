@@ -8,6 +8,7 @@ import { dayKey, fmtDuration, fmtTime, MIN } from '@/lib/dates';
 import { aqiBand, LEVEL_LABEL, pollenInfo, pollenLevel } from '@/lib/outside';
 import { nearStockholm, triviaLine } from '@/lib/sthlm-climate';
 import { useStore } from '@/lib/store';
+import { settingsLink } from '@/lib/settings-sections'; // step 10 ux: lands on its own card
 import { daylightGain, describe, forecastText, rainNote, staleNote, weatherKey } from '@/lib/weather';
 
 export function WeatherRow() {
@@ -32,7 +33,7 @@ export function WeatherRow() {
 
   if (!state.settings.weather) {
     return (
-      <Pressable onPress={() => router.push('/settings')}>
+      <Pressable onPress={() => router.push(settingsLink('places'))}>
         <T dim small>
           🌤️ Set your city in Settings to get weather in your briefing.
         </T>

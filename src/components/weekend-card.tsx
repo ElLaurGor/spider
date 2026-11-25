@@ -21,6 +21,7 @@ import {
   type WeekendPick,
 } from '@/lib/sthlm-events';
 import { useStore } from '@/lib/store';
+import { settingsLink } from '@/lib/settings-sections'; // step 10 ux: lands on its own card
 import { stormOn } from '@/lib/storm';
 
 /** The last weekend fetched: kept outside the component (tabs) and on disk (app restarts), keyed by categories and weekend. */
@@ -160,7 +161,7 @@ export function WeekendCard() {
           )}
         </>
       )}
-      <Pressable onPress={() => router.push('/settings')} accessibilityRole="button" accessibilityLabel="Change the event categories in Settings">
+      <Pressable onPress={() => router.push(settingsLink('places'))} accessibilityRole="button" accessibilityLabel="Change the event categories in Settings">
         <T dim small>
           Events: {VISIT_CREDIT} (CC BY 4.0) · categories in Settings
         </T>
