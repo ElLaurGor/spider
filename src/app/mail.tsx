@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { LingMap } from '@/components/ling-map';
 import { Btn, Card, Row, SpiderSays, T } from '@/components/ui';
 import { useToday } from '@/components/use-today';
 import { C, MONO } from '@/constants/theme';
@@ -39,6 +40,7 @@ export default function MailScreen() {
           {unread > 1 ? <Btn small kind="ghost" label="Mark all read" onPress={() => actions.readLetter()} /> : null}
         </Row>
       )}
+      <LingMap lings={state.spiderlings ?? []} />
       {letters.map((l) => {
         const age = letterAge(l, new Date(`${today}T12:00`));
         const gift = l.gift ? cosmeticOf(l.gift) : null;

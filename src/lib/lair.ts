@@ -24,6 +24,11 @@ export const LAIR: LairPiece[] = [
   { id: 'radio', name: 'Water dish', emoji: '💧', price: 3200, visit: { x: 30, y: 70, act: '💧' } },
   { id: 'fireplace', name: 'Glow mushrooms', emoji: '🍄', price: 4000, visit: { x: 84, y: 72, act: '✨' } },
   { id: 'arcade', name: 'Crystal', emoji: '💎', price: 5000, visit: { x: 56, y: 64, act: '🔮' } },
+  // the terrarium round: after the crystal
+  { id: 'thermo', name: 'Thermometer', emoji: '🌡️', price: 5800, visit: { x: 92, y: 60, act: '🌡️' } },
+  { id: 'cork', name: 'Cork tube', emoji: '🟤', price: 6600, visit: { x: 14, y: 82, act: '👀' } },
+  { id: 'hammock', name: 'Silk hammock', emoji: '🪢', price: 7500, visit: { x: 68, y: 30, act: '😌', hang: true } },
+  { id: 'redlamp', name: 'Red night lamp', emoji: '🔴', price: 8500, visit: { x: 24, y: 66, act: '🌙' } },
 ];
 
 const has = (s: State) => s.lair ?? [];
@@ -38,7 +43,7 @@ export const nextPiece = (s: State) => LAIR.find((p) => !has(s).includes(p.id)) 
 export const withPiece = (s: State, id: string, now = Date.now()): State => ({ ...s, lair: [...new Set([...has(s), id])], lairAt: { ...s.lairAt, [id]: s.lairAt?.[id] ?? now } });
 
 /** Pieces that can be moved by hand in the 3D tank (the corner web stays in its corner). */
-export const MOVABLE = ['lamp', 'rug', 'plant', 'couch', 'books', 'rack', 'radio', 'fireplace', 'arcade'];
+export const MOVABLE = ['lamp', 'rug', 'plant', 'couch', 'books', 'rack', 'radio', 'fireplace', 'arcade', 'thermo', 'cork', 'hammock', 'redlamp'];
 /** Where moved pieces stand: id -> (dx, dz) from their usual place, in the tank's units (terrarium-3d.ts clamps them to the floor). */
 export const placesOf = (s: State): Record<string, [number, number]> => s.lairPlace ?? {};
 /** `s` with piece `id` moved to (dx, dz) from its usual place (rounded; (0, 0) puts it back). */

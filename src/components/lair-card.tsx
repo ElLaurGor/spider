@@ -112,6 +112,21 @@ function PieceArt({ id, layer }: { id: string; layer: Layer }) {
         </>
       );
   }
+  // the terrarium round's pieces
+  if (id === 'thermo' && layer === 'back')
+    return (
+      <>
+        <View style={[styles.abs, { left: '93%', top: '30%', width: 7, height: 54, marginLeft: -3.5, borderRadius: 3, backgroundColor: '#F4F1EA' }]} />
+        <View style={[styles.abs, { left: '93%', top: '47%', width: 3, height: 25, marginLeft: -1.5, borderRadius: 2, backgroundColor: '#D42A2A' }]} />
+      </>
+    );
+  if (id === 'cork' && layer === 'front') return <View style={[styles.abs, { left: '5%', top: '75%', width: 56, height: 24, borderRadius: 12, backgroundColor: '#6E4A2E', borderRightWidth: 7, borderRightColor: '#24170D' }]} />;
+  if (id === 'hammock' && layer === 'back')
+    return <View style={[styles.abs, { left: '61%', top: '17%', width: 60, height: 18, borderBottomWidth: 3, borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#EDE6D6', borderBottomLeftRadius: 30, borderBottomRightRadius: 30, opacity: 0.8 }]} />;
+  if (id === 'redlamp') {
+    if (layer === 'top') return <View style={[styles.abs, { left: '24%', marginLeft: -5, top: LID - 2, width: 10, height: 7, borderRadius: 4, backgroundColor: '#FF4A3A' }]} />;
+    if (layer === 'back') return blobs([[24, 48, 90, 90, '#FF3A2A']], 0.06);
+  }
   if (id === 'arcade' && layer === 'back')
     return (
       <>

@@ -10,12 +10,13 @@ import { C } from '@/constants/theme';
 import { cosmeticOf } from '@/lib/cosmetics';
 import { dayKey } from '@/lib/dates';
 import { backThisMorning, SOUVENIR_BY_ID, tripsDue } from '@/lib/expeditions';
-import { GUESTS, guestAwake, guestOn, guestsDue, narrating } from '@/lib/guests';
+import { GUESTS, guestAwake, guestOn, guestsDue, lingVisitor, narrating } from '@/lib/guests';
+import { LING_PLACES } from '@/lib/mail';
 import { firstsOf, partyKey, partyOn } from '@/lib/hatch-day';
 import { coinsLeftToday, outcomeOf, ROUNDS, rpsFinding, rpsOf, RPS_DAILY_COINS, scoreOf, THROW_EMOJI, THROW_NAME, weekTally } from '@/lib/rps';
 import { useStore } from '@/lib/store';
 import { tankLifeOf, wakeAtOf } from '@/lib/tank-life';
-import type { GuestVisit, RpsThrow } from '@/lib/types';
+import type { GuestVisit, RpsThrow, State } from '@/lib/types';
 
 const shortDate = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 const longDate = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -105,7 +106,11 @@ export function TankNews() {
   const lines: string[] = [];
   if (life.mode === 'out') lines.push("📝 The tank's empty. A note on the moss: \"Out. Don't wait up.\"");
   if (back) lines.push(`🧳 Back from a night out with ${back.souvenir.emoji} ${back.souvenir.name}. ${back.story[0]} ${back.story[1]}`);
-  if (guest) {
+  if (guest === 'ling') {
+    const x = lingVisitor(state, today);
+    const where = x?.place ? LING_PLACES.find((p) => p.id === x.place)?.where : null;
+    lines.push(guestAwake(state, today) ? `🕷️ ${x?.name ?? 'A spiderling'} is home${where ? ` from ${where}` : ''}. Tap it for a word.` : `🕷️ ${x?.name ?? 'A grown spiderling'} came home for the day${where ? ` from ${where}` : ''} and fell asleep in the corner. Tap it to wake it.`);
+  } else if (guest) {
     const g = GUESTS[guest];
     lines.push(narrating(state, now) ? `${g.emoji} ${g.short} is narrating the spider's every move.` : guestAwake(state, today) ? `${g.emoji} ${g.short} is up. Tap it for a word.` : `${g.emoji} A guest: ${g.name}, asleep in the corner. Tap it to wake it.`);
   }
@@ -206,8 +211,11 @@ export function RpsPanel({ onClose }: { onClose: () => void }) {
 
 const giftText = (v: GuestVisit) => {
   const c = v.gift?.cosmetic ? cosmeticOf(v.gift.cosmetic) : undefined;
-  return c ? `${c.emoji} ${c.name}` : v.gift?.coins ? `${v.gift.coins} 🪙` : '';
+  const sou = v.gift?.souvenir ? SOUVENIR_BY_ID[v.gift.souvenir] : undefined;
+  return c ? `${c.emoji} ${c.name}` : sou ? `${sou.emoji} ${sou.name} on the shelf` : v.gift?.coins ? `${v.gift.coins} 🪙` : '';
 };
+/** A guestbook name: a visiting spiderling by its own name. */
+const guestName = (state: State, v: GuestVisit) => (v.guest === 'ling' ? ((state.spiderlings ?? []).find((x) => x.id === v.ling)?.name ?? GUESTS.ling.short) : (GUESTS[v.guest]?.short ?? 'A guest'));
 
 /** The shop's terrarium card: souvenirs from nights out, the guestbook, the week's matches. */
 export function TankShopFolk() {
@@ -251,7 +259,7 @@ export function TankShopFolk() {
           <Row key={v.day}>
             <Text style={{ fontSize: 18 }}>{GUESTS[v.guest]?.emoji ?? '🕷️'}</Text>
             <T small style={{ flex: 1 }}>
-              {GUESTS[v.guest]?.short ?? 'A guest'}
+              {guestName(state, v)}
               {v.woke ? '' : ' (slept through it)'}
               {v.gift ? ` · left ${giftText(v)}` : ''}
             </T>

@@ -659,12 +659,12 @@ export type ShelfItem = {
 
 // step 9 tank
 /** A souvenir from a night out (expeditions.ts): the morning it came back, which one, and the night's low and weather code for its story. */
-export type Souvenir = { night: string; id: string; at: number; t?: number | null; code?: number | null };
+export type Souvenir = { night: string; id: string; at: number; t?: number | null; code?: number | null; visit?: string }; // visit: left by a grown spiderling home for the day (its id), not from a night out
 /** Nights out: `since` the first morning looked at (none before it), `checked` the last one collected, the newest souvenirs on the shelf, and the total. */
 export type TripLog = { since: string; checked?: string; shelf: Souvenir[]; total: number };
-export type GuestId = 'jumper' | 'reginald' | 'orb' | 'house' | 'spy';
+export type GuestId = 'jumper' | 'reginald' | 'orb' | 'house' | 'spy' | 'ling';
 /** A guest's day in the tank (guests.ts): woken at `woke` if she tapped it, and the gift it left once it had gone. */
-export type GuestVisit = { day: string; guest: GuestId; woke?: number; gift?: { coins?: number; cosmetic?: string } };
+export type GuestVisit = { day: string; guest: GuestId; woke?: number; gift?: { coins?: number; cosmetic?: string; souvenir?: string }; ling?: string }; // ling: which grown spiderling came home
 /** The guestbook: `since` the first day looked at, `checked` the last guest day settled, the visits oldest first. */
 export type GuestBook = { since: string; checked?: string; visits: GuestVisit[] };
 /** Sten (r), påse (p), sax (s). */

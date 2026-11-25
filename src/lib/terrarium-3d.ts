@@ -51,6 +51,11 @@ export type Spot3D = { id: string; pos: THREE.Vector3; mode: Mode; entry?: THREE
 
 const FERN = v(3.9, 0, -2.0);
 const MUSHROOMS = v(4.1, 0, 2.0);
+/** The terrarium round's pieces: the cork tube lying at the front left, the silk hammock's low point, the thermometer's stake, the red night lamp on the lid. */
+const CORK = { x: -3.45, z: 2.3, r: 0.58, len: 1.6 };
+const HAMMOCK = { x: 1.8, y: 2.62, z: -2.35 };
+const THERMO = v(4.45, 0, -0.6);
+const RED_LAMP = v(-2.2, TANK.h - 0.12, -0.3);
 const SPOTS: Record<string, Omit<Spot3D, 'id' | 'act'>> = {
   home: { pos: v(-0.2, 0, 0.6), mode: 'floor' },
   left: { pos: v(-1.6, 0, 1.0), mode: 'floor' },
@@ -65,6 +70,11 @@ const SPOTS: Record<string, Omit<Spot3D, 'id' | 'act'>> = {
   radio: { pos: v(-1.9, 0, 0.85), mode: 'floor', face: 0 },
   fireplace: { pos: v(3.5, 0, 1.3), mode: 'floor', face: faceTo(v(3.5, 0, 1.3), MUSHROOMS) },
   arcade: { pos: v(0.9, 0, -1.15), mode: 'floor', face: Math.PI },
+  // the terrarium round's pieces
+  thermo: { pos: v(3.55, 0, -0.6), mode: 'floor', face: Math.PI / 2 },
+  cork: { pos: v(-3.05, 0, CORK.z), mode: 'floor', face: Math.PI / 2 },
+  hammock: { pos: v(HAMMOCK.x, HAMMOCK.y + 0.05, HAMMOCK.z), mode: 'hang', entry: v(HAMMOCK.x, 0, HAMMOCK.z + 0.1), face: 0.3 },
+  redlamp: { pos: v(-2.2, 0, -0.3), mode: 'floor', face: 0.4 },
 };
 /** Spots of its own: cosy by the moss at the front glass, asleep on a thread from the lid (no web yet), basking in a sunbeam. */
 const COSY: Spot3D = { id: 'cosy', pos: v(-0.5, 0, 2.05), mode: 'floor', face: 0 };
@@ -99,6 +109,10 @@ const PIECE_BOX: Record<string, [number, number, number, number]> = {
   radio: [-2.65, -1.15, 1.0, 2.5],
   fireplace: [3.35, 4.85, 1.3, 2.6],
   arcade: [0.55, 1.25, -2.3, -1.6],
+  thermo: [4.25, 4.65, -0.8, -0.4],
+  cork: [-4.3, -2.6, 1.7, 2.9],
+  hammock: [0.95, 2.65, -2.9, -1.8],
+  redlamp: [-2.5, -1.9, -0.6, 0.0],
 };
 const INNER = { x: TANK.w / 2 - 0.12, z: TANK.d / 2 - 0.12 };
 /** (dx, dz) kept so the piece's footprint stays inside the glass; the corner web and unknown pieces don't move. */
@@ -508,6 +522,11 @@ export function buildWeb(spec: WebSpec): THREE.Group {
   return g;
 }
 
+/** The thermometer's scale: −20° at the foot of the column, +30° at the top. */
+const THERMO_BASE = 0.55;
+const THERMO_SPAN = 2.5;
+const thermoAt = (t: number) => clamp((t + 20) / 50, 0, 1);
+
 /** How a piece looks beyond its kind: today's web, a plant's growth (0–1) and its bloom once fully grown. */
 export type PieceLook = { web?: WebSpec; growth?: number; bloom?: boolean };
 
@@ -519,6 +538,8 @@ const CONTACT: Record<string, [number, number, number, number]> = {
   fireplace: [4.1, 2.0, 0.75, 0.6],
   arcade: [0.9, -1.95, 0.4, 0.35],
   plant: [3.9, -2.0, 0.6, 0.55],
+  cork: [CORK.x, CORK.z, 1.0, 0.65],
+  thermo: [THERMO.x, THERMO.z, 0.3, 0.3],
 };
 const contactMat = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.16, depthWrite: false });
 function contactShadow([x, z, rx, rz]: [number, number, number, number]) {
@@ -698,6 +719,75 @@ export function buildPiece(id: string, look: PieceLook = {}): THREE.Group {
     glow.position.set(0.9, 1.0, -1.5);
     glow.name = 'crystal-light';
     g.add(glow);
+    return g;
+  }
+  if (id === 'thermo') {
+    // a garden thermometer on a stake: its column shows the real outdoor temperature (applyLight, life.temp)
+    const wood = std('#8a6a48', 0.9);
+    g.add(strand(THERMO.clone().add(v(0, -0.3, 0)), THERMO.clone().add(v(0, 3.3, 0)), 0.06, wood));
+    const board = new THREE.Mesh(new THREE.BoxGeometry(0.42, 3.0, 0.05), std('#f4f1ea', 0.7));
+    board.position.copy(THERMO).add(v(0, 1.75, 0.07));
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, THERMO_SPAN + 0.2, 10), std('#e8f4ff', 0.05, { transparent: true, opacity: 0.45 }));
+    tube.position.copy(THERMO).add(v(0, THERMO_BASE + THERMO_SPAN / 2, 0.13));
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), std('#d42a2a', 0.4));
+    bulb.position.copy(THERMO).add(v(0, THERMO_BASE - 0.05, 0.13));
+    bulb.name = 'thermo-bulb';
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 8), std('#d42a2a', 0.4));
+    column.geometry.translate(0, 0.5, 0); // grows upwards from its foot
+    column.position.copy(THERMO).add(v(0, THERMO_BASE, 0.13));
+    column.scale.y = THERMO_SPAN * 0.4;
+    column.name = 'thermo-column';
+    // a tick every ten degrees from −20 to +30, the zero longer
+    const ticks: THREE.BufferGeometry[] = [];
+    for (let t = -20; t <= 30; t += 10) ticks.push(placed(new THREE.BoxGeometry(t === 0 ? 0.26 : 0.14, 0.02, 0.01), THERMO.clone().add(v(t === 0 ? 0 : 0.09, THERMO_BASE + thermoAt(t) * THERMO_SPAN, 0.1))));
+    g.add(board, tube, bulb, column, new THREE.Mesh(merged(ticks), std('#3a3f46', 0.6)));
+    return g;
+  }
+  if (id === 'cork') {
+    // a hollow cork tube on its side, half sunk in the soil: the spider peeks out of the end
+    const bark = std('#6e4a2e', 1, { side: THREE.DoubleSide });
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(CORK.r, CORK.r * 0.92, CORK.len, 22, 1, true), bark);
+    tube.rotation.z = Math.PI / 2;
+    tube.position.set(CORK.x, CORK.r * 0.72, CORK.z);
+    const ridges: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      ridges.push(placed(new THREE.BoxGeometry(CORK.len * 0.96, 0.05, 0.07), v(CORK.x, CORK.r * 0.72 + Math.cos(a) * (CORK.r + 0.01), CORK.z + Math.sin(a) * (CORK.r + 0.01)), v(1, 1, 1), new THREE.Euler(-a, 0, 0)));
+    }
+    const rims: THREE.BufferGeometry[] = [-1, 1].map((e) => placed(new THREE.TorusGeometry(CORK.r * (e < 0 ? 1 : 0.92), 0.05, 6, 22), v(CORK.x + (e * CORK.len) / 2, CORK.r * 0.72, CORK.z), v(1, 1, 1), new THREE.Euler(0, Math.PI / 2, 0)));
+    g.add(tube, new THREE.Mesh(merged(ridges), std('#4f3420', 1)), new THREE.Mesh(merged(rims), std('#a07a52', 0.95)));
+    return g;
+  }
+  if (id === 'hammock') {
+    // a sheet of silk slung between two threads from the lid, sagging in the middle
+    const sheet = new THREE.PlaneGeometry(1.7, 0.75, 14, 4);
+    const p = sheet.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i);
+      const w = p.getY(i);
+      const sag = 0.5 * (1 - (x / 0.85) ** 2);
+      p.setXYZ(i, HAMMOCK.x + x, HAMMOCK.y + 0.5 - sag - 0.12 * (w / 0.375) ** 2 * (1 - (x / 0.85) ** 2), HAMMOCK.z + w);
+    }
+    sheet.computeVertexNormals();
+    g.add(new THREE.Mesh(sheet, std('#f1ece2', 0.9, { side: THREE.DoubleSide, transparent: true, opacity: 0.85 })));
+    const silk = std('#e8eef6', 0.6, { transparent: true, opacity: 0.7 });
+    for (const e of [-1, 1]) {
+      const end = v(HAMMOCK.x + e * 0.85, HAMMOCK.y + 0.5, HAMMOCK.z);
+      g.add(strand(end.clone().add(v(0, 0, -0.37)), v(end.x, TANK.h, end.z - 0.25), 0.012, silk), strand(end.clone().add(v(0, 0, 0.37)), v(end.x, TANK.h, end.z + 0.25), 0.012, silk));
+    }
+    return g;
+  }
+  if (id === 'redlamp') {
+    // a small clip-on lamp on the lid: red at night, so the spider can be watched without waking it
+    const clip = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.2, 14), std('#2b2f36', 0.5, { metalness: 0.4 }));
+    clip.position.copy(RED_LAMP).add(v(0, 0.22, 0));
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), new THREE.MeshBasicMaterial({ color: '#6a2a2a' }));
+    bulb.position.copy(RED_LAMP);
+    bulb.name = 'red-bulb';
+    const light = new THREE.PointLight('#ff3a2a', 0, 8, 1.4);
+    light.position.copy(RED_LAMP).add(v(0, -0.3, 0));
+    light.name = 'red-light';
+    g.add(clip, bulb, light);
     return g;
   }
   return g;
@@ -1244,7 +1334,7 @@ const angleDelta = (a: number, b: number) => ((((b - a) % (Math.PI * 2)) + Math.
 // ---- the world ----
 
 export type World = ReturnType<typeof createWorld>;
-export type Hit = 'spider' | 'fly' | 'guest' | null;
+export type Hit = 'spider' | 'fly' | 'guest' | 'thermo' | null;
 
 /**
  * The scene, its camera and the spider's life in it. `step(dt)` moves time on; `setYaw` turns the camera round the
@@ -1584,7 +1674,16 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     for (const o of named['crystal-light'] ?? []) (o as THREE.PointLight).intensity = 0.8 + 4.5 * L.glow;
     for (const o of named.crystal ?? []) ((o as THREE.Mesh).material as THREE.MeshStandardMaterial).emissiveIntensity = 0.3 + 1.0 * L.glow;
     for (const o of named['web-lines'] ?? []) ((o as THREE.LineSegments).material as THREE.LineBasicMaterial).color.setScalar(0.55 + 0.4 * (1 - L.dusk)).lerp(new THREE.Color('#e8eef6'), 0.3);
-    (sunbeam.material as THREE.MeshBasicMaterial).opacity = life.weather.sun ? 0.24 * Math.max(0, life.daylight - 0.3) : 0;
+    // the red night lamp comes on as it gets dark; the thermometer reads the real outdoor temperature
+    for (const o of named['red-light'] ?? []) (o as THREE.PointLight).intensity = 9 * Math.pow(L.dusk, 1.5);
+    for (const o of named['red-bulb'] ?? []) ((o as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(L.dusk > 0.35 ? '#ff4a3a' : '#6a2a2a');
+    const temp = life.temp;
+    for (const o of named['thermo-column'] ?? []) {
+      o.visible = temp != null;
+      o.scale.y = Math.max(0.02, thermoAt(temp ?? 0) * THERMO_SPAN);
+      ((o as THREE.Mesh).material as THREE.MeshStandardMaterial).color.set(temp != null && temp < 0 ? '#3a7bd5' : '#d42a2a');
+    }
+    for (const o of named['thermo-bulb'] ?? []) ((o as THREE.Mesh).material as THREE.MeshStandardMaterial).color.set(temp != null && temp < 0 ? '#3a7bd5' : '#d42a2a');
     const pumpkin = extras.dressing.getObjectByName('pumpkin') as THREE.Mesh | undefined;
     if (pumpkin) (pumpkin.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.1 + 0.6 * L.dusk;
     paintSky();
@@ -1651,6 +1750,23 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     for (const o of glints) (o.material as THREE.MeshBasicMaterial).opacity = 0.008 + 0.022 * tone.day * (1 - 0.5 * s.clouds);
     rainOut.visible = s.falling === 'rain';
     snowOut.visible = s.falling === 'snow';
+    setFog(s.mist);
+    placeSunbeam();
+  }
+
+  /** The sunbeam on the floor: in through the back glass from where the sun really is, further forward and longer the lower it stands, moving across the floor through the day. */
+  let sunbeamOn = false;
+  function placeSunbeam() {
+    const s = life.sky.sun;
+    sunbeamOn = life.weather.sun && life.sky.clouds < 0.5 && !life.sky.fog && s.alt > 0.05 && life.daylight > 0.3;
+    const low = clamp(1 - s.alt / 0.9, 0, 1);
+    const x = clamp(-Math.sin(s.az) * 3.4, -3.6, 3.6);
+    const z = clamp(0.4 + 1.7 * low, 0.3, 2.2);
+    sunbeam.position.set(x, 0.015, z);
+    sunbeam.scale.set(1.0 + 0.7 * low, 0.7, 1);
+    sunbeam.rotation.z = Math.atan2(-Math.cos(s.az), -Math.sin(s.az));
+    SUN_SPOT.pos.set(x, 0, z);
+    (sunbeam.material as THREE.MeshBasicMaterial).opacity = sunbeamOn ? 0.24 * Math.max(0, life.daylight - 0.3) * (1 - life.sky.clouds) : 0;
   }
 
   // ---- the extras: skins, spiderlings, egg sacs, the season, the weather, the pet and hat ----
@@ -1756,6 +1872,71 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     }
   }
   let frostShown = 0; // creeps in from the corners
+  // mist on the front glass (life.sky.mist): a texture a finger wipes clear (wipeAt) and that creeps back
+  const FW = 64;
+  const FH = 40;
+  const fogData = new Uint8Array(FW * FH * 4);
+  const fogLevel = new Float32Array(FW * FH); // 0 clear … 1 misted, per texel
+  const fogGrain = new Float32Array(FW * FH); // mist is never even
+  {
+    const r = seeded(83);
+    for (let i = 0; i < FW * FH; i++) {
+      fogData.set([228, 236, 242, 0], i * 4);
+      fogGrain[i] = 0.8 + 0.2 * r();
+    }
+  }
+  const fogTex = new THREE.DataTexture(fogData, FW, FH, THREE.RGBAFormat);
+  fogTex.magFilter = THREE.LinearFilter;
+  fogTex.minFilter = THREE.LinearFilter;
+  fogTex.needsUpdate = true;
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(TANK.w, TANK.h + 1.2), new THREE.MeshBasicMaterial({ map: fogTex, transparent: true, depthWrite: false }));
+  pane.position.set(0, (TANK.h - 1.2) / 2, FRONT + 0.03);
+  pane.renderOrder = 4;
+  pane.name = 'glass-mist';
+  pane.visible = false;
+  extras.weather.add(pane);
+  let fogTarget = 0;
+  let fogMean = 0;
+  let fogUpload = 0; // seconds until the texture may go to the GPU again
+  let fogChanged = false;
+  const writeFog = (i: number) => {
+    fogData[i * 4 + 3] = Math.round(205 * fogLevel[i] * fogGrain[i]);
+    fogChanged = true;
+  };
+  const flushFog = () => {
+    if (!fogChanged) return;
+    fogChanged = false;
+    fogTex.needsUpdate = true;
+    let sum = 0;
+    for (let i = 0; i < FW * FH; i++) sum += fogLevel[i];
+    fogMean = sum / (FW * FH);
+    pane.visible = fogMean > 0.005;
+  };
+  /** The mist follows the weather: a new misty spell mists the whole pane at once, then it creeps back where it was wiped (about two minutes), or dries off. */
+  const setFog = (target: number) => {
+    if (target > 0 && fogTarget === 0) {
+      fogLevel.fill(target);
+      for (let i = 0; i < FW * FH; i++) writeFog(i);
+      flushFog();
+    }
+    fogTarget = target;
+  };
+  const creepFog = (dt: number) => {
+    if (!fogTarget && !pane.visible) return;
+    for (let i = 0; i < FW * FH; i++) {
+      const l = fogLevel[i];
+      const to = l < fogTarget ? Math.min(fogTarget, l + dt * 0.008) : Math.max(fogTarget, l - dt * 0.004);
+      if (to !== l) {
+        fogLevel[i] = to;
+        writeFog(i);
+      }
+    }
+    fogUpload -= dt;
+    if (fogUpload <= 0) {
+      fogUpload = 0.25;
+      flushFog();
+    }
+  };
   const snowLid = (() => {
     const r = seeded(17);
     const bumps: THREE.BufferGeometry[] = [placed(new THREE.BoxGeometry(TANK.w - 0.1, 0.06, TANK.d - 0.1), v(0, TANK.h + 0.04, 0))];
@@ -2041,7 +2222,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     if (mode === 'cosy') return [{ kind: 'wait', time: 14 + rnd() * 10, anim: 'bask' }, { kind: 'turn', yaw: (rnd() - 0.5) * 0.9, pitch: 0 }];
     return [{ kind: 'wait', time: 30, anim: 'still' }];
   };
-  const wanderSpots = () => (life.weather.sun && life.daylight > 0.5 ? [...spots, SUN_SPOT] : spots);
+  const wanderSpots = () => (sunbeamOn && life.daylight > 0.5 ? [...spots, SUN_SPOT] : spots);
   const pickNext = () => {
     // a party: half the time back at the cake, reading its scroll of firsts
     if (life.party && at.id !== 'party' && rnd() < 0.5) return PARTY_SPOT;
@@ -2521,7 +2702,11 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
       }
     }
     // the sky: drifting clouds, lightning in a thunderstorm, rain or snow falling outside the glass
-    clouds.rotation.y += dt * 0.004;
+    const wind = life.sky.wind;
+    const to = ((wind.dir + 180) * Math.PI) / 180;
+    const wv = v(-Math.sin(to) * wind.speed, 0, Math.cos(to) * wind.speed); // where the wind blows, m/s, in the tank's directions (north is the camera's side)
+    clouds.rotation.y -= dt * (0.003 + 0.0015 * wind.speed) * (wv.x < 0 ? -1 : 1);
+    creepFog(dt);
     if (life.sky.thunder) {
       flashIn -= dt;
       if (flashIn <= 0) {
@@ -2537,13 +2722,23 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     if (rainOut.visible || snowOut.visible) {
       const pr = rainOut.geometry.attributes.position as THREE.BufferAttribute;
       const ps = snowOut.geometry.attributes.position as THREE.BufferAttribute;
+      const fall = rainOut.visible ? 9 : 0.8;
+      const drift = wv.clone().multiplyScalar(rainOut.visible ? 0.35 : 0.09); // the wind carries it sideways as it falls
       outside.forEach((d, i) => {
-        d.y -= dt * (rainOut.visible ? 9 : 0.8);
+        d.y -= dt * fall;
         if (d.y < -3) d.y += 12;
+        const age = (9 - d.y) / fall;
+        let x = d.x + drift.x * age;
+        let z = d.z + drift.z * age;
+        if (Math.abs(x) < TANK.w / 2 + 0.4 && Math.abs(z) < TANK.d / 2 + 0.4) z += 100; // blown against the tank: out of sight, never inside the glass
+        if (!rainOut.visible) {
+          x += Math.sin(time * 0.8 + d.sway) * 0.3;
+          z += Math.cos(time * 0.6 + d.sway) * 0.2;
+        }
         if (rainOut.visible) {
-          pr.setXYZ(i * 2, d.x, d.y, d.z);
-          pr.setXYZ(i * 2 + 1, d.x - 0.04, d.y + 0.5, d.z);
-        } else ps.setXYZ(i, d.x + Math.sin(time * 0.8 + d.sway) * 0.3, d.y, d.z + Math.cos(time * 0.6 + d.sway) * 0.2);
+          pr.setXYZ(i * 2, x, d.y, z);
+          pr.setXYZ(i * 2 + 1, x - drift.x * 0.06 - 0.03, d.y + 0.5, z - drift.z * 0.06);
+        } else ps.setXYZ(i, x, d.y, z);
       });
       pr.needsUpdate = rainOut.visible;
       ps.needsUpdate = snowOut.visible;
@@ -2608,6 +2803,8 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     const home = life.mode !== 'out';
     if (home && ray.intersectObject(spider.root, true).length) return 'spider';
     if (guest && ray.ray.intersectsSphere(new THREE.Sphere(GUEST_AT.clone().add(v(0, 0.3 * SPIDER_SCALE * guest.look.size, 0)), Math.max(0.55, 0.8 * SPIDER_SCALE * guest.look.size)))) return 'guest';
+    const thermo = pieces.children.find((c) => c.name === 'piece-thermo');
+    if (thermo && ray.intersectObject(thermo, true).length) return 'thermo';
     // a fingertip is bigger than a leg: near the body counts too
     if (home && ray.ray.intersectsSphere(new THREE.Sphere(pose.pos.clone().add(v(0, 0.35 * SPIDER_SCALE * pose.size, 0)), 0.75 * SPIDER_SCALE * pose.size))) return 'spider';
     return null;
@@ -2743,6 +2940,47 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
       view.follow = on;
     },
     following: () => view.follow,
+    /** A finger over the misted front glass at (`x`, `y`) in 0–1 of the view wipes it clear there; false if it missed the glass. */
+    wipeAt: (x: number, y: number): boolean => {
+      if (!pane.visible) return false;
+      placeCamera();
+      scene.updateMatrixWorld();
+      ray.setFromCamera(new THREE.Vector2(x * 2 - 1, -(y * 2 - 1)), camera);
+      const hit = ray.intersectObject(pane)[0];
+      if (!hit?.uv) return false;
+      const cx = hit.uv.x * FW;
+      const cy = hit.uv.y * FH;
+      const R = 3.6;
+      for (let j = Math.max(0, Math.floor(cy - R)); j <= Math.min(FH - 1, Math.ceil(cy + R)); j++) {
+        for (let i = Math.max(0, Math.floor(cx - R)); i <= Math.min(FW - 1, Math.ceil(cx + R)); i++) {
+          const d = Math.hypot(i + 0.5 - cx, (j + 0.5 - cy) * 1.15) / R;
+          if (d >= 1) continue;
+          const k = j * FW + i;
+          fogLevel[k] = Math.min(fogLevel[k], fogLevel[k] * d * d);
+          writeFog(k);
+        }
+      }
+      flushFog();
+      return true;
+    },
+    /** How misted the front glass is right now, 0–1 (the mean over the pane). */
+    misted: () => (pane.visible ? fogMean : 0),
+    /** Nothing much is moving: the view may draw fewer frames (only the breathing and slow drifts go on). */
+    calm: () =>
+      !special &&
+      (!steps.length || steps[0].kind === 'wait') &&
+      !dragging &&
+      !pet &&
+      !lingMesh &&
+      !partyFolk &&
+      !rain.visible &&
+      !rainOut.visible &&
+      !snowOut.visible &&
+      !catchable.group.visible &&
+      !cricket.group.visible &&
+      !mist.visible &&
+      skyFlash === 0 &&
+      Math.abs(view.r - wantView().r) < 0.05,
     /** The day's cricket, dropped in once it's free to hunt it. */
     feed: () => {
       feeds = Math.min(1, feeds + 1);
@@ -2799,6 +3037,10 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
       pits: pits.length,
       cricket: cricket.group.visible,
       camR: view.r,
+      mist: pane.visible ? fogMean : 0,
+      sunbeam: sunbeamOn,
+      sunbeamAt: [sunbeam.position.x, sunbeam.position.z],
+      thermo: (named['thermo-column']?.[0]?.scale.y ?? 0) / THERMO_SPAN,
       lingScale: lingMesh ? (() => {
         const m = new THREE.Matrix4();
         lingMesh.getMatrixAt(0, m);

@@ -23,7 +23,7 @@ export const SHELF_KEEP = 40;
 export const TRIP_BACKFILL = 14;
 
 export type SouvenirShape = 'card' | 'berry' | 'screw' | 'crumb' | 'pebble' | 'needle' | 'leaf' | 'coin' | 'cone' | 'feather';
-export type SouvenirDef = { id: string; name: string; emoji: string; shape: SouvenirShape; color: string; months?: number[] };
+export type SouvenirDef = { id: string; name: string; emoji: string; shape: SouvenirShape; color: string; months?: number[]; visit?: boolean }; // visit: only ever left by a spiderling home for a visit
 
 /** What it can bring back; one with `months` only in those months (of the night out). Saved by id: add, never rename. */
 export const SOUVENIRS: SouvenirDef[] = [
@@ -44,7 +44,35 @@ export const SOUVENIRS: SouvenirDef[] = [
   { id: 'wreath_petal', name: 'a petal off a midsommar wreath', emoji: '🌼', shape: 'leaf', color: '#ffd84a', months: [6] },
   { id: 'gotland_pebble', name: 'a Gotland pebble', emoji: '🪨', shape: 'pebble', color: '#d8d2c4', months: [5, 6, 7, 8, 9] },
   { id: 'crayfish_hat', name: 'a crayfish-party hat', emoji: '🦞', shape: 'cone', color: '#e0402a', months: [8] },
+  // left by grown spiderlings home for a visit, one from each place they move to (mail.ts LING_PLACES, guests.ts)
+  { id: 'banana_leaf', name: 'a scrap of banana leaf from Bergianska', emoji: '🍃', shape: 'leaf', color: '#4f9a3a', visit: true },
+  { id: 'visby_rose', name: 'a rose petal from Visby', emoji: '🌹', shape: 'leaf', color: '#d94a6a', visit: true },
+  { id: 'bookmark', name: 'a bookmark from Uppsala', emoji: '🔖', shape: 'card', color: '#3a5fa8', visit: true },
+  { id: 'net_float', name: 'a fishing-net float from Bohuslän', emoji: '🟠', shape: 'berry', color: '#ff8a2a', visit: true },
+  { id: 'mill_chip', name: 'a chip of windmill sail from Öland', emoji: '🪵', shape: 'crumb', color: '#b08a5a', visit: true },
+  { id: 'whisk_leaf', name: 'a leaf off a sauna whisk from Haparanda', emoji: '🌿', shape: 'leaf', color: '#7aa83a', visit: true },
+  { id: 'tram_ticket', name: 'a Göteborg tram ticket', emoji: '🎫', shape: 'card', color: '#2aa8d6', visit: true },
+  { id: 'fell_stone', name: 'a stone from the fells at Abisko', emoji: '🪨', shape: 'pebble', color: '#8a8f96', visit: true },
+  { id: 'dala_red', name: 'a fleck of Dala-horse red', emoji: '🐴', shape: 'crumb', color: '#c8302a', visit: true },
+  { id: 'oak_splinter', name: 'a splinter of very old oak', emoji: '🪵', shape: 'needle', color: '#5a3d24', visit: true },
+  { id: 'shrimp_shell', name: 'a shrimp shell from Smögen', emoji: '🦐', shape: 'crumb', color: '#f08a7a', visit: true },
+  { id: 'yarn_ball', name: "a ball of Mamma Spindel's yarn", emoji: '🧶', shape: 'berry', color: '#c46ab0', visit: true },
 ];
+/** What a grown spiderling brings home from where it lives (mail.ts LING_PLACES ids). */
+export const LING_SOUVENIR: Record<string, string> = {
+  bergianska: 'banana_leaf',
+  visby: 'visby_rose',
+  uppsala: 'bookmark',
+  bohuslan: 'net_float',
+  oland: 'mill_chip',
+  haparanda: 'whisk_leaf',
+  goteborg: 'tram_ticket',
+  abisko: 'fell_stone',
+  dalarna: 'dala_red',
+  vasa: 'oak_splinter',
+  smogen: 'shrimp_shell',
+  smaland: 'yarn_ball',
+};
 export const SOUVENIR_BY_ID: Record<string, SouvenirDef> = Object.fromEntries(SOUVENIRS.map((x) => [x.id, x]));
 
 // ---------- when it goes out ----------
@@ -87,7 +115,7 @@ export function nightOver(s: State, morning: string, now: Date | number, wakeAt?
 /** The souvenir from the night before `morning`, seeded by it, from those that fit the night's month. */
 export function souvenirFor(morning: string): SouvenirDef {
   const month = noon(before(morning)).getMonth() + 1;
-  const fits = SOUVENIRS.filter((x) => !x.months || x.months.includes(month));
+  const fits = SOUVENIRS.filter((x) => !x.visit && (!x.months || x.months.includes(month)));
   return fits[Math.min(fits.length - 1, Math.floor(roll(`souvenir:${morning}`) * fits.length))];
 }
 
@@ -152,7 +180,7 @@ export function settleTrips(s: State, now = new Date(), o: { wakeAt?: number | n
   const back: Souvenir[] = [];
   for (; d <= today && nightOver(s, d, now, o.wakeAt); d = next(d)) {
     checked = d;
-    if (!tripOn(s, d, now) || log.shelf.some((x) => x.night === d)) continue;
+    if (!tripOn(s, d, now) || log.shelf.some((x) => x.night === d && !x.visit)) continue;
     const w = nightWeather(s, d, o.forecast);
     back.push({ night: d, id: souvenirFor(d).id, at: now.getTime(), t: w?.t ?? null, code: w?.code ?? null });
   }
@@ -166,10 +194,17 @@ export function settleTrips(s: State, now = new Date(), o: { wakeAt?: number | n
 export function backThisMorning(s: State, now = new Date(), o: { wakeAt?: number | null; forecast?: DayForecast[] | null } = {}): { souvenir: SouvenirDef; story: [string, string] } | null {
   const today = dayKey(now);
   if (new Date(now).getHours() >= 12 || !nightOver(s, today, now, o.wakeAt) || !tripOn(s, today, now)) return null;
-  const kept = s.trips?.shelf.find((x) => x.night === today);
+  const kept = s.trips?.shelf.find((x) => x.night === today && !x.visit);
   const w = kept ? null : nightWeather(s, today, o.forecast);
   const x = kept ?? { night: today, id: souvenirFor(today).id, t: w?.t ?? null, code: w?.code ?? null };
   return { souvenir: SOUVENIR_BY_ID[x.id] ?? souvenirFor(today), story: tripStory(x) };
+}
+
+/** `s` with a souvenir a visiting spiderling left on the shelf (guests.ts): on the shelf, not counted as a night out. */
+export function withVisitSouvenir(s: State, item: Souvenir, today: string): State {
+  const log = s.trips ?? emptyLog(today);
+  if (log.shelf.some((x) => x.visit === item.visit && x.night === item.night)) return s;
+  return { ...s, trips: { ...log, shelf: [...log.shelf, item].slice(-SHELF_KEEP) } };
 }
 
 /** The newest souvenirs, for the tank's shelf. */

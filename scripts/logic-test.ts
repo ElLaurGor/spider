@@ -260,6 +260,9 @@ import { MOVABLE, placesOf, withPlace } from '../src/lib/lair';
 import { GROW_UP_DAYS, grownLing, lingAge, lingsAtHome, LINGS_SHOWN, tankLings } from '../src/lib/egg-sacs';
 import { LING_PLACES, lingMove } from '../src/lib/mail';
 import type { Spiderling } from '../src/lib/types';
+import { glassMist, skyTalk, TEMP_FRESH_MS } from '../src/lib/tank-life';
+import { LING_SOUVENIR, shelfOf as tankShelfOf, souvenirFor as tripSouvenirFor, SOUVENIR_BY_ID as SOUVENIRS_BY_ID } from '../src/lib/expeditions';
+import { guestFor as guestOnDay, LING_AWAY_DAYS, lingVisitor, settleGuests as settleGuestDays, guestOn as guestThatDay } from '../src/lib/guests';
 
 // levels
 assert.equal(levelForXp(0), 1);
@@ -290,6 +293,7 @@ known.add('finding'); // step 4 lines: just-in-time insights
 for (const k of ['when', 'happened', 'then', 'dmg', 'min']) known.add(k); // step 4 plans: if-then prompts and the comeback bonus
 known.add('year'); // step 6 seasons: the yearly Wrapped
 for (const k of ['sunrise', 'sunset']) known.add(k); // step 6: the dark-day weather lines
+known.add('temp'); // the terrarium round: the thermometer
 for (const [k, pool] of Object.entries(LINES)) {
   for (const t of [...pool.mild, ...pool.savage]) {
     for (const m of t.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${k}: unknown {${m[1]}}`);
@@ -8063,7 +8067,7 @@ function terrariumRoundTests() {
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const all = LAIR.map((x) => x.id);
   const at = (o: Partial<TankLife>): TankLife => ({ ...IDLE_LIFE, ...o });
-  const night = { sun: { alt: -0.6, az: 0 }, moon: { alt: 0.15, az: 0.2, phase: 0.5 }, clouds: 0.05, fog: false, falling: null, thunder: false } as const;
+  const night = { sun: { alt: -0.6, az: 0 }, moon: { alt: 0.15, az: 0.2, phase: 0.5 }, clouds: 0.05, fog: false, falling: null, thunder: false, wind: { speed: 0, dir: 0 }, mist: 0 } as const;
   const world = createWorld({ ids: all, next: null, marking: '#E23636', background: '#10141F', random: rnd, life: at({ sky: { ...night, sun: { ...night.sun }, moon: { ...night.moon } }, daylight: 0, light: lighting(0, false) }) });
   let out = 0;
   const run = (sec: number, each?: () => void) => {
@@ -8159,5 +8163,140 @@ function terrariumRoundTests() {
   world.dispose();
 }
 terrariumRoundTests();
+
+function terrariumRound2Tests() {
+  const HOUR_MS = 3_600_000;
+  const DAY_MS = 24 * HOUR_MS;
+  const deg = Math.PI / 180;
+  const t = Date.UTC(2026, 10, 25, 7);
+  const morningSun = { alt: 3 * deg, az: -0.8 };
+
+  // ---- mist on the glass ----
+  assert.equal(glassMist({ fog: true, temp: 5, falling: null, sun: morningSun }), 0.85);
+  assert.equal(glassMist({ fog: false, humidity: 97, temp: 12, falling: null, sun: { alt: 0.6, az: 0.2 } }), 0.7);
+  assert.equal(glassMist({ fog: false, humidity: 90, temp: 3, falling: null, sun: morningSun }), 0.55, 'a cold damp morning');
+  assert.equal(glassMist({ fog: false, humidity: 90, temp: 3, falling: null, sun: { alt: 0.3, az: 0.4 } }), 0, 'not in the afternoon');
+  assert.equal(glassMist({ fog: false, humidity: 60, temp: 10, falling: 'rain', sun: { alt: 0.3, az: 0 } }), 0.4);
+  assert.equal(glassMist({ fog: false, humidity: 60, temp: 10, falling: null, sun: { alt: 0.3, az: 0 } }), 0);
+  const fresh = { code: 45, temp: 2, humidity: 98, wind: { speed: 6.3, dir: 225 }, fetchedAt: t - 600_000 };
+  const sky = skyAt(t, null, fresh);
+  assert.ok(sky.mist === 0.85 && sky.wind.speed === 6.3 && sky.wind.dir === 225);
+  const stale = skyAt(t, null, { ...fresh, fetchedAt: t - 4 * HOUR_MS });
+  assert.deepEqual([stale.mist, stale.wind.speed], [0, 0], 'stale weather: no mist, no wind');
+  // ---- what the spider says about the sky ----
+  const calmSky = { ...CLEAR_SKY, sun: { alt: 0.5, az: 0 }, clouds: 0.1 };
+  assert.equal(skyTalk(calmSky), 'tankSkySun');
+  assert.equal(skyTalk({ ...calmSky, thunder: true, falling: 'rain' }), 'tankSkyStorm', 'thunder first');
+  assert.equal(skyTalk({ ...calmSky, falling: 'snow' }), 'tankSkySnow');
+  assert.equal(skyTalk({ ...calmSky, wind: { speed: 12, dir: 270 } }), 'tankSkyWind');
+  assert.equal(skyTalk({ ...calmSky, sun: { alt: 1 * deg, az: 1.2 } }), 'tankSkyDusk', 'sunset');
+  assert.equal(skyTalk({ ...calmSky, sun: { alt: 1 * deg, az: -1.2 } }), null, 'sunrise is not dusk');
+  assert.equal(skyTalk({ ...calmSky, sun: { alt: -0.5, az: 0 }, moon: { alt: 0.4, az: 0, phase: 0.5 }, clouds: 0.4 }), 'tankSkyMoon');
+  assert.equal(skyTalk({ ...calmSky, sun: { alt: -0.5, az: 0 }, moon: { alt: -0.4, az: 0, phase: 0.5 } }), 'tankSkyStars');
+  assert.equal(skyTalk({ ...calmSky, clouds: 0.6 }), null, 'nothing to say on a plain grey day');
+  for (const k of ['tankSkyStorm', 'tankSkySnow', 'tankSkyRain', 'tankSkyFog', 'tankSkyWind', 'tankSkyDusk', 'tankSkyMoon', 'tankSkyStars', 'tankSkySun', 'tankMist', 'tankThermo', 'guestLing', 'guestLingQuiet']) {
+    assert.ok((LINES as Record<string, { mild: string[]; savage: string[] }>)[k]?.mild.length >= 3, k);
+  }
+  // ---- the thermometer's reading ----
+  const life = tankLifeOf(defaultState(), { now: t, weatherNow: { code: 2, temp: -4, fetchedAt: t - HOUR_MS } });
+  assert.equal(life.temp, -4);
+  assert.equal(tankLifeOf(defaultState(), { now: t, weatherNow: { code: 2, temp: -4, fetchedAt: t - TEMP_FRESH_MS - 1 } }).temp, null, 'too old to show');
+
+  // ---- the new pieces: after the crystal, each with a 3D look, a spot and a flat visit ----
+  assert.deepEqual(LAIR.slice(-4).map((x) => x.id), ['thermo', 'cork', 'hammock', 'redlamp']);
+  for (const id of ['thermo', 'cork', 'hammock', 'redlamp']) {
+    assert.ok(buildPiece(id).children.length > 0, `${id} looks like something`);
+    assert.equal(spots3d([id]).filter((x) => x.id === id).length, 1, `${id} has a spot`);
+    assert.ok(MOVABLE.includes(id));
+  }
+  assert.ok(LAIR.every((x, i) => i === 0 || x.price > LAIR[i - 1].price), 'each piece costs more than the last');
+
+  // ---- the world: mist to wipe, wind outside, the sunbeam, the thermometer, the night lamp ----
+  let seed = 5;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const at = (o: Partial<TankLife>): TankLife => ({ ...IDLE_LIFE, ...o });
+  const world = createWorld({ ids: LAIR.map((x) => x.id), next: null, marking: '#E23636', background: '#10141F', random: rnd });
+  const run = (sec: number) => {
+    for (let i = 0; i < sec * 30; i++) world.step(1 / 30);
+  };
+  world.setLife(at({ sky: { ...CLEAR_SKY, mist: 0.7 } }));
+  world.settle();
+  assert.ok(Math.abs(world.misted() - 0.7) < 0.01, `a misty spell mists the whole pane: ${world.misted()}`);
+  for (let k = 0; k <= 20; k++) world.wipeAt(0.2 + k * 0.03, 0.5);
+  const wiped = world.misted();
+  assert.ok(wiped < 0.66, `a wipe clears a stripe: ${wiped}`);
+  run(30);
+  assert.ok(world.misted() > wiped, 'and it creeps back');
+  world.setLife(at({ sky: { ...CLEAR_SKY, mist: 0 } }));
+  run(400);
+  assert.ok(world.misted() < 0.05, 'dries off when the weather does');
+  assert.equal(world.wipeAt(0.5, 0.5), false, 'nothing to wipe');
+  // wind: rain and snow outside never end up inside the glass
+  for (const falling of ['rain', 'snow'] as const) {
+    world.setLife(at({ sky: { ...CLEAR_SKY, falling, wind: { speed: 14, dir: 0 } } }));
+    run(8);
+    const pts = world.scene.getObjectByName(falling === 'rain' ? 'outside-rain' : 'outside-snow') as THREE.Points;
+    const pos = pts.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) assert.ok(!(Math.abs(pos.getX(i)) < TANK.w / 2 && Math.abs(pos.getZ(i)) < TANK.d / 2), `${falling} inside the tank`);
+  }
+  // the sunbeam: in from the east in the morning (on the west side of the floor), further forward when the sun is low
+  const sunny = { ...IDLE_LIFE.weather, sun: true };
+  world.setLife(at({ weather: sunny, daylight: 1, sky: { ...CLEAR_SKY, sun: { alt: 0.3, az: -0.9 }, clouds: 0.1 } }));
+  const morning = world.shown().sunbeamAt;
+  assert.ok(world.shown().sunbeam && morning[0] > 1, `morning: ${morning}`);
+  world.setLife(at({ weather: sunny, daylight: 1, sky: { ...CLEAR_SKY, sun: { alt: 0.3, az: 0.9 }, clouds: 0.1 } }));
+  assert.ok(world.shown().sunbeamAt[0] < -1, 'afternoon: the other side');
+  world.setLife(at({ weather: sunny, daylight: 1, sky: { ...CLEAR_SKY, sun: { alt: 0.9, az: 0 }, clouds: 0.1 } }));
+  assert.ok(world.shown().sunbeamAt[1] < morning[1], 'a high sun lands further back');
+  world.setLife(at({ weather: sunny, daylight: 1, sky: { ...CLEAR_SKY, sun: { alt: 0.3, az: 0 }, clouds: 0.8 } }));
+  assert.equal(world.shown().sunbeam, false, 'no sunbeam under thick cloud');
+  // the thermometer reads the outdoor temperature; tapping it says so
+  world.setLife(at({ temp: 30 }));
+  assert.ok(world.shown().thermo > 0.99);
+  world.setLife(at({ temp: -20 }));
+  assert.ok(world.shown().thermo < 0.03);
+  world.settle();
+  const q = new THREE.Vector3(4.45, 2.0, -0.45).project(world.camera);
+  assert.equal(world.pick((q.x + 1) / 2, (1 - q.y) / 2), 'thermo');
+  // the red night lamp is off by day and on at night
+  world.setLife(at({ daylight: 1, light: lighting(1, false) }));
+  const red = world.scene.getObjectByName('red-light') as THREE.PointLight;
+  assert.equal(red.intensity, 0);
+  world.setLife(at({ daylight: 0, light: lighting(0, false) }));
+  assert.ok(red.intensity > 5);
+  assert.equal(typeof world.calm(), 'boolean');
+  world.collect();
+  world.dispose();
+
+  // ---- grown spiderlings come home for a visit and leave a souvenir on the shelf ----
+  const nov = new Date(2026, 10, 1, 12).getTime();
+  const away = (id: string, place: string, daysAgo: number): Spiderling => ({ id, from: 'chest', key: id, laidAt: nov - 60 * DAY_MS, hatchedAt: nov - 50 * DAY_MS, km: 5, coins: 60, movedAt: nov - daysAgo * DAY_MS, name: 'Sigge', place });
+  const home: SweState = { ...defaultState(), onboarded: true, spiderlings: [away('a', 'haparanda', 30)] };
+  assert.equal(lingVisitor({ ...home, spiderlings: [away('a', 'haparanda', LING_AWAY_DAYS - 1)] }, '2026-11-01'), null, 'settled in first');
+  assert.equal(lingVisitor(home, '2026-11-01')?.id, 'a');
+  // over a year of guest days, some go to the spiderling, never in a Couch King week or at jul
+  const days: string[] = [];
+  for (let d = new Date(2026, 10, 2, 12); d.getTime() < nov + 200 * DAY_MS; d = new Date(d.getTime() + DAY_MS)) if (guestThatDay(home, dayKey(d))) days.push(dayKey(d));
+  const lingDays = days.filter((d) => guestOnDay(home, d) === 'ling');
+  assert.ok(lingDays.length > 0 && lingDays.length < days.length, `ling days: ${lingDays.length} of ${days.length}`);
+  assert.ok(lingDays.every((d) => !(d.slice(5) >= '12-13' || d.slice(5) <= '01-06')), 'jul is the house spider');
+  assert.equal(guestOnDay(defaultState(), lingDays[0]) === 'ling', false, 'no spiderling out yet: no visit');
+  const visitDay = lingDays[0];
+  const after = new Date(`${visitDay}T12:00`).getTime() + DAY_MS;
+  const settled = settleGuestDays({ ...home, guests: { since: visitDay, visits: [] } }, new Date(after));
+  const visit = settled.state.guests!.visits.find((v) => v.day === visitDay)!;
+  assert.ok(visit.guest === 'ling' && visit.ling === 'a' && visit.gift?.souvenir === LING_SOUVENIR.haparanda, JSON.stringify(visit));
+  assert.equal(settled.state.coins, home.coins, 'a souvenir, not coins');
+  assert.equal(settled.state.trips?.total ?? 0, 0, 'not a night out');
+  assert.ok(tankShelfOf(settled.state).some((x) => x.id === LING_SOUVENIR.haparanda), 'on the shelf');
+  assert.equal(settleGuestDays(settled.state, new Date(after)).state.trips?.shelf.length, 1, 'once');
+  // visit souvenirs never come back from nights out, and every place has one and a spot on the map
+  for (let i = 0; i < 60; i++) assert.ok(!tripSouvenirFor(dayKey(new Date(nov + i * DAY_MS))).visit);
+  for (const p of LING_PLACES) {
+    assert.ok(SOUVENIRS_BY_ID[LING_SOUVENIR[p.id]]?.visit, `${p.id} brings something home`);
+    assert.ok(p.at[0] > 55 && p.at[0] < 69.1 && p.at[1] > 10.9 && p.at[1] < 24.2, `${p.id} is in Sweden`);
+  }
+}
+terrariumRound2Tests();
 
 console.log('synchronous logic tests passed');

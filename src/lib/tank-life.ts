@@ -295,10 +295,14 @@ export type TankSky = {
   fog: boolean;
   falling: 'rain' | 'snow' | null;
   thunder: boolean;
+  wind: { speed: number; dir: number }; // m/s, and the degrees it blows from (0 north, 90 east); calm without fresh weather
+  mist: number; // how misted the front glass is, 0–1 (glassMist)
 };
-export const CLEAR_SKY: TankSky = { sun: { alt: 0.6, az: 0 }, moon: { alt: -0.5, az: 0, phase: 0.5 }, clouds: 0.2, fog: false, falling: null, thunder: false };
+export const CLEAR_SKY: TankSky = { sun: { alt: 0.6, az: 0 }, moon: { alt: -0.5, az: 0, phase: 0.5 }, clouds: 0.2, fog: false, falling: null, thunder: false, wind: { speed: 0, dir: 0 }, mist: 0 };
 /** The current weather counts as "now" this long after it was fetched; after that only the sun and moon are real. */
 export const SKY_FRESH_MS = 3 * HOUR;
+/** The thermometer shows the last reading this long. */
+export const TEMP_FRESH_MS = 6 * HOUR;
 
 /** How cloudy a weather code looks, 0–1. */
 export function cloudsOfCode(code: number): number {
@@ -313,7 +317,21 @@ export function cloudsOfCode(code: number): number {
 const isWet = (code: number) => (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95;
 const isSnowCode = (code: number) => (code >= 71 && code <= 77) || code === 85 || code === 86;
 
-export type SkyWeather = { code: number; clouds?: number; temp: number; fetchedAt: number; soon?: { at: number; mm: number }[] };
+export type SkyWeather = { code: number; clouds?: number; humidity?: number; wind?: { speed: number; dir: number }; temp: number; fetchedAt: number; soon?: { at: number; mm: number }[] };
+
+/**
+ * How misted the front glass is (0–1): fog mists it most, then air that's nearly saturated, a cold damp morning
+ * (sun just up in the east), or rain and snow falling. Wiped with a finger, it creeps back (terrarium-3d.ts).
+ */
+export function glassMist(o: { fog: boolean; humidity?: number; temp: number; falling: TankSky['falling']; sun: { alt: number; az: number } }): number {
+  if (o.fog) return 0.85;
+  const h = o.humidity ?? 0;
+  if (h >= 95) return 0.7;
+  const morning = o.sun.az < 0 && o.sun.alt > -6 * rad && o.sun.alt < 12 * rad;
+  if (h >= 85 && o.temp <= 5 && morning) return 0.55;
+  if (o.falling) return 0.4;
+  return 0;
+}
 
 /**
  * The sky at `now` over the weather place: the sun and moon where they really are, and, while the current weather
@@ -327,12 +345,31 @@ export function skyAt(now: number, place?: { lat: number; lon: number } | null, 
   const sun = sunPosition(now, lat, lon);
   const moon = moonPosition(now, lat, lon);
   const base = { sun: { alt: round(sun.alt), az: round(sun.az) }, moon: { alt: round(moon.alt), az: round(moon.az), phase: moon.phase } };
-  if (!w || now - w.fetchedAt > SKY_FRESH_MS || now < w.fetchedAt - HOUR) return { ...base, clouds: CLEAR_SKY.clouds, fog: false, falling: null, thunder: false };
+  if (!w || now - w.fetchedAt > SKY_FRESH_MS || now < w.fetchedAt - HOUR) return { ...base, clouds: CLEAR_SKY.clouds, fog: false, falling: null, thunder: false, wind: CLEAR_SKY.wind, mist: 0 };
   const slot = w.soon?.find((x) => now >= x.at && now < x.at + 15 * MIN);
   const wet = isWet(w.code) || isSnowCode(w.code) || (slot?.mm ?? 0) >= 0.1;
   const snow = isSnowCode(w.code) || (wet && !isWet(w.code) && w.temp <= 0);
   const clouds = w.clouds != null ? Math.max(0, Math.min(1, w.clouds / 100)) : cloudsOfCode(w.code);
-  return { ...base, clouds: round(wet ? Math.max(0.8, clouds) : clouds), fog: w.code === 45 || w.code === 48, falling: wet ? (snow ? 'snow' : 'rain') : null, thunder: w.code >= 95 };
+  const fog = w.code === 45 || w.code === 48;
+  const falling = wet ? (snow ? 'snow' : 'rain') : null;
+  const wind = w.wind ? { speed: Math.round(w.wind.speed * 10) / 10, dir: Math.round(w.wind.dir) } : CLEAR_SKY.wind;
+  return { ...base, clouds: round(wet ? Math.max(0.8, clouds) : clouds), fog, falling, thunder: w.code >= 95, wind, mist: glassMist({ fog, humidity: w.humidity, temp: w.temp, falling, sun }) };
+}
+
+/** What the spider says about the sky when it's poked (half the time, when there's something to say): the pools in lines.ts. */
+export type SkyTalk = 'tankSkyStorm' | 'tankSkySnow' | 'tankSkyRain' | 'tankSkyFog' | 'tankSkyWind' | 'tankSkyDusk' | 'tankSkyMoon' | 'tankSkyStars' | 'tankSkySun';
+export function skyTalk(sky: TankSky): SkyTalk | null {
+  const sun = sky.sun.alt / rad;
+  if (sky.thunder) return 'tankSkyStorm';
+  if (sky.falling === 'snow') return 'tankSkySnow';
+  if (sky.falling === 'rain') return 'tankSkyRain';
+  if (sky.fog) return 'tankSkyFog';
+  if (sky.wind.speed >= 9) return 'tankSkyWind';
+  if (sun > -4 && sun < 4 && sky.sun.az > 0 && sky.clouds < 0.7) return 'tankSkyDusk';
+  if (sun < -6 && sky.moon.alt > 0 && Math.abs(sky.moon.phase - 0.5) < 0.05 && sky.clouds < 0.6) return 'tankSkyMoon';
+  if (sun < -6 && sky.clouds < 0.3) return 'tankSkyStars';
+  if (sun > 10 && sky.clouds < 0.3) return 'tankSkySun';
+  return null;
 }
 
 // ---------- the floor through the year ----------
@@ -485,6 +522,7 @@ export type TankLife = {
   floor: { season: FloorSeason; month: number; moss: number }; // floorOf
   lingAge: number[]; // each spiderling in the tank, 0 just hatched … 1 grown (it moves out then, egg-sacs.ts)
   places: Record<string, [number, number]>; // pieces moved by hand: id -> (dx, dz) from where they stand by default
+  temp: number | null; // the outdoor temperature for the thermometer piece (the current weather, up to TEMP_FRESH_MS old)
 };
 
 /** The tank before it knows anything: daytime, wandering, a bare web. */
@@ -512,6 +550,7 @@ export const IDLE_LIFE: TankLife = {
   floor: { season: 'autumn', month: 9, moss: 0 },
   lingAge: [],
   places: {},
+  temp: null,
 };
 
 export type TankInputs = {
@@ -566,5 +605,6 @@ export function tankLifeOf(s: State, o: TankInputs): TankLife {
     floor: floorOf(s, o.now),
     lingAge: lings.map((x) => lingAge(x, o.now)),
     places: placesOf(s),
+    temp: o.weatherNow && Math.abs(o.now - o.weatherNow.fetchedAt) <= TEMP_FRESH_MS ? o.weatherNow.temp : null,
   };
 }

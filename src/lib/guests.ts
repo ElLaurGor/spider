@@ -4,15 +4,17 @@
 // Syndicate spy disguised as a pebble. It sleeps until tapped; awake, it comments on the day's logs in its own voice
 // (the guest* pools in lines.ts), or on a kind day only keeps her company. By the next morning it has gone and left
 // a small gift: coins, or its keepsake (a cosmetic; one already owned pays coins). Never XP. The guestbook
-// (State.guests) remembers each visit. Pure, so the tests can run it.
+// (State.guests) remembers each visit. A grown spiderling that moved out (egg-sacs.ts, mail.ts) comes home for
+// some guest days too, and leaves a souvenir from where it lives on the shelf. Pure, so the tests can run it.
 import { owns, withOwned } from './cosmetics';
 import { roll } from './critters';
 import { addDays, dayKey, HOUR, startOfWeek } from './dates';
+import { LING_SOUVENIR, withVisitSouvenir } from './expeditions';
 import { habitsDone } from './habits';
 import type { LineKey } from './lines';
 import { dayOf, doneTasksOn, trainedOn } from './selectors';
 import { toneOn } from './tone';
-import type { GuestBook, GuestId, GuestVisit, State } from './types';
+import type { GuestBook, GuestId, GuestVisit, Spiderling, State } from './types';
 
 const noon = (key: string) => new Date(`${key}T12:00`);
 const next = (key: string) => dayKey(addDays(noon(key), 1));
@@ -64,6 +66,16 @@ export const GUESTS: Record<GuestId, Guest> = {
     voice: 'guestHouse',
     quiet: 'guestHouseQuiet',
   },
+  ling: {
+    id: 'ling',
+    name: 'One of your spiderlings, home for the day',
+    short: 'A grown spiderling',
+    emoji: '🕷️',
+    look: { skin: '#3a2b25', leg: '#4a382e', marking: '#E23636', legScale: 1, abdomen: 0.95, size: 0.62 },
+    gift: '',
+    voice: 'guestLing',
+    quiet: 'guestLingQuiet',
+  },
   spy: {
     id: 'spy',
     name: 'A pebble. Definitely a pebble.',
@@ -106,7 +118,20 @@ export const guestWeek = (monday: string) => guestWeekIndex(weekIndex(monday));
 /** The day of a guest week the guest spends in the tank. */
 export const guestDayOf = (monday: string) => dayKey(addDays(noon(monday), Math.min(6, Math.floor(roll(`guestday:${monday}`) * 7))));
 
-/** Who comes: the spy in a Couch King week, the house spider from Lucia to Trettondagen, the orb weaver in autumn, else the jumping spider or Sir Reginald. */
+/** A spiderling has to have lived away this long before it comes home for a visit. */
+export const LING_AWAY_DAYS = 7;
+/** How often a guest day goes to a grown spiderling, once one has moved out. */
+export const LING_VISIT_CHANCE = 0.4;
+
+/** The grown spiderlings that could come home on `day`: moved out at least LING_AWAY_DAYS before it. */
+const awayOn = (s: State, day: string) => (s.spiderlings ?? []).filter((x) => x.movedAt != null && x.movedAt <= noon(day).getTime() - LING_AWAY_DAYS * 86_400_000);
+/** Which grown spiderling comes home on `day` (seeded), if one can. */
+export function lingVisitor(s: State, day: string): Spiderling | null {
+  const away = awayOn(s, day);
+  return away.length ? away[Math.min(away.length - 1, Math.floor(roll(`lingvisit:${day}`) * away.length))] : null;
+}
+
+/** Who comes: the spy in a Couch King week, the house spider from Lucia to Trettondagen, sometimes a grown spiderling home for a visit, the orb weaver in autumn, else the jumping spider or Sir Reginald. */
 export function guestFor(s: State, day: string): GuestId {
   const monday = dayKey(startOfWeek(noon(day)));
   const kings = s.kingWeeks ?? (s.finalBossWeek ? [s.finalBossWeek] : []);
@@ -114,6 +139,7 @@ export function guestFor(s: State, day: string): GuestId {
   const d = noon(day);
   const md = (d.getMonth() + 1) * 100 + d.getDate();
   if (md >= 1213 || md <= 106) return 'house';
+  if (awayOn(s, day).length && roll(`guestling:${day}`) < LING_VISIT_CHANCE) return 'ling';
   const m = d.getMonth() + 1;
   const pool: GuestId[] = m >= 9 && m <= 10 ? ['orb', 'reginald', 'jumper'] : m >= 5 && m <= 8 ? ['jumper', 'jumper', 'reginald'] : ['reginald', 'jumper'];
   return pool[Math.min(pool.length - 1, Math.floor(roll(`guest:${day}`) * pool.length))];
@@ -219,10 +245,14 @@ export function settleGuests(s: State, now = new Date()): { state: State; left: 
   for (const { day, guest } of guestDays(s, from, yesterday)) {
     const had = visits.find((v) => v.day === day);
     if (had?.gift) continue;
-    const gift = giftFor(state, day, guest);
+    // a grown spiderling leaves a souvenir from where it lives on the shelf
+    const ling = guest === 'ling' ? lingVisitor(s, day) : null;
+    const souvenir = ling ? LING_SOUVENIR[ling.place ?? ''] : undefined;
+    const gift: NonNullable<GuestVisit['gift']> = souvenir ? { souvenir } : giftFor(state, day, guest);
+    if (souvenir && ling) state = withVisitSouvenir(state, { night: day, id: souvenir, at: now.getTime(), visit: ling.id }, today);
     if (gift.cosmetic) state = withOwned(state, gift.cosmetic);
     if (gift.coins) state = { ...state, coins: state.coins + gift.coins, coinsEarned: state.coinsEarned + gift.coins };
-    const visit: GuestVisit = { ...had, day, guest, gift };
+    const visit: GuestVisit = { ...had, day, guest, gift, ...(ling ? { ling: ling.id } : {}) };
     visits = [...visits.filter((v) => v.day !== day), visit].sort((a, b) => (a.day < b.day ? -1 : 1));
     left.push(visit);
   }

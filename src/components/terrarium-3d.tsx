@@ -2,7 +2,7 @@ import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
+import { Animated, Dimensions, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 import * as THREE from 'three';
 
 import { useNow } from '@/components/ui';
@@ -14,10 +14,10 @@ import { glLive, shadowsAllowed, shadowsFailed, shadowsWorked } from '@/lib/gl-g
 import { lairPieces, nextPiece } from '@/lib/lair';
 import { importPhoto } from '@/lib/photos';
 import { useStore } from '@/lib/store';
-import { grewSince, TANK_EVENT_MS, tankLifeOf } from '@/lib/tank-life';
+import { grewSince, skyTalk, TANK_EVENT_MS, tankLifeOf } from '@/lib/tank-life';
 import { createWorld, type World } from '@/lib/terrarium-3d';
 // step 9 tank
-import { GUESTS, guestLineKey, narrating } from '@/lib/guests';
+import { GUESTS, guestLineKey, lingVisitor, narrating } from '@/lib/guests';
 import { firstsOf } from '@/lib/hatch-day';
 import { THROW_EMOJI } from '@/lib/rps';
 
@@ -57,6 +57,8 @@ type Gfx = {
   lastTap: { t: number; x: number; y: number } | null;
   tapLater: ReturnType<typeof setTimeout> | null; // a tap on nothing waits to see if it's a double tap
   frames: number; // frames drawn with shadows, towards SHADOW_TRIAL_FRAMES
+  wiping: boolean; // a finger is wiping the misted glass
+  touching: boolean; // a finger is down: full frame rate
 };
 
 /**
@@ -113,7 +115,21 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
   const next = nextPiece(state)?.id ?? null;
   const marking = worn(state).aura?.ring ?? C.red;
   const { visible, still } = useScreenState();
-  const awake = visible && !still;
+  // scrolled out of sight on HQ: no frames (the battery), checked a few times a second while the screen shows
+  const wrap = useRef<View>(null);
+  const [onScreen, setOnScreen] = useState(true);
+  useEffect(() => {
+    if (!visible || full) return;
+    const check = () =>
+      wrap.current?.measureInWindow((_x, y, _w, h) => {
+        const seen = h > 0 && y + h > 0 && y < Dimensions.get('window').height;
+        setOnScreen((was) => (was === seen ? was : seen));
+      });
+    check();
+    const t = setInterval(check, 700);
+    return () => clearInterval(t);
+  }, [visible, full]);
+  const awake = visible && !still && (onScreen || !!full);
   const today = useToday();
   const now = useNow(60_000, visible);
   const wx = weather.data;
@@ -121,7 +137,7 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
     now,
     forecast: wx?.days.find((d) => d.date === today) ?? null,
     nights: health.data?.nights ?? null,
-    weatherNow: wx ? { code: wx.code, clouds: wx.clouds, temp: wx.temp, fetchedAt: wx.fetchedAt, soon: wx.soon } : null,
+    weatherNow: wx ? { code: wx.code, clouds: wx.clouds, humidity: wx.humidity, wind: wx.wind, temp: wx.temp, fetchedAt: wx.fetchedAt, soon: wx.soon } : null,
   });
   const lifeKey = JSON.stringify(life);
   const gfx = useRef<Gfx>({
@@ -146,6 +162,8 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
     lastTap: null,
     tapLater: null,
     frames: 0,
+    wiping: false,
+    touching: false,
   });
   // real shadows unless they failed on this phone before (lib/gl-guard.ts); the view waits to know
   const [shadows, setShadows] = useState<boolean | null>(null);
@@ -186,6 +204,8 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
     x.moved = false;
     x.pinch = null;
     x.carry = null;
+    x.wiping = false;
+    x.touching = true;
     if (x.press) clearTimeout(x.press);
     // a long press on a piece picks it up, to be moved round the floor
     const at = { x: e.nativeEvent.locationX, y: e.nativeEvent.locationY };
@@ -224,6 +244,13 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
     }
     const dx = e.nativeEvent.pageX - x.touch.x;
     if (Math.abs(dx) > 8 || Math.abs(e.nativeEvent.pageY - x.touch.y) > 8) x.moved = true;
+    // a finger over the misted glass wipes it: sideways on HQ (up and down still scrolls the screen), any way full screen
+    if (!x.wiping && !x.dragging && x.world && x.world.misted() > 0.12 && (full ? x.moved : sideways(e))) x.wiping = true;
+    if (x.wiping && x.world && x.w && x.h) {
+      x.world.wipeAt(e.nativeEvent.locationX / x.w, e.nativeEvent.locationY / x.h);
+      if (!x.running) paint(x, onFail);
+      return;
+    }
     if (!x.dragging && sideways(e)) {
       x.dragging = true;
       x.world?.setDragging(true);
@@ -235,6 +262,8 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
   const endDrag = () => {
     const x = gfx.current;
     x.dragging = false;
+    x.wiping = false;
+    x.touching = false;
     x.world?.setDragging(false);
     if (x.press) clearTimeout(x.press);
     x.press = null;
@@ -292,7 +321,9 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
     else if (hit === 'spider') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       x.world?.poke();
-      setBubble(`🕷️ ${quip('tankPoke')}`);
+      // half the time it has something to say about the sky outside, when there is something
+      const sky = Math.floor(t) % 2 === 0 ? skyTalk(life.sky) : null;
+      setBubble(`🕷️ ${quip(sky ?? 'tankPoke')}`);
       if (!x.running) {
         x.world?.step(0);
         paint(x, onFail);
@@ -303,11 +334,15 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
       x.world?.greetGuest();
       if (!life.guest.awake) actions.wakeGuest();
       const g = guestLineKey(state, life.guest.id, today);
-      setBubble(`${GUESTS[life.guest.id].emoji} ${quip(g.key, { summary: g.summary })}`);
+      const who = life.guest.id === 'ling' ? lingVisitor(state, today)?.name : null;
+      setBubble(`${GUESTS[life.guest.id].emoji} ${who ? `${who}: ` : ''}${quip(g.key, { summary: g.summary })}`);
       if (!x.running) {
         x.world?.step(0);
         paint(x, onFail);
       }
+    } else if (hit === 'thermo') {
+      // the thermometer piece reads the real outdoor temperature
+      setBubble(life.temp != null ? `🌡️ ${quip('tankThermo', { temp: `${life.temp}°` })}` : '🌡️ No reading yet. It waits for the weather.');
     } else if (onTap) {
       // wait a moment: a second tap makes it a double tap instead
       if (x.tapLater) clearTimeout(x.tapLater);
@@ -512,7 +547,20 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
     return () => clearInterval(t);
   }, [awake, scrollKey]);
 
-  // The spider's life: one frame per screen refresh while awake.
+  // Misty glass: the spider says so once while it's on screen.
+  const misty = life.sky.mist > 0;
+  const [mistSaid, setMistSaid] = useState(false);
+  useEffect(() => {
+    if (!ready || !awake || !misty || mistSaid) return;
+    const t = setTimeout(() => {
+      setBubble(`💧 ${quip('tankMist')}`);
+      setMistSaid(true);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [ready, awake, misty, mistSaid, quip]);
+
+  // The spider's life while awake: every screen refresh while a finger is on it, 30 frames a second while things
+  // move, 15 when only the breathing and the slow drifts go on (the battery).
   useEffect(() => {
     const x = gfx.current;
     if (!ready || !x.world || !awake) return;
@@ -523,9 +571,14 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
     x.running = true;
     const frame = () => {
       const now = Date.now();
+      const gap = x.touching || x.dragging ? 0 : world.calm() ? 66 : 33;
+      if (now - last < gap - 4) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
       if (!x.snapping) {
         try {
-          world.step(Math.min(0.05, (now - last) / 1000));
+          world.step(Math.min(0.1, (now - last) / 1000));
           x.draw?.();
         } catch {
           onFail();
@@ -588,6 +641,7 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
 
   return (
     <View
+      ref={wrap}
       style={[styles.wrap, full && styles.full]}
       onLayout={(e) => {
         gfx.current.w = e.nativeEvent.layout.width;
@@ -600,7 +654,7 @@ export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: 
       }}
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={(e) => sideways(e) || e.nativeEvent.touches.length > 1}
-      onResponderTerminationRequest={() => !gfx.current.dragging && !gfx.current.pinch && !gfx.current.carry}
+      onResponderTerminationRequest={() => !gfx.current.dragging && !gfx.current.pinch && !gfx.current.carry && !gfx.current.wiping}
       onResponderGrant={grant}
       onResponderMove={move}
       onResponderRelease={release}

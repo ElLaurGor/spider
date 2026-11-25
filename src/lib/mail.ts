@@ -229,19 +229,20 @@ function postcard(s: State, c: NonNullable<State['coop']>): Draft {
 
 // A grown spiderling moves out (egg-sacs.ts GROW_UP_DAYS) and sends a postcard from its new home.
 const LING_NAMES = ['Sigge', 'Majken', 'Ebbe', 'Tyra', 'Bosse', 'Greta', 'Nisse', 'Svea', 'Folke', 'Dagny', 'Pelle', 'Vera', 'Tage', 'Signe', 'Kalle', 'Elsa'];
-export const LING_PLACES: { id: string; where: string; line: string }[] = [
-  { id: 'bergianska', where: 'the big greenhouse at Bergianska', line: 'It is 26 degrees in here all year. I live behind a banana plant that has never once asked me to leave.' },
-  { id: 'visby', where: 'the town wall in Visby', line: 'The wall is seven hundred years old and full of cracks. I picked the one with a sea view.' },
-  { id: 'uppsala', where: 'a second-hand bookshop in Uppsala', line: 'I live behind the poetry shelf. Nobody dusts the poetry shelf. It is perfect.' },
-  { id: 'bohuslan', where: 'a fishing hut in Bohuslän', line: 'It smells of herring and rope. So far I have caught eleven flies and one very confused shrimp.' },
-  { id: 'oland', where: 'a windmill on Öland', line: 'When the sails turn, my web hums. The cows outside have opinions about it.' },
-  { id: 'haparanda', where: 'a sauna in Haparanda', line: 'I stay up by the ceiling where it is warmest. People come in, say "oj", and sit very still.' },
-  { id: 'goteborg', where: 'a tram depot in Göteborg', line: 'The trams sleep here at night and so do I. We understand each other.' },
-  { id: 'abisko', where: 'a mountain station in Abisko', line: 'The air up here is so clean that my web squeaks. I wear the socks Mamma knitted. All of them.' },
-  { id: 'dalarna', where: 'a red cottage in Dalarna', line: 'There is a Dala horse on my windowsill. We are not friends yet, but we are working on it.' },
-  { id: 'vasa', where: 'a ship museum in Stockholm', line: 'I live under an old cannon. Nobody has fired it in almost four hundred years. I checked twice.' },
-  { id: 'smogen', where: 'a lighthouse in Smögen', line: 'The light goes round and round all night. I go round with it, then I lie down for a bit.' },
-  { id: 'smaland', where: "Mamma Spindel's house in Småland", line: 'Mamma has knitted me four socks so far. I have mentioned that I have eight legs. She is on it.' },
+/** Where grown spiderlings move to (`at`: latitude, longitude, for the map in the mailbox, components/ling-map.tsx). */
+export const LING_PLACES: { id: string; where: string; line: string; at: [number, number] }[] = [
+  { id: 'bergianska', where: 'the big greenhouse at Bergianska', line: 'It is 26 degrees in here all year. I live behind a banana plant that has never once asked me to leave.', at: [59.368, 18.054] },
+  { id: 'visby', where: 'the town wall in Visby', line: 'The wall is seven hundred years old and full of cracks. I picked the one with a sea view.', at: [57.639, 18.296] },
+  { id: 'uppsala', where: 'a second-hand bookshop in Uppsala', line: 'I live behind the poetry shelf. Nobody dusts the poetry shelf. It is perfect.', at: [59.858, 17.639] },
+  { id: 'bohuslan', where: 'a fishing hut in Bohuslän', line: 'It smells of herring and rope. So far I have caught eleven flies and one very confused shrimp.', at: [58.6, 11.29] },
+  { id: 'oland', where: 'a windmill on Öland', line: 'When the sails turn, my web hums. The cows outside have opinions about it.', at: [56.73, 16.62] },
+  { id: 'haparanda', where: 'a sauna in Haparanda', line: 'I stay up by the ceiling where it is warmest. People come in, say "oj", and sit very still.', at: [65.835, 24.137] },
+  { id: 'goteborg', where: 'a tram depot in Göteborg', line: 'The trams sleep here at night and so do I. We understand each other.', at: [57.708, 11.974] },
+  { id: 'abisko', where: 'a mountain station in Abisko', line: 'The air up here is so clean that my web squeaks. I wear the socks Mamma knitted. All of them.', at: [68.357, 18.783] },
+  { id: 'dalarna', where: 'a red cottage in Dalarna', line: 'There is a Dala horse on my windowsill. We are not friends yet, but we are working on it.', at: [60.886, 15.115] },
+  { id: 'vasa', where: 'a ship museum in Stockholm', line: 'I live under an old cannon. Nobody has fired it in almost four hundred years. I checked twice.', at: [59.328, 18.091] },
+  { id: 'smogen', where: 'a lighthouse in Smögen', line: 'The light goes round and round all night. I go round with it, then I lie down for a bit.', at: [58.355, 11.222] },
+  { id: 'smaland', where: "Mamma Spindel's house in Småland", line: 'Mamma has knitted me four socks so far. I have mentioned that I have eight legs. She is on it.', at: [56.88, 14.81] },
 ];
 
 /** The name and new home a spiderling gets when it moves out: seeded by the spiderling, so it's always the same one. */

@@ -22,7 +22,8 @@ export type DayForecast = {
   sunshineMin: number;
 };
 export type RainSlot = { at: number; mm: number }; // 15-minute precipitation, next 4 hours
-export type Weather = { temp: number; feels: number; code: number; clouds?: number; days: DayForecast[]; soon: RainSlot[]; fetchedAt: number }; // clouds: cloud cover now, %
+// clouds: cloud cover now (%), humidity: relative humidity now (%), wind: now, m/s and the degrees it blows from
+export type Weather = { temp: number; feels: number; code: number; clouds?: number; humidity?: number; wind?: { speed: number; dir: number }; days: DayForecast[]; soon: RainSlot[]; fetchedAt: number };
 
 // Swedish names, so the county ("Stockholms län") matches SMHI and Krisinformation exactly.
 export async function findPlace(query: string): Promise<Place | null> {
@@ -64,13 +65,13 @@ export function meteoTime(t: string, offsetSec: number | undefined) {
 export async function fetchWeather(place: Place): Promise<Weather> {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}` +
-    '&current=temperature_2m,apparent_temperature,weather_code,cloud_cover' +
+    '&current=temperature_2m,apparent_temperature,weather_code,cloud_cover,relative_humidity_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset,daylight_duration,sunshine_duration' +
     '&minutely_15=precipitation&forecast_minutely_15=16' +
     '&timezone=auto&forecast_days=4';
   const j = await getJson<{
     utc_offset_seconds?: number;
-    current: { temperature_2m: number; apparent_temperature: number; weather_code: number; cloud_cover?: number | null };
+    current: { temperature_2m: number; apparent_temperature: number; weather_code: number; cloud_cover?: number | null; relative_humidity_2m?: number | null; wind_speed_10m?: number | null; wind_direction_10m?: number | null };
     daily: {
       time: string[];
       weather_code: number[];
@@ -90,6 +91,8 @@ export async function fetchWeather(place: Place): Promise<Weather> {
     feels: Math.round(j.current.apparent_temperature),
     code: j.current.weather_code,
     clouds: j.current.cloud_cover ?? undefined,
+    humidity: j.current.relative_humidity_2m ?? undefined,
+    wind: j.current.wind_speed_10m != null && j.current.wind_direction_10m != null ? { speed: j.current.wind_speed_10m, dir: j.current.wind_direction_10m } : undefined,
     days: j.daily.time.map((date, i) => ({
       date,
       max: Math.round(j.daily.temperature_2m_max[i]),

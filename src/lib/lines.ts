@@ -2118,6 +2118,59 @@ export const LINES = {
       'That tap had more focus in it than your last Web Focus.',
     ],
   },
+  // ---- the terrarium round: the sky outside (tank-life.ts skyTalk, on a poke), the misty glass, the thermometer, a spiderling home ----
+  tankSkyRain: {
+    mild: ['Rain on the other side of the glass. Best place to be is in here.', "Hear that? Rain. I'm staying exactly where I am.", "Wet out there. Take an umbrella, I'll take the web."],
+    savage: ['Raining out there. Perfect weather for ticking things off indoors. Hint.', 'The rain is doing more laps of the glass than you did today.', 'Rain is not a plan, {name}. It is weather.'],
+  },
+  tankSkySnow: {
+    mild: ["Snow! I'm watching it from in here, where my feet stay warm. All eight.", 'Look, snow on the other side of the glass. Very pretty. Very cold.', "It's snowing. I'm staying put until it looks nice again."],
+    savage: ['Snow. Lovely to look at. Shovelling is your department.', "It's snowing, and the to-do list still isn't melting.", 'Your tasks are piling up faster than the drifts out there.'],
+  },
+  tankSkyStorm: {
+    mild: ["Thunder! I'm going under the bark until it's done.", 'Did you see that flash? Stay in, stay dry, stay near me.', "A storm. We're both safe in here. You count the seconds, I'll count the legs."],
+    savage: ['Thunder outside. Very dramatic. Still less dramatic than your inbox.', 'Lightning out there. Use the energy. One task before it stops.', "Storm's out there. In here the only thing rumbling is that to-do list."],
+  },
+  tankSkyFog: {
+    mild: ['Fog everywhere. Stockholm has put a blanket on.', "Can't see a thing out there. In here, all clear.", 'Foggy out. The glass is steaming up and so am I. Slowly.'],
+    savage: ['Fog outside, fog in your plans. Only one of those clears by itself.', 'Even the fog has a direction today. Just saying.', 'Visibility zero out there. Like that task you keep walking past.'],
+  },
+  tankSkyStars: {
+    mild: ["Clear night. I've been counting stars. I got to eight and started over.", "Stars out tonight. Worth a look up, if you're passing a window.", "The sky's clear and full of stars. Mine's full of web."],
+    savage: ['A starry night, and you chose to poke a spider. Interesting choice.', 'The stars have been at it for billions of years. Your to-do list only feels that old.', 'Clear night, lots of stars. Not one of them ticked off a task.'],
+  },
+  tankSkyMoon: {
+    mild: ['Full moon tonight. I always feel a little more spidery.', 'Look at that moon. Big, round, and nobody asked it to do anything.', 'Full moon out there. My web looks silver in it.'],
+    savage: ['Full moon. Wolves howl, spiders spin, you scroll.', 'The moon is full and so is your task list.', 'Full moon tonight. Perfect light for finishing what you started.'],
+  },
+  tankSkyDusk: {
+    mild: ["Sun's going down. The sky's doing pink again. Show-off.", "Sunset outside. The lamp goes off soon in here. Cosy hour.", "Look at the sky. That orange is my favourite thing that isn't a fly."],
+    savage: ['Sunset. The day is closing. Your tasks have noticed.', 'The sun is clocking off. It did its whole job today, just saying.', 'Golden hour outside. Golden chance to finish one thing.'],
+  },
+  tankSkyWind: {
+    mild: ['Windy out there. Good day to be a spider in a glass box.', 'Hear the wind? My web would be in Finland by now.', "Blowy outside. Hold on to your hat. I'm holding on to the moss."],
+    savage: ['Windy enough to blow the plans away. Oh wait, they already went.', "The wind's moving faster than your to-do list.", 'A gale outside. In here, the only thing blowing is your deadline.'],
+  },
+  tankSkySun: {
+    mild: ["Sun's out! I'm going to lie in that patch of light and do nothing.", 'Proper sunshine today. The fern is thrilled. So am I.', "Sunny out. Get outside for a bit, I'll guard the tank."],
+    savage: ["Sunshine, finally, and you're indoors tapping glass.", 'The sun showed up today. One of you did.', 'Blue sky outside. Your step count is grey.'],
+  },
+  tankMist: {
+    mild: ['The glass is all misty. Wipe it with a finger if you want to see me.', 'Steamed up in here. Wipe the glass and say hi.', 'Misty glass this morning. A finger clears it.'],
+    savage: ["The glass is fogged. Wipe it. It's a one-finger job.", "Can't see a thing through this mist. Wipe it, I'm being majestic in here.", "Misted over. One swipe, please. I don't do windows."],
+  },
+  tankThermo: {
+    mild: ["{temp} outside. In here it's always a nice tank temperature.", 'The thermometer says {temp} out there. Dress for it.', "{temp} outside right now. I checked so you don't have to."],
+    savage: ["{temp} outside. That's not a reason to stay in. Probably.", "It's {temp} out there. The weather did its part. Your turn.", '{temp}. The thermometer works harder than some habits I know.'],
+  },
+  guestLing: {
+    mild: ["Home for the day! {summary} already? You've been busy while I was away.", 'I missed this tank. And you. {summary}, I see. Proud of you.', "Back for a visit. {summary}? The big spider said you'd been at it."],
+    savage: ['{summary}? I moved out and you kept going. Respect, mostly.', 'Home for one day and I already know: {summary}. Watching the rest of it.', 'I walked half of Sweden and you managed {summary}. Fine. It counts.'],
+  },
+  guestLingQuiet: {
+    mild: ["Just home for the day. I'll sit by the moss with you.", 'No news needed. I wanted to see the old tank.', "Visiting. Don't mind me, I'll be very small and very quiet."],
+    savage: ["Just home for the day. I'll sit by the moss with you.", 'No news needed. I wanted to see the old tank.', "Visiting. Don't mind me, I'll be very small and very quiet."],
+  },
   eggSacDropped: {
     mild: ['An egg sac! It goes in the terrarium and hatches after {n} km of walking. No hurry.', 'You found an egg sac. Walk {n} km, whenever, and it hatches.'],
     savage: ['An egg sac dropped. {n} km of walking hatches it. Your legs know what to do.', 'Egg sac secured. It needs {n} km of your steps. The sofa adds nothing.'],
