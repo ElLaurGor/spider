@@ -456,7 +456,7 @@ export const REMARKS: Remark[] = [
     { id: 'lvl25', text: 'Level 25. Somewhere, a level-one you is very confused.', replaces: ['levelUp'], test: at('level', 25) },
     { id: 'lvl50', text: 'Level fifty. I have run out of level titles that sound normal.', replaces: ['levelUp'], test: at('level', 50) },
     { id: 'molt1', text: 'First molt. The old skin is in the corner. Please do not keep it.', test: at('molts', 1) },
-    { id: 'molt5', text: 'Fifth molt. The corner has become a gallery.', test: at('molts', 5) },
+    { id: 'molt5', text: 'Fifth molt. I sweep the old skins out after two days. Nobody thanks the cleaner.', test: at('molts', 5) },
     { id: 'egg1', text: "An egg sac! I'm not ready. Walk slowly. No. Walk fast. I don't know.", replaces: ['eggSacDropped'], test: at('eggSacs', 1) },
     { id: 'hatch1', text: "A spiderling hatched. I'm a parent now. Don't make it weird.", replaces: ['eggSacHatched'], test: at('spiderlings', 1) },
     { id: 'trek1', text: 'First trek walked end to end. The map is impressed and slightly creased.', test: at('treks', 1) },

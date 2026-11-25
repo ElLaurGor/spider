@@ -220,7 +220,7 @@ import type { CalEvent, Contract, ContractGoal, ShotCall, Tracker } from '../src
 import * as THREE from 'three';
 import { roll } from '../src/lib/critters';
 import { EGG_CHANCE, EGG_COINS, EGG_KMS, eggDrops, eggKm, hatchEggs, MAX_EGGS } from '../src/lib/egg-sacs';
-import { asleepAt, daylightAt, DEW_DROPS, dressingFor, grewSince, growthOf, hatShape, IDLE_LIFE, lighting, MOLT_GROWTH_MAX, moltState, NO_WEATHER, PET_MOTION, plantGrowth, sizeAfter, SPROUT, sunTimes } from '../src/lib/tank-life';
+import { asleepAt, daylightAt, DEW_DROPS, dressingFor, freshSkins, grewSince, growthOf, hatShape, IDLE_LIFE, lighting, MOLT_GROWTH_MAX, moltState, NO_WEATHER, PET_MOTION, plantGrowth, sizeAfter, SKIN_DAYS, SKINS_SHOWN, SPROUT, sunTimes } from '../src/lib/tank-life';
 import { TANK_EVENT_MS, TANK_QUEUE, tankEventsOf, tankLifeOf, tankMode, tankSnapsFor, tankWeather, webFor, withMolt, withTankEvents, type TankLife } from '../src/lib/tank-life';
 import type { DayForecast } from '../src/lib/weather';
 // step 9 care
@@ -6511,6 +6511,18 @@ function step8TerrariumTests() {
   const molted = withMolt(up);
   assert.deepEqual([molted.moltSeen, molted.molts, molted.xp, molted.coins], [4, 1, 610, up.coins], 'looks only: no XP, no coins');
   assert.equal(withMolt(molted), molted, 'once per level');
+  // a shed skin lies in the tank for SKIN_DAYS, then it's cleared out; saves from before moltsAt have none on show
+  const shedAt = noon.getTime();
+  const shed = withMolt(up, shedAt);
+  assert.deepEqual(shed.moltsAt, [shedAt]);
+  assert.equal(tankLifeOf(shed, { now: shedAt + 60_000 }).skins, 1);
+  assert.equal(tankLifeOf(shed, { now: shedAt + (SKIN_DAYS * 24 - 1) * 3_600_000 }).skins, 1, 'still there just before the time is up');
+  assert.equal(tankLifeOf(shed, { now: shedAt + SKIN_DAYS * 24 * 3_600_000 }).skins, 0, 'cleared out after it');
+  assert.equal(tankLifeOf({ ...base, molts: 7 }, { now: shedAt }).skins, 0, 'old skins from before the dates are gone');
+  let molting: SweState = { ...up, moltsAt: [] };
+  for (let i = 0; i < 8; i++) molting = withMolt({ ...molting, maxLevel: 5 + i, moltSeen: 4 + i }, shedAt + i * 3_600_000);
+  assert.deepEqual([molting.molts, molting.moltsAt?.length, freshSkins(molting, shedAt + 8 * 3_600_000)], [8, SKINS_SHOWN, SKINS_SHOWN], 'at most SKINS_SHOWN dates kept');
+  assert.equal(freshSkins(molting, shedAt + (SKIN_DAYS * 24 + 5.5) * 3_600_000), 2, 'the older ones go first');
   assert.equal(moltState({ ...molted, xp: 590 }).premolt, false, 'no premolt for a level it already molted for');
   assert.ok(sizeAfter(1) > sizeAfter(0) && sizeAfter(50) === sizeAfter(MOLT_GROWTH_MAX), 'a little bigger, up to a cap');
   // old saves: no molt for levels reached before the tank could show one; older pieces grow from first sight
@@ -6701,9 +6713,15 @@ function step8TerrariumTests() {
   assert.equal(signal, 'molted');
   assert.ok(flipped, 'it flips onto its back to pull free');
   assert.equal(w.shown().skins, 1);
-  w.setLife(life({ molt: false, molts: 1 }));
+  w.setLife(life({ molt: false, molts: 1, skins: 1 }));
   run(2);
   assert.ok(w.pose().size > size0 && w.takeSignal() === null, 'bigger, and only once');
+  assert.equal(w.shown().skins, 1, 'the recorded skin stays while fresh');
+  w.setLife(life({ molts: 1, skins: 0 }));
+  assert.equal(w.shown().skins, 0, 'then it is cleared out');
+  assert.equal(w.scene.getObjectByName('skins')!.children.length, 0, 'no skin mesh left');
+  w.setLife(life({ molts: 9, skins: 2 }));
+  assert.equal(w.shown().skins, 2, 'only the fresh ones, however many molts');
   // taps: the spider, a fly to catch, or nothing
   w.setYaw(0.4);
   run(0.2);

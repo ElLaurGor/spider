@@ -1207,10 +1207,15 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
   // ---- the extras: skins, spiderlings, egg sacs, the season, the weather, the pet and hat ----
   const skinMat = new THREE.MeshStandardMaterial({ color: '#c9b49a', roughness: 0.8, transparent: true, opacity: 0.55, depthWrite: false });
   const lingMat = std('#3a2b25', 0.6);
-  let shownSkins = -1;
-  const buildSkins = (n: number) => {
-    const count = Math.min(SKINS_SHOWN, n);
-    if (count === shownSkins) return;
+  let shownSkins = 0;
+  let skinKey = '';
+  /** The fresh skins (life.skins, cleared out after SKIN_DAYS) plus one just shed here that the app hasn't recorded yet. */
+  const buildSkins = () => {
+    const n = Math.max(life.molts, localMolts);
+    const count = Math.min(SKINS_SHOWN, n, life.skins + Math.max(0, localMolts - life.molts));
+    const key = `${n}:${count}`;
+    if (key === skinKey) return;
+    skinKey = key;
     shownSkins = count;
     drop(extras.skins);
     if (!count) return;
@@ -1471,7 +1476,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
 
   const applyLooks = () => {
     for (const id of ['web', ...Object.keys(life.growth)]) refreshPiece(id);
-    buildSkins(Math.max(life.molts, localMolts));
+    buildSkins();
     buildLings(life.spiderlings);
     buildEggs();
     buildDressingFor(life.dressing);
@@ -1676,7 +1681,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     }
     else if (s.fx === 'shed') {
       localMolts = Math.max(localMolts, moltBase + 1);
-      buildSkins(Math.max(life.molts, localMolts));
+      buildSkins();
     } else if (s.fx === 'done') {
       if (s.spot) at = s.spot;
       special = null;
@@ -2069,7 +2074,7 @@ export function createWorld(opts: { ids: readonly string[]; next: string | null;
     legAngles: () => spider.legs.map((l) => l.hip.rotation.y),
     /** For the tests: what's showing. */
     shown: () => ({
-      skins: Math.max(0, shownSkins),
+      skins: shownSkins,
       spiderlings: lings.length,
       eggs: Math.max(0, shownEggs),
       dressing: shownDressing,

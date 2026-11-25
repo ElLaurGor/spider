@@ -428,6 +428,7 @@ export type State = {
   // step 8 terrarium
   moltSeen?: number; // tank-life.ts: the level the spider last molted for (hydrate: the level reached); a molt is due below the peak level
   molts?: number; // molts acted out in the tank, a total (its shed skins)
+  moltsAt?: number[]; // when the newest molts happened (ms, oldest first, at most SKINS_SHOWN): a skin lies in the tank for SKIN_DAYS
   lairAt?: Record<string, number>; // lair piece id -> when it went in (hydrate: first sight for older pieces), for the plants' growth
   lairGrowth?: Record<string, number>; // plant piece id -> the most it has grown (0–1), so a plant never shrinks
   tankSnaps?: Record<string, string>; // 'YYYY-MM' -> the month's automatic snapshot of the tank (a file in files/photos)

@@ -16,7 +16,7 @@ import { crashedInGl, glForgive } from '@/lib/gl-guard';
 import { GUESTS, guestLineKey } from '@/lib/guests';
 import { LAIR, LAIR_HOME, lairLeft, lairPieces, lairSpots, nextPiece, nextSpot, type LairPiece, type LairSpot } from '@/lib/lair';
 import { useStore } from '@/lib/store';
-import { moltState, tankLifeOf } from '@/lib/tank-life';
+import { moltState, SKIN_DAYS, tankLifeOf } from '@/lib/tank-life';
 
 const num = (n: number) => n.toLocaleString('sv-SE');
 
@@ -444,7 +444,7 @@ function TankFolk() {
     <>
       <T dim small>
         {molt.premolt ? `${premoltNote(molt.toGo)}. ` : ''}
-        {molt.molts ? `Shed skins: ${molt.molts} (the newest ${Math.min(5, molt.molts)} are in the tank). ` : 'It molts at each new level. '}
+        {molt.molts ? `Shed skins: ${molt.molts}. Each lies in the tank for ${SKIN_DAYS} days, then it's cleared out. ` : 'It molts at each new level. '}
         Gold chests and boss kills sometimes drop an egg sac; walking hatches it.
       </T>
       {eggs.map((e) => (

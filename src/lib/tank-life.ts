@@ -129,8 +129,16 @@ export const PREMOLT_SHARE = 0.1;
 /** How much bigger each molt makes it, and after how many it stops growing (it has to fit the tank). */
 export const MOLT_GROWTH = 0.03;
 export const MOLT_GROWTH_MAX = 5;
-/** Shed skins kept on show; the total is kept in State.molts. */
+/** At most this many shed skins lie in the tank at once; the total is kept in State.molts. */
 export const SKINS_SHOWN = 5;
+/** How long a shed skin lies where it was shed before it's cleared out (State.moltsAt). */
+export const SKIN_DAYS = 2;
+const SKIN_MS = SKIN_DAYS * 24 * HOUR;
+
+/** How many shed skins are still in the tank at `now`: the newest ones, shed within SKIN_DAYS. Saves from before State.moltsAt have none. */
+export function freshSkins(s: State, now = Date.now()): number {
+  return Math.min(SKINS_SHOWN, (s.moltsAt ?? []).filter((t) => now - t < SKIN_MS).length);
+}
 
 export type MoltState = { level: number; toGo: number; premolt: boolean; due: boolean; molts: number };
 
@@ -145,11 +153,11 @@ export function moltState(s: State): MoltState {
   return { level, toGo, premolt: level >= peak && toGo <= Math.ceil(needed * PREMOLT_SHARE), due: (s.moltSeen ?? 1) < peak, molts: s.molts ?? 0 };
 }
 
-/** `s` after the tank acted out a molt: it has molted for the level reached, one more skin. */
-export function withMolt(s: State): State {
+/** `s` after the tank acted out a molt at `now`: it has molted for the level reached, one more skin (on show for SKIN_DAYS). */
+export function withMolt(s: State, now = Date.now()): State {
   const m = moltState(s);
   if (!m.due) return s;
-  return { ...s, moltSeen: Math.max(m.level, s.maxLevel ?? m.level), molts: m.molts + 1 };
+  return { ...s, moltSeen: Math.max(m.level, s.maxLevel ?? m.level), molts: m.molts + 1, moltsAt: [...(s.moltsAt ?? []), now].slice(-SKINS_SHOWN) };
 }
 
 /** The spider's size after `molts` molts (1 = as it came). */
@@ -342,6 +350,7 @@ export type TankLife = {
   premolt: boolean;
   molt: boolean; // a molt is due: act it out
   molts: number;
+  skins: number; // shed skins still lying in the tank (freshSkins): the newest of `molts`
   growth: Record<string, number>;
   weather: TankWeather;
   dressing: Dressing | null;
@@ -365,6 +374,7 @@ export const IDLE_LIFE: TankLife = {
   premolt: false,
   molt: false,
   molts: 0,
+  skins: 0,
   growth: {},
   weather: NO_WEATHER,
   dressing: null,
@@ -412,6 +422,7 @@ export function tankLifeOf(s: State, o: TankInputs): TankLife {
     premolt: m.premolt,
     molt: m.due,
     molts: m.molts,
+    skins: freshSkins(s, o.now),
     growth: growthOf(s, o.now),
     weather: season?.snow ? { ...weather, snowLid: true } : weather,
     dressing: season?.item ?? null,
