@@ -184,6 +184,13 @@ Savage J.A.R.V.I.S.-style personal assistant for Android: Expo SDK 57, expo-rout
   - Spiderling map: `components/ling-map.tsx` in the mailbox, a dot map of Sweden (plain Views, a coarse polygon) with a pin per moved-out spiderling (`LING_PLACES[].at`).
   - Poking the spider: half the time (the touch timestamp's parity) a `skyTalk` pool about the real sky (storm, snow, rain, fog, wind, dusk, full moon, stars, sun).
   - Battery: the frame loop runs at full rate while touched, 30 fps while things move, 15 when `world.calm()`; on HQ it stops while scrolled out of sight (`measureInWindow` every 700 ms). The GL view's lifetime is unchanged (still `visible`).
+- Step 10 robustness:
+  - Per-day caching: achievement tests go through `anyDay`/`sumDays` in xp.ts (a WeakMap per DayLog, keyed by test id and day key) and `factsOf` adds up `dayFactsOf` shares cached per DayLog. That only works because DayLogs are replaced, never changed in place: keep it that way, and a test given to `anyDay`/`sumDays` may only read the day and its key (anything else belongs in the test's id, like `s_no_life`'s setting).
+  - Automatic backups are named `data-<stamp>-<n>d.json` (`autoBackupName`/`daysInName`); the wipe guard reads counts from names and opens only older files, one at a time.
+  - Health Connect: readings two or more days back are kept for `PAST_TTL_MS` (2 h) by `pastOr` in health.ts; today and yesterday are always read fresh. Failed reads are never kept.
+  - The store's context is split: `useStore()` (everything else), `useToasts()`, `useCue()`, `useTankEvents()`. Fast-changing UI state goes in a context of its own, not in `main`.
+  - `rowsThatFit` (persist.ts, `SAFE_ROW` 1.5 MB) keeps an oversized row from being written (its last good copy stays; one warning, `Disk.warnedBig`).
+  - Going to the background replans a pending reminder change at once (inside the replan effect) and flushes a pending line-memory save. `trimToasts` (toast-queue.ts) never drops the toast showing or one with a button.
 - Scores and recaps judge only `countedDay`s (`day-filters.ts`): something was logged and the day wasn't rough (paused, low mood, period). Rough days are listed as rest, never as misses; recaps start at `firstDataDay`. Mood and protein are shown but never graded.
 
 ## Before calling a change done
