@@ -9,6 +9,7 @@ import { ledgerOn } from '@/lib/ledger';
 import { gradeOf, weekReport, type Grade } from '@/lib/report';
 import { useStore } from '@/lib/store';
 import { CallsLine } from '@/components/shot-call'; // step 8 game: the week's calls and the month's title
+import { MeetingLoadCard } from '@/components/meeting-load-card'; // step 10 meetings: the calendar autopsy, never graded
 
 const GRADE_COLOR: Record<Grade, string> = { A: C.green, B: C.cyan, C: C.yellow, D: '#FF8A3D', F: C.red };
 const GRADE_LINE = { A: 'reportGreat', B: 'reportGood', C: 'reportMid', D: 'reportBad', F: 'reportBad' } as const;
@@ -93,6 +94,8 @@ export default function ReportScreen() {
       <XpLedger monday={r.monday} />
 
       <DoneThisWeek monday={r.monday} />
+
+      <MeetingLoadCard from={dayKey(r.monday)} to={dayKey(addDays(r.monday, 6))} />
 
       {r.best ? (
         <Card>

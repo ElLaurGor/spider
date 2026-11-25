@@ -96,6 +96,8 @@ export type Settings = {
   worryPing?: boolean; // a reminder at the worry slot when worries are waiting; opt-in, unset = off
   nightShift?: boolean; // the can't-sleep corner after bedtime (lib/night-shift.ts); unset = on
   meetingReset?: boolean; // a 2-minute reset ping after 2 h of back-to-back meetings (lib/marathon.ts); unset = on
+  // step 10 ask & meetings
+  meetingCalendars?: string[] | null; // calendars whose events count as meetings (lib/meeting-load.ts); unset or null = every calendar read
 };
 
 /** A one-tap food on Fuel's quick-add row. */
@@ -526,6 +528,7 @@ export type CalEvent = {
   calendarId: string;
   color?: string;
   recurring?: boolean; // step 9 story: part of a repeating series (big-days.ts leaves those out)
+  free?: boolean; // step 10: shown as "free" in the calendar (availability), never a meeting (meeting-load.ts)
 };
 
 export type CalInfo = { id: string; title: string; account: string; color?: string };

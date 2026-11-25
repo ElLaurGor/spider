@@ -6,6 +6,7 @@ import { monthDone } from './done-list';
 import { emotionEmoji, moodInfo } from './mood';
 import { BOSSES } from './quests';
 import { chaptersBetween } from './chapters';
+import { loadMood, type MeetingLoad } from './meeting-load'; // step 10 meetings
 import { dayScoreFor, gradeOf, type Grade } from './report';
 import { activitiesOf, avgMood, coffeeOf, dayOf, effectiveSavage, gamingBudgetMin, gamingUsedMs, moodsOf, trainedOn, trainMinutes, waterGoalFor, waterMl } from './selectors';
 import { monthLine, nearStockholm } from './sthlm-climate';
@@ -24,8 +25,9 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
  * The month from the first day anything was logged (days before the app was in use don't count). Scores
  * and "X of N days" only judge counted days: rough ones (sick or away, a low mood, a period day) are left
  * out and shown as rest. The quips go gentle when the tone is down or the month was a rough one.
+ * `meetings`: the month's meeting load, read back from the phone's calendar (meeting-load.ts), when it could be.
  */
-export function monthWrapped(s: State, year: number, month: number, now = new Date()) {
+export function monthWrapped(s: State, year: number, month: number, now = new Date(), meetings: MeetingLoad | null = null) {
   const first = new Date(year, month, 1);
   const lastOfMonth = new Date(year, month + 1, 0).getDate();
   const isCurrent = year === now.getFullYear() && month === now.getMonth();
@@ -249,6 +251,35 @@ export function monthWrapped(s: State, year: number, month: number, now = new Da
         ? pick('That one aged like milk, and you still finished it. Respect.', 'Even the old one got done. Nice.')
         : pick('Ticked, cleared, forgotten. As it should be.', 'Things got done this month.'),
       color: 'green',
+    });
+  }
+
+  // step 10 meetings: the month's calendar autopsy (meeting-load.ts). Shown, never graded; the quip roasts the calendar, never her.
+  if (meetings && meetings.meetings > 0) {
+    const mood = loadMood(meetings);
+    const busy = meetings.busiest;
+    slides.push({
+      id: 'meetings',
+      emoji: '📅',
+      title: 'Meetings',
+      big: fmtDuration(meetings.minutes * MIN),
+      sub: [
+        `${plural(meetings.meetings, 'meeting')} · ${fmtDuration((meetings.minutes / Math.max(1, meetings.workdays)) * MIN)} a workday`,
+        `${plural(meetings.focusGaps, 'focus gap')} of 90+ min`,
+        meetings.late ? `${meetings.late} past 17:00` : '',
+        busy ? `busiest ${short(new Date(`${busy.day}T12:00`))} (${fmtDuration(busy.minutes * MIN)})` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      quip:
+        mood === 'noFocus'
+          ? pick('Not one 90-minute gap all month. The calendar ran your time through a shredder.', 'No long gaps on the calendar this month. Next month, book the focus time first.')
+          : mood === 'heavy'
+            ? pick('The calendar had a great month. It met everyone. Some of them twice.', 'A meeting-heavy month. A few guarded mornings next month would help.')
+            : mood === 'late'
+              ? pick('The calendar kept working after five. Someone should tell it about evenings.', 'A few meetings ran late this month. Evenings are worth guarding.')
+              : pick('A calm calendar. It almost looks like it respects your time.', 'A calm month on the calendar, with room to think.'),
+      color: 'purple',
     });
   }
 

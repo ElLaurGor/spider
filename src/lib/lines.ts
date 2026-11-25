@@ -3000,6 +3000,191 @@ export const LINES = {
       'No idea what the sky did. It was busy.',
     ],
   },
+  // step 10 meetings: the calendar autopsy (meeting-load.ts) in the War room and the weekly Report. They roast the
+  // calendar, never her. {hours} in meetings, the busiest {day}, {n} meetings past 17:00 (always all three passed).
+  meetingHeavy: {
+    mild: [
+      '{hours} of meetings this week. The calendar booked you solid, and that one is on the calendar.',
+      '{hours} in meetings, and {day} took the worst of it. Guard a morning next week.',
+      'Your calendar had big plans for you: {hours} of them. Worth taking a block or two back.',
+    ],
+    savage: [
+      "{hours} of meetings. Your calendar isn't a schedule, it's a hostage situation.",
+      '{day} was wall-to-wall. The calendar threw a party and booked you as the venue.',
+      '{hours} of talking about work. The work itself is still waiting in the lobby.',
+      'Your calendar treats free time like a bug, and it patched every single one.',
+    ],
+  },
+  meetingNoFocus: {
+    mild: [
+      'Not one 90-minute gap all week. Deep work needs a door, and the calendar never left one open.',
+      'No stretch of 90 minutes anywhere. Book a focus block before the invites get there first.',
+      'The calendar left you crumbs: no gap long enough to think in. Claim one next week.',
+    ],
+    savage: [
+      'Zero focus gaps of 90 minutes. Your calendar plays Tetris and loses on purpose.',
+      'Not a single 90-minute gap. The calendar chopped your week into confetti.',
+      'Ninety minutes of peace? The calendar has never heard of it.',
+    ],
+  },
+  meetingLate: {
+    mild: [
+      '{n} meetings ran past 17:00. The calendar keeps forgetting you have an evening.',
+      '{n} late finishes this week. A hard stop at 17:00 belongs in the calendar too.',
+      'The calendar ran overtime {n} times. Your evenings deserve better scheduling.',
+    ],
+    savage: [
+      '{n} meetings past 17:00. Your calendar thinks evenings are a rumour.',
+      'Meetings after five, {n} times. The calendar does unpaid overtime and drags you along.',
+      '{n} late meetings. Whoever set those has no off switch, and the calendar let them.',
+    ],
+  },
+  meetingLight: {
+    mild: [
+      '{hours} of meetings and room to think. The calendar behaved.',
+      'A sane week on the calendar: {hours} of meetings, gaps to spare.',
+      'The calendar left you space this week. Spend it on something that matters to you.',
+    ],
+    savage: [
+      'Only {hours} of meetings. Either the calendar is on holiday or someone forgot to invite you.',
+      '{hours} of meetings. The calendar showed restraint. I am as surprised as you are.',
+      'The calendar barely tried this week. Use the quiet before it remembers you.',
+    ],
+  },
+  meetingNone: {
+    mild: [
+      'No meetings on the calendar at all. A clean slate.',
+      'Not one meeting. The calendar kept quiet.',
+      'An empty calendar. The week was yours.',
+    ],
+    savage: [
+      'Zero meetings. Either the calendar broke, or everyone finally learned email.',
+      'Not one meeting. I checked twice. The calendar must be on strike.',
+      'The calendar was empty. Enjoy it before the invites come back.',
+    ],
+  },
+  // step 10 ask: the line after a verdict on /ask (ask.ts). Never about the body; kind days hear the mild list.
+  // askTonightEarly gets {time} (home by); every askTonight* answer passes it.
+  askGymGo: {
+    mild: [
+      'Verdict: go. Even a short session counts.',
+      "The numbers say go. I'll hold the fort here.",
+      'Go. Future you sends thanks in advance.',
+    ],
+    savage: [
+      "Go. I've run the numbers and none of them say sofa.",
+      "Gym. Now. The weights won't lift themselves, I checked.",
+      'Verdict: go. Asking me was the stalling, and the stalling is over.',
+    ],
+  },
+  askGymEasy: {
+    mild: [
+      'Go easy today: a light session or a walk counts just as much.',
+      'A gentle one today. Show up, move a bit, call it a win.',
+      'Easy mode is the smart mode today. Short and light is plenty.',
+    ],
+    savage: [
+      'Light session today. Heroics can wait for a better morning.',
+      'Go, but easy. This is a maintenance visit, not a boss fight.',
+      "Half throttle today. The gym will still be there when you're back at full power.",
+    ],
+  },
+  askGymSkip: {
+    mild: [
+      'Skip it today, guilt-free. Rest is part of the plan.',
+      "Today's answer is rest. The plan will still be here tomorrow.",
+      'Sit this one out. Recovery counts as training too.',
+    ],
+    savage: [
+      "Skip. Even I can't argue with the data, and I love arguing.",
+      "Rest day. Enjoy it. Don't get used to it.",
+      'Skip it. The weights will miss you, briefly.',
+    ],
+  },
+  askGymDone: {
+    mild: [
+      'Already trained today. Anything more is a bonus, not a debt.',
+      'Done for today. That box is ticked.',
+      "Today's workout is in the books. Rest well.",
+    ],
+    savage: [
+      "You already went. Asking twice won't earn twice the XP.",
+      'Trained already. Sit down before you start showing off.',
+      "Done. Go brag to someone who isn't a spider.",
+    ],
+  },
+  askGameYes: {
+    mild: [
+      'One more fits. Enjoy it.',
+      'Go on, there is room in the budget. Have fun.',
+      'Yes. The budget and the clock both allow it.',
+    ],
+    savage: [
+      "One more. One. I'm counting, even if you aren't.",
+      'Fine, one more. The budget says yes; I say it through gritted fangs.',
+      'Yes. Enjoy it before I find a reason to say no.',
+    ],
+  },
+  askGameLast: {
+    mild: [
+      'One last one, then wind down. Tomorrow will thank you.',
+      'One more, a short one. Then the controller rests too.',
+      'Last one for tonight. Make it a good one.',
+    ],
+    savage: [
+      "Last one. And last means last, not 'last until the next last'.",
+      "One more, then lights out. I've seen how your 'one more' usually goes.",
+      'Final round. The controller has a bedtime too.',
+    ],
+  },
+  askGameNo: {
+    mild: [
+      'Not tonight. The game will keep until tomorrow.',
+      "Better to stop here. Tomorrow's you gets the next round.",
+      'Time to call it. Save the next one for a fresh evening.',
+    ],
+    savage: [
+      'No. The budget is spent and the clock agrees with me.',
+      'No more. Put the controller down slowly and step away.',
+      "That's a no. The game will survive without you. Will your morning?",
+    ],
+  },
+  askTonightYes: {
+    mild: [
+      'Say yes. Tomorrow has room for a late night.',
+      "Go. Tonight's a good night for it.",
+      'Yes. Have fun out there.',
+    ],
+    savage: [
+      'Say yes. The sofa will cope without you for one evening.',
+      'Yes. A social life: rare, but the data supports it tonight.',
+      "Go. Tomorrow's calendar is soft enough to take a late night.",
+    ],
+  },
+  askTonightEarly: {
+    mild: [
+      'Yes, with a curfew: home by {time} and tomorrow stays easy.',
+      'Go, and head home around {time}. Tomorrow starts sharp.',
+      'Say yes to a short one, home by {time}. Tomorrow needs some of you.',
+    ],
+    savage: [
+      "Yes, Cinderella rules: home by {time}, or tomorrow's calendar turns into a pumpkin.",
+      "Go, but leave by {time}. Tomorrow's calendar is not in a forgiving mood.",
+      "Say yes, then leave at {time} while it's still fun. Tomorrow won't wait.",
+    ],
+  },
+  askTonightClash: {
+    mild: [
+      "Check the calendar first: something's already booked tonight.",
+      "Tonight's already spoken for. Pick one, and enjoy it.",
+      'There is already a plan tonight. One evening, one plan, more fun.',
+    ],
+    savage: [
+      "Tonight already has a booking. Cloning yourself isn't in this version.",
+      "You're already busy tonight. Overbooking is the calendar's job, not yours.",
+      'Something is already booked. Pick one evening, not two.',
+    ],
+  },
   // Rare guests (guests.ts): each in its own voice on the day's logs ({summary}: water, training, tasks, habits,
   // focus, steps; never food, mood, sleep or the body), and a quiet pool for kind days, kind in both lists.
   guestJumper: {

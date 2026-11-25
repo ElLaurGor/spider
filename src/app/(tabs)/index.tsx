@@ -245,6 +245,8 @@ export default function HQ() {
           <Btn label="Wrapped" icon="redeem" kind="ghost" small onPress={() => router.push('/wrapped')} style={{ flex: 1 }} />
           <Btn label="Insights" icon="insights" kind="ghost" small onPress={() => router.push('/insights')} style={{ flex: 1 }} />
         </Row>
+        {/* step 10 ask: gym or skip, one more game, say yes to tonight */}
+        <Btn label="Ask S.P.I.D.E.R." icon="forum" kind="ghost" small onPress={() => router.push('/ask')} />
       </>
     ),
     league: () => <LeagueCard />,

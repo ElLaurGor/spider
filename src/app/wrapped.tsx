@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 
 import { snapsThere, TankSnapSlide } from '@/components/tank-snaps';
+import { useCalendarRange } from '@/components/use-calendar-range'; // step 10 meetings
 import { Chip, Icon, Row } from '@/components/ui';
 import { C, MONO } from '@/constants/theme';
 import { dayKey } from '@/lib/dates';
 import { firstDataDay } from '@/lib/day-filters';
+import { meetingLoad } from '@/lib/meeting-load';
 import { useStore } from '@/lib/store';
 import { monthWrapped } from '@/lib/wrapped';
 import { tankSnapsFor } from '@/lib/tank-life';
@@ -32,7 +34,14 @@ export default function WrappedScreen() {
   const target = new Date(now.getFullYear(), now.getMonth() + offset, 1);
   const year = now.getFullYear() + yearOffset;
   const firstYear = Number((firstDataDay(state) ?? dayKey(now)).slice(0, 4));
-  const w = yearMode ? yearWrapped(state, year, now) : monthWrapped(state, target.getFullYear(), target.getMonth(), now);
+  // step 10 meetings: the month's meetings, read back from the phone's calendar (from the first day used)
+  const since = firstDataDay(state);
+  const monthFrom = dayKey(target);
+  const meetFrom = since && since > monthFrom ? since : monthFrom;
+  const meetTo = dayKey(new Date(target.getFullYear(), target.getMonth() + 1, 0));
+  const monthCal = useCalendarRange(meetFrom, meetTo, !yearMode && meetFrom <= meetTo);
+  const meetings = !yearMode && monthCal.events ? meetingLoad(state, monthCal.events, meetFrom, meetTo, dayKey(now)) : null;
+  const w = yearMode ? yearWrapped(state, year, now) : monthWrapped(state, target.getFullYear(), target.getMonth(), now, meetings);
   // step 8 terrarium: the tank's monthly snapshot (the year: its first and last), as one more slide
   const snaps = snapsThere(tankSnapsFor(state, yearMode ? String(year) : dayKey(target).slice(0, 7)));
 

@@ -360,6 +360,17 @@ export default function RootLayout() {
                   headerShadowVisible: false,
                 }}
               />
+              {/* step 10 ask: three questions, a verdict and the reasons */}
+              <Stack.Screen
+                name="ask"
+                options={{
+                  headerShown: true,
+                  title: "Ask S.P.I.D.E.R.",
+                  headerStyle: { backgroundColor: C.bg },
+                  headerTintColor: C.text,
+                  headerShadowVisible: false,
+                }}
+              />
               {/* the terrarium round: the tank full screen, sideways */}
               <Stack.Screen
                 name="tank"
