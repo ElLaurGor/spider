@@ -305,6 +305,23 @@ export async function readHeartDay(key: string, now = new Date()): Promise<{ sam
   return { samples, resting: resting && resting.BPM_AVG > 0 ? Math.round(resting.BPM_AVG) : null };
 }
 
+/**
+ * Readings for days two or more back hardly change: they're kept here and read again at most every
+ * PAST_TTL_MS (a watch that syncs a day late still lands), instead of on every 5-minute read. Today and
+ * yesterday are always read fresh (Zepp writes late). A failed read is never kept.
+ */
+export const PAST_TTL_MS = 2 * 3_600_000;
+const pastReads = new Map<string, { at: number; v: number }>();
+export async function pastOr(kind: string, day: Date, today: Date, now: number, read: () => Promise<number | null>): Promise<number | null> {
+  if (day.getTime() > addDays(today, -2).getTime()) return read();
+  const key = `${kind}:${dayKey(day)}`;
+  const hit = pastReads.get(key);
+  if (hit && now - hit.at < PAST_TTL_MS) return hit.v;
+  const v = await read();
+  if (v != null) pastReads.set(key, { at: now, v });
+  return v;
+}
+
 /** `fill`: other apps cover Zepp's delay in today's steps (readTodaySteps). */
 export async function readHealth(now = new Date(), fill = true): Promise<HealthData | null> {
   const lib = hc;
@@ -330,8 +347,8 @@ export async function readHealth(now = new Date(), fill = true): Promise<HealthD
   const fortnight = Array.from({ length: 14 }, (_, i) => addDays(today, i - 13));
 
   const [stepsWeek, sleepWeek, heart, resting, latest, sessions, restingDays] = await Promise.all([
-    Promise.all(week.map(async (d) => ({ key: dayKey(d), steps: await stepsOn(lib, d, fill && d.getTime() === today.getTime() ? now.getTime() : undefined) }))),
-    Promise.all(week.map(async (d) => ({ key: dayKey(d), sleepMin: await sleepBefore(d) }))),
+    Promise.all(week.map(async (d) => ({ key: dayKey(d), steps: await pastOr('steps', d, today, now.getTime(), () => stepsOn(lib, d, fill && d.getTime() === today.getTime() ? now.getTime() : undefined)) }))),
+    Promise.all(week.map(async (d) => ({ key: dayKey(d), sleepMin: await pastOr('sleep', d, today, now.getTime(), () => sleepBefore(d)) }))),
     safe(() => lib.aggregateRecord({ recordType: 'HeartRate', timeRangeFilter: range(today, now) })),
     safe(() => lib.aggregateRecord({ recordType: 'RestingHeartRate', timeRangeFilter: range(addDays(now, -1), now) })),
     safe(() =>
@@ -342,7 +359,7 @@ export async function readHealth(now = new Date(), fill = true): Promise<HealthD
       }),
     ),
     readSessions(lib, new Date(nightWindow(dayKey(week[0])).from), now),
-    Promise.all(fortnight.map(async (d) => ({ key: dayKey(d), bpm: await restingOn(d) }))),
+    Promise.all(fortnight.map(async (d) => ({ key: dayKey(d), bpm: await pastOr('resting', d, today, now.getTime(), () => restingOn(d)) }))),
   ]);
 
   const lastRecord = latest?.records[0];

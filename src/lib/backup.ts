@@ -9,7 +9,7 @@
 // for Drive or mail; restoring from such a file picks the file itself.
 import { Directory, File, Paths } from 'expo-file-system';
 
-import { autoBackupsToPrune, orphanPhotos, pickBackup, skipAutoBackup } from './backup-pick';
+import { autoBackupName, autoBackupsToPrune, daysInName, orphanPhotos, pickBackup, skipAutoBackup } from './backup-pick';
 import { hydrate } from './defaults';
 import type { State } from './types';
 
@@ -103,9 +103,19 @@ export async function autoBackup(state: State, folderUri: string, now = new Date
   const parent = new Directory(folderUri);
   if (!parent.exists) throw new Error('Backup folder is gone');
   const dir = childDir(parent, AUTO_DIR);
-  const counts = await Promise.all(autoFilesIn(dir).map(async (f) => (await readBackupFile(f))?.state?.days));
-  const sizes = counts.flatMap((days) => (days ? [Object.keys(days).length] : []));
-  if (skipAutoBackup(sizes.length ? Math.max(...sizes) : null, Object.keys(state.days).length)) return { photos: 0, skipped: true };
+  // The fullest kept backup, for the wipe guard: the day count is in each name; only a file from before that is
+  // opened, one at a time (a year of history is over a megabyte of JSON per file).
+  let fullest: number | null = null;
+  for (const f of autoFilesIn(dir)) {
+    let n = daysInName(f.name);
+    if (n == null) {
+      const days = (await readBackupFile(f))?.state?.days;
+      n = days ? Object.keys(days).length : null;
+    }
+    if (n != null) fullest = Math.max(fullest ?? 0, n);
+  }
+  const dayCount = Object.keys(state.days).length;
+  if (skipAutoBackup(fullest, dayCount)) return { photos: 0, skipped: true };
   const photoDir = childDir(dir, 'photos');
   const have = new Set(photoDir.list().map((e) => e.name));
 
@@ -123,13 +133,14 @@ export async function autoBackup(state: State, folderUri: string, now = new Date
   }
 
   const data: BackupFile = { app: 'spider', version: 1, createdAt: Date.now(), photos: names, state };
-  dir.createFile(`data-${stampNow()}.json`, 'application/json').write(JSON.stringify(data));
+  dir.createFile(autoBackupName(stampNow(), dayCount), 'application/json').write(JSON.stringify(data));
 
   const prune = autoBackupsToPrune(autoFilesIn(dir).map((f) => f.name));
   for (const old of autoFilesIn(dir)) if (prune.includes(old.name)) old.delete();
   // Once a week the photos folder sheds what no kept backup points to, so deleted photos don't pile up forever.
   if (now.getDay() === 0) {
-    const kept = await Promise.all(autoFilesIn(dir).map(async (f) => (await readBackupFile(f))?.photos ?? null));
+    const kept: (Record<string, string> | null)[] = [];
+    for (const f of autoFilesIn(dir)) kept.push((await readBackupFile(f))?.photos ?? null); // one at a time
     const gone = orphanPhotos([...have], kept) ?? [];
     for (const e of photoDir.list()) if (e instanceof File && gone.includes(e.name)) e.delete();
   }

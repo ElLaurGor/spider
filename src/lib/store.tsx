@@ -8,7 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from 'react-native';
 
 import { autoBackup, createBackup, keepCopy, pickAutoBackupFolder, readBackup, readBackupFromFile, shareableBackup } from './backup';
-import { olderCopy, readSaved, ReadError, rowsFor, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from './persist';
+import { olderCopy, readSaved, ReadError, rowsFor, rowsThatFit, utf8Bytes, V1_KEY, wouldWipe, writeVerified } from './persist';
 import { autoBackupDue } from './backup-due';
 import { THEMES } from '@/constants/theme';
 
@@ -16,6 +16,7 @@ import { activityInfo } from './body';
 import { calendarPermission, calendarSupported, loadCalendars, loadEvents } from './calendar';
 import { bankFor, CHEST_KEY_COST, cleanName, NAME_COST, PEEL_COST, PITY_AFTER, QUEST_CARD_COST, rollChest, shopPrice, SHOP_ITEMS, type ShopItemId } from './economy';
 import { nextPiece, withPiece, withPlace } from './lair';
+import { trimToasts } from './toast-queue';
 import { stageFor, themesUnlockedBetween } from './evolution';
 import { addDays, atTime, dayKey, fmtDuration, fmtTime, isDayKey, MIN, startOfDay, startOfWeek, uid, WEEKDAYS_LONG } from './dates';
 import { defaultState, hydrate } from './defaults';
@@ -900,6 +901,8 @@ type Disk = {
   /** Reset, restore and "start fresh" may shrink the history; the next save clears it. */
   allowShrink: boolean;
   warnedShrink: boolean;
+  /** A row was refused for being too big to read back (persist.ts rowsThatFit); said once. */
+  warnedBig: boolean;
   /** Bytes per stored row, as last read or written. */
   sizes: Record<string, number>;
   savedAt: number | null;
@@ -914,6 +917,7 @@ const freshDisk = (): Disk => ({
   dayCount: 0,
   allowShrink: false,
   warnedShrink: false,
+  warnedBig: false,
   sizes: {},
   savedAt: null,
   failures: 0,
@@ -936,14 +940,24 @@ const restored = (s: State, here?: State): State => ({
 
 // ---------- context ----------
 
-type Store = ReturnType<typeof useStoreValue>;
+type Value = ReturnType<typeof useStoreValue>;
+type Store = Value['main'];
 const StoreContext = createContext<Store | null>(null);
+const ToastContext = createContext<Value['toast'] | null>(null);
+const CueContext = createContext<Value['cue'] | null>(null);
+const TankContext = createContext<Value['tank'] | null>(null);
 
-export function useStore() {
-  const ctx = useContext(StoreContext);
-  if (!ctx) throw new Error('useStore must be used inside <StoreProvider>');
+const need = <T,>(ctx: T | null, name: string): T => {
+  if (!ctx) throw new Error(`${name} must be used inside <StoreProvider>`);
   return ctx;
-}
+};
+export const useStore = () => need(useContext(StoreContext), 'useStore');
+/** The toast showing now and how to dismiss it (components/toast.tsx). */
+export const useToasts = () => need(useContext(ToastContext), 'useToasts');
+/** An if-then cue that just went off in the app (components/cue-prompt.tsx). */
+export const useCue = () => need(useContext(CueContext), 'useCue');
+/** Things just logged for the terrarium to act out (components/terrarium-3d.tsx). */
+export const useTankEvents = () => need(useContext(TankContext), 'useTankEvents');
 
 /** What the recovery screen gets when the saved data couldn't be read. */
 export type RecoveryProps = {
@@ -959,9 +973,17 @@ export type RecoveryProps = {
 
 export function StoreProvider({ children, recovery: Recovery }: { children: ReactNode; recovery: ComponentType<RecoveryProps> }) {
   const value = useStoreValue();
-  if (value.recovery) return <Recovery {...value.recovery} />;
-  if (!value.ready) return null; // splash screen stays up until data is loaded
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  if (value.main.recovery) return <Recovery {...value.main.recovery} />;
+  if (!value.main.ready) return null; // splash screen stays up until data is loaded
+  return (
+    <StoreContext.Provider value={value.main}>
+      <ToastContext.Provider value={value.toast}>
+        <CueContext.Provider value={value.cue}>
+          <TankContext.Provider value={value.tank}>{children}</TankContext.Provider>
+        </CueContext.Provider>
+      </ToastContext.Provider>
+    </StoreContext.Provider>
+  );
 }
 
 const TAB_PATHS = ['/', '/plan', '/gym', '/fuel', '/game'];
@@ -1015,7 +1037,7 @@ function useStoreValue() {
     haptic(tone);
     toastId.current += 1;
     const id = toastId.current;
-    setToasts((q) => [...q.slice(-3), { id, text, tone, action }]);
+    setToasts((q) => trimToasts([...q, { id, text, tone, action }]));
   }, []);
   const dismissToast = useCallback(() => setToasts((q) => q.slice(1)), []);
 
@@ -1045,7 +1067,15 @@ function useStoreValue() {
       await AsyncStorage.setItem(V1_KEY, raw);
       d.sizes = { [V1_KEY]: utf8Bytes(raw) };
     } else {
-      const { pairs, gone, months } = rowsFor(s, d.days, d.months, { migratedAt: d.migratedAt, v1Until: d.v1Until });
+      const rows = rowsFor(s, d.days, d.months, { migratedAt: d.migratedAt, v1Until: d.v1Until });
+      const { gone, months } = rows;
+      // A row over Android's 2 MB CursorWindow saves fine and can never be read again: keep the last good copy of it instead.
+      const { ok: pairs, big } = rowsThatFit(rows.pairs);
+      if (big.length) {
+        console.warn('[spider] refused to write rows too big to read back', big);
+        if (!d.warnedBig) say(`💾 Part of your save (${big.map((b) => `${b.key}, ${Math.round(b.bytes / 1024)} KB`).join('; ')}) got too big to store safely, so I kept its last good copy. Make a backup.`, 'bad');
+        d.warnedBig = true;
+      }
       await AsyncStorage.multiSet(pairs);
       if (gone.length) await AsyncStorage.multiRemove(gone);
       for (const [k, v] of pairs) d.sizes[k] = utf8Bytes(v);
@@ -1731,6 +1761,14 @@ function useStoreValue() {
           void refreshOutside(false);
         });
       } else {
+        // Leaving the app: JS timers stop now, so a line-memory save waiting on one happens here instead (the
+        // replan effect below does the same for a pending replan).
+        if (lineSave.current) {
+          clearTimeout(lineSave.current);
+          lineSave.current = null;
+          const mem = lineMemory();
+          if (loaded.current && stateRef.current.lineMemory !== mem) stateRef.current = { ...stateRef.current, lineMemory: mem };
+        }
         if (saveTimer.current) clearTimeout(saveTimer.current);
         save();
       }
@@ -1781,8 +1819,24 @@ function useStoreValue() {
 
   useEffect(() => {
     if (!notifReady || !state.onboarded) return;
-    const t = setTimeout(() => void replanNotifications(state, events, weather, air), 1500);
-    return () => clearTimeout(t);
+    // Replanned 1.5 s after the last change, or at once if the app goes to the background first: JS timers stop
+    // then, and a change made just before locking the phone would otherwise leave the old reminders standing.
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      void replanNotifications(state, events, weather, air);
+    };
+    const t = setTimeout(go, 1500);
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') return;
+      clearTimeout(t);
+      go();
+    });
+    return () => {
+      clearTimeout(t);
+      sub.remove();
+    };
   }, [notifReady, state, events, weather, air, tick]);
   // A replan right away, for the queue while the app is in the background (the timer above waits for the foreground).
   const replanNow = useRef<() => Promise<void>>(async () => {});
@@ -4033,7 +4087,9 @@ function useStoreValue() {
     [savage],
   );
 
-  return {
+  // The parts that change many times a minute (the toast showing, an if-then cue, things for the tank to act
+  // out) have contexts of their own, so a toast doesn't re-render every screen that reads the store.
+  const main = {
     ready,
     recovery,
     storageInfo,
@@ -4042,9 +4098,6 @@ function useStoreValue() {
     say,
     quip,
     saveNow,
-    toast: toasts[0] ?? null,
-    dismissToast,
-    cue: { prompt: cuePrompt, done: cueDone, later: cueLater },
     planB: { today: planB, done: planBDone },
     tick,
     outside: {
@@ -4076,6 +4129,11 @@ function useStoreValue() {
       refresh: () => refreshCalendar(false),
       connect: () => refreshCalendar(true),
     },
+  };
+  return {
+    main,
+    toast: { toast: toasts[0] ?? null, dismissToast },
+    cue: { prompt: cuePrompt, done: cueDone, later: cueLater },
     // step 8 terrarium: things just logged for the tank to act out (`take` once handed to it)
     tank: { events: tankEvents, take: takeTank },
   };

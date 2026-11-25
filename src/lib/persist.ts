@@ -39,6 +39,21 @@ export type Storage = {
 
 export const monthOf = (day: string) => day.slice(0, 7);
 
+/** Rows are kept under this, well inside ROW_LIMIT. */
+export const SAFE_ROW = 1.5 * 1024 * 1024;
+
+/** The rows that are safe to write, and the ones too big to read back again (those keep their last good copy on disk). */
+export function rowsThatFit<P extends readonly [string, string]>(pairs: readonly P[], limit = SAFE_ROW): { ok: P[]; big: { key: string; bytes: number }[] } {
+  const ok: P[] = [];
+  const big: { key: string; bytes: number }[] = [];
+  for (const p of pairs) {
+    const bytes = utf8Bytes(p[1]);
+    if (bytes > limit) big.push({ key: p[0], bytes });
+    else ok.push(p);
+  }
+  return { ok, big };
+}
+
 /** UTF-8 size of a string, which is what the row limit counts. */
 export function utf8Bytes(s: string) {
   let n = 0;

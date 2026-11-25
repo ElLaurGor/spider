@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { C } from '@/constants/theme';
-import { useStore } from '@/lib/store';
+import { useCue } from '@/lib/store';
 
 /** How long an if-then prompt stays before it gives up (the cue still counts if the habit's done later). */
 const SHOW_MS = 2 * 60_000;
@@ -13,7 +13,7 @@ const SHOW_MS = 2 * 60_000;
  * Vitamins." Done checks the habit off (a gym plan opens Gym). Sits at the bottom, clear of the toasts.
  */
 export function CuePromptHost() {
-  const { cue } = useStore();
+  const cue = useCue();
   const insets = useSafeAreaInsets();
   const p = cue.prompt;
   const { later } = cue;

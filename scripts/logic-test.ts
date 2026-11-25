@@ -260,6 +260,10 @@ import { MOVABLE, placesOf, withPlace } from '../src/lib/lair';
 import { GROW_UP_DAYS, grownLing, lingAge, lingsAtHome, LINGS_SHOWN, tankLings } from '../src/lib/egg-sacs';
 import { LING_PLACES, lingMove } from '../src/lib/mail';
 import type { Spiderling } from '../src/lib/types';
+// step 10 robustness
+import { trimToasts, TOAST_QUEUE } from '../src/lib/toast-queue';
+import { rowsThatFit, SAFE_ROW } from '../src/lib/persist';
+import { autoBackupName, daysInName } from '../src/lib/backup-pick';
 import { glassMist, skyTalk, TEMP_FRESH_MS } from '../src/lib/tank-life';
 import { LING_SOUVENIR, shelfOf as tankShelfOf, souvenirFor as tripSouvenirFor, SOUVENIR_BY_ID as SOUVENIRS_BY_ID } from '../src/lib/expeditions';
 import { guestFor as guestOnDay, LING_AWAY_DAYS, lingVisitor, settleGuests as settleGuestDays, guestOn as guestThatDay } from '../src/lib/guests';
@@ -8298,5 +8302,60 @@ function terrariumRound2Tests() {
   }
 }
 terrariumRound2Tests();
+
+function stepTenRobustnessTests() {
+  // ---- a burst of toasts keeps the one showing and every one with a button ----
+  type T = { id: number; action?: string };
+  const burst: T[] = [{ id: 1 }, { id: 2, action: 'undo' }, { id: 3 }, { id: 4 }, { id: 5 }, { id: 6 }, { id: 7, action: 'undo' }];
+  const kept = trimToasts(burst);
+  assert.equal(kept.length, TOAST_QUEUE);
+  assert.equal(kept[0].id, 1, 'the one showing stays');
+  assert.ok(kept.some((x) => x.id === 2) && kept.some((x) => x.id === 7), 'every Undo stays');
+  assert.deepEqual(kept.map((x) => x.id), [1, 2, 5, 6, 7], 'the oldest plain ones go first');
+  assert.deepEqual(trimToasts<T>([{ id: 1 }, { id: 2 }]).map((x) => x.id), [1, 2]);
+  const allUndo = trimToasts(Array.from({ length: 8 }, (_, i) => ({ id: i, action: 'undo' })));
+  assert.equal(allUndo.length, TOAST_QUEUE, 'still capped when every one has a button');
+
+  // ---- a row too big to read back is never written ----
+  const small: [string, string] = ['a', 'x'.repeat(1000)];
+  const big: [string, string] = ['b', 'é'.repeat(Math.ceil(SAFE_ROW / 2) + 10)];
+  const fit = rowsThatFit([small, big]);
+  assert.deepEqual(fit.ok.map((r) => r[0]), ['a']);
+  assert.ok(fit.big.length === 1 && fit.big[0].key === 'b' && fit.big[0].bytes > SAFE_ROW, 'counted in UTF-8 bytes');
+  assert.ok(SAFE_ROW < ROW_LIMIT);
+
+  // ---- automatic backups carry their day count in the name ----
+  const named = autoBackupName('2026-11-25-08-00', 412);
+  assert.equal(named, 'data-2026-11-25-08-00-412d.json');
+  assert.equal(daysInName(named), 412);
+  assert.equal(daysInName('data-2026-11-25-08-00.json'), null, 'older names: opened instead');
+  assert.equal(pickBackup([{ name: 'data-2026-11-24-08-00.json', days: 400 }, { name: named, days: 412 }]), named, 'old and new names sort by date together');
+  const week = Array.from({ length: 14 }, (_, i) => autoBackupName(`2026-11-${String(10 + i).padStart(2, '0')}-08-00`, 300 + i));
+  assert.equal(autoBackupsToPrune(week).length, 14 - 7 - 2, 'pruning reads the date in the new names too');
+
+  // ---- per-day caching gives the same facts and achievements as working everything out afresh ----
+  const base = { ...defaultState(), onboarded: true };
+  const day = (k: string, i: number) => ({ ...emptyDay(), water: Array.from({ length: i % 5 }, (_, j) => ({ id: `w${k}${j}`, ml: 250, at: new Date(`${k}T1${j % 9}:00`).getTime() })), steps: 1000 * i, waterGoalHit: i % 3 === 0, habits: i % 2 ? ['h1'] : [], breaths: i % 4 });
+  const days: Record<string, DayLog> = {};
+  for (let i = 0; i < 60; i++) {
+    const k = dayKey(new Date(2026, 8, 1 + i, 12));
+    days[k] = day(k, i);
+  }
+  const s1: SweState = { ...base, days };
+  const fresh = (x: SweState): SweState => JSON.parse(JSON.stringify(x)); // new objects: nothing cached
+  assert.deepEqual(factsOf(s1), factsOf(fresh(s1)));
+  const last = Object.keys(days).at(-1)!;
+  const s2: SweState = { ...s1, days: { ...days, [last]: { ...days[last], water: [...days[last].water, { id: 'extra', ml: 250, at: new Date(`${last}T03:00`).getTime() }], steps: 99_999 } } };
+  const f2 = factsOf(s2);
+  assert.deepEqual(f2, factsOf(fresh(s2)), 'a changed day is worked out again');
+  assert.equal(f2.glasses, factsOf(s1).glasses + 1);
+  assert.equal(f2.maxSteps, 99_999);
+  for (const a of [...ACHIEVEMENTS, ...SECRET_ACHIEVEMENTS]) {
+    assert.equal(a.test(s2), a.test(fresh(s2)), `${a.id}: cached and fresh agree`);
+  }
+  const owl = SECRET_ACHIEVEMENTS.find((a) => a.id === 's_night_owl')!;
+  assert.ok(!owl.test(s1) && owl.test(s2), 'a glass at 03:00 on a replaced day is seen');
+}
+stepTenRobustnessTests();
 
 console.log('synchronous logic tests passed');

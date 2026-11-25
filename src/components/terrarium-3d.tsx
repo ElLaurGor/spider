@@ -13,7 +13,7 @@ import { worn } from '@/lib/cosmetics';
 import { glLive, shadowsAllowed, shadowsFailed, shadowsWorked } from '@/lib/gl-guard';
 import { lairPieces, nextPiece } from '@/lib/lair';
 import { importPhoto } from '@/lib/photos';
-import { useStore } from '@/lib/store';
+import { useStore, useTankEvents } from '@/lib/store';
 import { grewSince, skyTalk, TANK_EVENT_MS, tankLifeOf } from '@/lib/tank-life';
 import { createWorld, type World } from '@/lib/terrarium-3d';
 // step 9 tank
@@ -108,7 +108,8 @@ async function snapshot(x: Gfx, onFail: () => void): Promise<string | null> {
  * the flat terrarium. `onFail`: GL, three.js or a shader gave up.
  */
 export function Terrarium3D({ onFail, onTap, onPlay, onExpand, onClose, full }: { onFail: () => void; onTap?: () => void; onPlay?: () => void; onExpand?: () => void; onClose?: () => void; full?: boolean }) {
-  const { state, actions, quip, say, weather, health, tank } = useStore();
+  const { state, actions, quip, say, weather, health } = useStore();
+  const tank = useTankEvents();
   const ids = lairPieces(state)
     .map((p) => p.id)
     .join(',');

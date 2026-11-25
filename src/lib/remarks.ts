@@ -62,6 +62,101 @@ const hourOf = (at: number) => {
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
+const redDays = new Map<number, Set<string>>();
+const redDay = (key: string) => {
+  const y = Number(key.slice(0, 4));
+  if (!redDays.has(y)) redDays.set(y, new Set(holidaysOf(y).filter((h) => h.red).map((h) => h.key)));
+  return redDays.get(y)!.has(key);
+};
+
+/** One day's share of the facts: sums, maxima, and what's collected across days. */
+type DayFacts = { sum: Partial<Facts>; max: Partial<Facts>; waterMl: number; gamingMs: number; weekday: number | null; exercises: string[]; used: boolean };
+const dayCache = new WeakMap<DayLog, { key: string; facts: DayFacts }>();
+
+function dayFactsOf(key: string, d: DayLog): DayFacts {
+  const hit = dayCache.get(d);
+  if (hit && hit.key === key) return hit.facts;
+  const sum: Partial<Facts> = {};
+  const max: Partial<Facts> = {};
+  const add = (k: FactKey, n = 1) => (sum[k] = (sum[k] ?? 0) + n);
+  const top = (k: FactKey, n: number) => (max[k] = Math.max(max[k] ?? 0, n));
+  const x: DayFacts = { sum, max, waterMl: 0, gamingMs: 0, weekday: null, exercises: [], used: loggedOn(d) };
+  if (x.used) add('usedDays');
+  for (const w of d.water) {
+    add('glasses');
+    x.waterMl += w.ml;
+    if (!w.late && hourOf(w.at) < 6) add('earlyGlass');
+  }
+  if (d.waterGoalHit) add('waterGoalDays');
+  for (const c of d.coffee ?? []) {
+    add('cups');
+    if (!c.late && hourOf(c.at) < 6) add('earlyCup');
+  }
+  const acts = d.activities ?? [];
+  add('activities', acts.length);
+  for (const set of d.sets) {
+    add('sets');
+    add('reps', set.reps);
+    add('liftKg', Math.max(0, set.weight) * set.reps);
+    x.exercises.push(set.exercise.trim().toLowerCase());
+  }
+  if (d.workoutCounted) {
+    add('trainDays');
+    x.weekday = new Date(`${key}T12:00`).getDay();
+    const wx = d.weather;
+    if (wx) {
+      if (isSnow(wx.code)) add('snowTrain');
+      if (wx.rainMm >= 2) add('rainTrain');
+      if (wx.max >= 27) add('hotTrain');
+      if (wx.max <= -5) add('coldTrain');
+    }
+    if (redDay(key)) add('redTrain');
+    const times = [...d.sets.map((t) => t.at), ...acts.map((t) => t.at)];
+    if (times.some((t) => hourOf(t) < 6.5)) add('earlyTrain');
+    if (times.some((t) => hourOf(t) >= 22)) add('lateTrain');
+  }
+  if (d.comeback) add('comebacks');
+  if (d.steps != null) top('maxSteps', d.steps);
+  if (d.stepGoalHit) add('stepGoalDays');
+  if (d.questsAllDone) add('questDays');
+  for (const fo of d.focus ?? []) {
+    add('focusN');
+    add('focusMin', fo.minutes);
+    if (fo.snapped) add('snapped');
+    else top('longestFocus', fo.minutes);
+  }
+  add('breaths', d.breaths ?? 0);
+  if (d.windDownDone) add('windDowns');
+  add('habitChecks', d.habits?.length ?? 0);
+  add('minis', d.habitsMini?.length ?? 0);
+  add('trackerEntries', Object.keys(d.tracks ?? {}).length);
+  for (const g of d.games) {
+    const ms = Math.max(0, g.end - g.start);
+    x.gamingMs += ms;
+    top('longestGameH', ms / HOUR_MS);
+  }
+  if ((d.banked ?? 0) > 0) add('bankedDays');
+  for (const c of [d.chest, d.keyChest]) {
+    if (!c) continue;
+    add('chests');
+    if (c.gold) add('goldChests');
+    if (c.kind === 'legendary') add('legendaries');
+  }
+  if (d.keyChest) add('keyChests');
+  if (d.shot) {
+    add('calls');
+    if (d.shot.result === 'hit' && d.shot.call === 'no') add('noChanceHits');
+    if (d.shot.result === 'hit' && d.shot.call === 'lock') add('lockHits');
+  }
+  for (const t of d.doneTasks ?? []) {
+    if (t.since != null) top('oldestDone', (t.at - t.since) / DAY_MS);
+    if (t.since != null && t.at - t.since < 60_000) add('quickDone');
+    if (hourOf(t.at) < 4) add('nightDone');
+  }
+  dayCache.set(d, { key, facts: x });
+  return x;
+}
+
 const cache = new WeakMap<State, Facts>();
 
 /**
@@ -74,96 +169,24 @@ export function factsOf(s: State): Facts {
   if (hit) return hit;
   const f = Object.fromEntries(FACTS.map((k) => [k, 0])) as Facts;
   f.fastestKillH = Infinity;
-  const red = new Map<number, Set<string>>();
-  const redDay = (key: string) => {
-    const y = Number(key.slice(0, 4));
-    if (!red.has(y)) red.set(y, new Set(holidaysOf(y).filter((h) => h.red).map((h) => h.key)));
-    return red.get(y)!.has(key);
-  };
   const weekdays = new Set<number>();
   const exercises = new Set<string>();
   let waterMl = 0;
   let gamingMs = 0;
   let first: string | null = null;
 
+  // Each day's share is worked out once per day object (DayLogs are never changed in place, only replaced), so
+  // a change to today doesn't walk the whole history again.
   for (const [key, d] of Object.entries(s.days)) {
     if (!d || !Array.isArray(d.water)) continue;
-    if (loggedOn(d)) {
-      f.usedDays += 1;
-      if (!first || key < first) first = key;
-    }
-    for (const w of d.water) {
-      f.glasses += 1;
-      waterMl += w.ml;
-      if (!w.late && hourOf(w.at) < 6) f.earlyGlass += 1;
-    }
-    if (d.waterGoalHit) f.waterGoalDays += 1;
-    for (const c of d.coffee ?? []) {
-      f.cups += 1;
-      if (!c.late && hourOf(c.at) < 6) f.earlyCup += 1;
-    }
-    const acts = d.activities ?? [];
-    f.activities += acts.length;
-    for (const x of d.sets) {
-      f.sets += 1;
-      f.reps += x.reps;
-      f.liftKg += Math.max(0, x.weight) * x.reps;
-      exercises.add(x.exercise.trim().toLowerCase());
-    }
-    if (d.workoutCounted) {
-      f.trainDays += 1;
-      const day = new Date(`${key}T12:00`);
-      weekdays.add(day.getDay());
-      const wx = d.weather;
-      if (wx) {
-        if (isSnow(wx.code)) f.snowTrain += 1;
-        if (wx.rainMm >= 2) f.rainTrain += 1;
-        if (wx.max >= 27) f.hotTrain += 1;
-        if (wx.max <= -5) f.coldTrain += 1;
-      }
-      if (redDay(key)) f.redTrain += 1;
-      const times = [...d.sets.map((x) => x.at), ...acts.map((x) => x.at)];
-      if (times.some((t) => hourOf(t) < 6.5)) f.earlyTrain += 1;
-      if (times.some((t) => hourOf(t) >= 22)) f.lateTrain += 1;
-    }
-    if (d.comeback) f.comebacks += 1;
-    if (d.steps != null) f.maxSteps = Math.max(f.maxSteps, d.steps);
-    if (d.stepGoalHit) f.stepGoalDays += 1;
-    if (d.questsAllDone) f.questDays += 1;
-    for (const x of d.focus ?? []) {
-      f.focusN += 1;
-      f.focusMin += x.minutes;
-      if (x.snapped) f.snapped += 1;
-      else f.longestFocus = Math.max(f.longestFocus, x.minutes);
-    }
-    f.breaths += d.breaths ?? 0;
-    if (d.windDownDone) f.windDowns += 1;
-    f.habitChecks += d.habits?.length ?? 0;
-    f.minis += d.habitsMini?.length ?? 0;
-    f.trackerEntries += Object.keys(d.tracks ?? {}).length;
-    for (const g of d.games) {
-      const ms = Math.max(0, g.end - g.start);
-      gamingMs += ms;
-      f.longestGameH = Math.max(f.longestGameH, ms / HOUR_MS);
-    }
-    if ((d.banked ?? 0) > 0) f.bankedDays += 1;
-    for (const c of [d.chest, d.keyChest]) {
-      if (!c) continue;
-      f.chests += 1;
-      if (c.gold) f.goldChests += 1;
-      if (c.kind === 'legendary') f.legendaries += 1;
-    }
-    if (d.keyChest) f.keyChests += 1;
-    if (d.shot) {
-      f.calls += 1;
-      if (d.shot.result === 'hit' && d.shot.call === 'no') f.noChanceHits += 1;
-      if (d.shot.result === 'hit' && d.shot.call === 'lock') f.lockHits += 1;
-    }
-    for (const t of d.doneTasks ?? []) {
-      if (t.since != null) f.oldestDone = Math.max(f.oldestDone, (t.at - t.since) / DAY_MS);
-      if (t.since != null && t.at - t.since < 60_000) f.quickDone += 1;
-      if (hourOf(t.at) < 4) f.nightDone += 1;
-    }
+    const x = dayFactsOf(key, d);
+    if (x.used && (!first || key < first)) first = key;
+    for (const k in x.sum) f[k as FactKey] += x.sum[k as FactKey] ?? 0;
+    for (const k in x.max) f[k as FactKey] = Math.max(f[k as FactKey], x.max[k as FactKey] ?? 0);
+    waterMl += x.waterMl;
+    gamingMs += x.gamingMs;
+    if (x.weekday != null) weekdays.add(x.weekday);
+    for (const e of x.exercises) exercises.add(e);
   }
   f.waterL = waterMl / 1000;
   f.gamingH = gamingMs / HOUR_MS;

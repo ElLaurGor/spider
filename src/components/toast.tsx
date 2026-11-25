@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { C } from '@/constants/theme';
 import { lineIdFor } from '@/lib/lines';
-import { useStore, type Tone } from '@/lib/store';
+import { useStore, useToasts, type Tone } from '@/lib/store';
 
 const TONE_COLOR: Record<Tone, string> = { info: C.blue, good: C.green, bad: C.red, epic: C.yellow };
 
@@ -13,7 +13,8 @@ const TONE_COLOR: Record<Tone, string> = { info: C.blue, good: C.green, bad: C.r
  * for as long as it shows; a long-press on a line asks whether it went too far (it's retired if so).
  */
 export function ToastHost() {
-  const { toast, dismissToast, actions } = useStore();
+  const { actions } = useStore();
+  const { toast, dismissToast } = useToasts();
   const insets = useSafeAreaInsets();
   const [anim] = useState(() => new Animated.Value(0));
   const [asking, setAsking] = useState<number | null>(null); // the toast whose "too far?" question is open

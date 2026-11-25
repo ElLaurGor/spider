@@ -25,6 +25,14 @@ export function pickBackup(files: BackupCandidate[]): string | null {
  */
 export const skipAutoBackup = (fullestDays: number | null, nextDays: number) => fullestDays != null && wouldWipe(fullestDays, nextDays);
 
+/** An automatic backup's file name: its time stamp and how many days it holds, so the daily guard reads the count without opening it. */
+export const autoBackupName = (stamp: string, days: number) => `data-${stamp}-${days}d.json`;
+/** The day count in an automatic backup's name, or null for a name from before the count was added. */
+export function daysInName(name: string): number | null {
+  const m = /-(\d+)d\.json$/.exec(name);
+  return m ? Number(m[1]) : null;
+}
+
 /** Weeks kept on top of the daily files, the newest backup of each: about a month more to go back to. */
 export const WEEKLY_BACKUPS_KEPT = 5;
 
